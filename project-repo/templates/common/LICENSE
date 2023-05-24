@@ -1,8 +1,0 @@
-TODO: Copy desired licence from `/usr/share/common-licenses/`.
-
-Accepted licences are:
-
-* GPL-3 for project (no +)
-* LGPL-3 for libraries (no +)
-* AGPL for online services (no +)
-* If any other licence is considered, refer to your management line. For instance, opened reusable components could be MIT.
