@@ -9,7 +9,6 @@ assignees: ''
 >**Please do not report security vulnerabilities here**
 >
 > Please use [launchpad private bugs](https://bugs.launchpad.net/ubuntu/+source/PROJECT_TODO/+filebug) which is monitored by our security team. On ubuntu machine, it’s best to use `ubuntu-bug PROJECT_TODO` to collect relevant information.
-
 > FIXME: snap?
 
 **Thank you in advance for helping us to improve PROJECT_TODO!**
