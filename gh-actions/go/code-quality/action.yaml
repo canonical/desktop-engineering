@@ -1,0 +1,118 @@
+name: Golang code quality check
+description: Checks code against of our desktop Go code quality standard.
+
+inputs:
+  go-tags:
+    description: A comma separate list of go tags to consider when linting, building and checking for vulnerabilities
+  go-build-parameters:
+    description: Additional Go build parameters (apart from go-tags)
+  golangci-lint-configfile:
+    description: Which config file to check for golangci-lint
+    default: ".golangci-lint"
+  tools-directory:
+    description: Directory pointing to go.mod file for checking tool versionning. If none is provided, it will download latest.
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-go@v4
+      with:
+        go-version-file: go.mod
+    - name: Detect go version to use
+      id: go-version
+      run: |
+        set -eu
+        echo "version=$(grep '^go ' go.mod | cut -f2 -d' ')" >> $GITHUB_OUTPUT
+      shell: bash
+
+    - name: Get arguments and version for golangci-lint
+      id: golanci-lint
+      run: |
+        set -eu
+
+        # This handles "require foo version" and "require (\nfoo version\n)"" formats
+        version=""
+        if [ -n "${{ inputs.tools-directory }}" ]; then
+          version="$(grep golangci-lint ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev)"
+        fi
+        [ -z "${version}" ] && version="latest"
+        echo "version=${version}" >> $GITHUB_OUTPUT
+
+        # Detect which config file to use
+        config=${{ github.action_path }}/.golangci-lint
+        if [ -f "${{ inputs.golangci-lint-configfile }}" ]; then
+          echo "Using project local config file"
+          config=${{ inputs.golangci-lint-configfile }}
+        fi
+        args="--config ${config}"
+
+        # Go version to use
+        args="${args} --go ${{ steps.go-version.outputs.version }}"
+
+        # Optional build tag go-tags
+        if [ -n "${{ inputs.go-tags }}" ]; then
+          args="${args} --build-tags=${{ inputs.go-tags }}"
+        fi
+      shell: bash
+    - name: Code formatting, vet, static checker Security…
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: ${{ steps.golanci-lint.outputs.version }}
+        args: ${{ steps.golanci-lint.outputs.args }}
+
+    - name: Update module files
+      if: always() && !cancelled()
+      run: |
+        set -eu
+
+        echo "::group::Download dependencies"
+        go mod tidy
+        echo "::endgroup::"
+      shell: bash
+    - name: Ensure there is no diff between current and generated go.mod and go.sum files
+      id: has-mod-diff
+      uses: ${{ github.action_path }}/../../common/has-diff
+    - name: Fail workflow on module diff
+      run: if [ "${{ steps.has-mod-diff.outputs.diff }}" == 'true' ]; then exit 1; fi
+      shell: bash
+
+    - name: Build any binary
+      if: always() && !cancelled()
+      run: |
+        set -eu
+
+        tags="${{ inputs.go-tags }}"
+        if [ -n "${tags}" ]; then
+          tags="-tags=${tags}"
+        fi
+
+        go build ${{ inputs.go-build-parameters }} ${tags} ./...
+      shell: bash
+
+    - name: Installing govulncheck
+      run: |
+        set -eu
+
+        # Get version to install if any
+        # This handles "require foo version" and "require (\nfoo version\n)"" formats
+        version=""
+        if [ -n "${{ inputs.tools-directory }}" ]; then
+          version="$(grep govulncheck ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev)"
+        fi
+        [ -z "${version}" ] && version="latest"
+
+        cd ${{ env.TMPDIR }}
+        go install golang.org/x/vuln/cmd/govulncheck@${version}
+        cd --
+      shell: bash
+    - name: Known vulnerability check when building without tags
+      run: |
+        set -eu
+
+        tags="${{ inputs.go-tags }}"
+        if [ -n "${tags}" ]; then
+          tags="-tags=${tags}"
+        fi
+
+        govulncheck -test ${{ inputs.go-build-parameters }} ${tags} ./...
+      shell: bash
