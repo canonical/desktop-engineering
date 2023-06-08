@@ -2,9 +2,9 @@ name: Has diff
 description: Returns if there is diff within the repository from the current directory.
 
 inputs:
-  additional-regexp:
-    description: Additional regexp passed to ignore-matching-lines when diffing
-  to-ignore:
+  regexp-to-ignore:
+    description: Regexp patterns passed to ignore-matching-lines when diffing
+  paths-to-ignore:
     description: Files and paths to ignore when checking if they changed. This is passed to git update-index.
   should-fail:
     description: Fail the job on any detected diff
@@ -40,8 +40,8 @@ runs:
         diffCmd="diff --ignore-matching-lines 'modTime'"
 
         # Additional arguments to ignore.
-        if [ -n "${{ inputs.files-to-validate }}" ]; then
-          diffCmd="${diffCmd} --ignore-matching-lines '${{ inputs.additional-regexp }}'"
+        if [ -n "${{ inputs.regexp-to-ignore }}" ]; then
+          diffCmd="${diffCmd} --ignore-matching-lines '${{ inputs.regexp-to-ignore }}'"
         fi
 
         DIFF=$(git difftool -y -x "${diffCmd}" .)

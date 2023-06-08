@@ -11,7 +11,10 @@ inputs:
   golangci-lint-configfile:
     description: Which config file to check for golangci-lint
     default: ".golangci-lint"
-  generate-diff-to-ignore:
+  generate-diff-paths-to-ignore:
+    description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
+    default: po/* doc/*.md README.md
+  generate-diff-regexp-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* doc/*.md README.md
 
@@ -104,7 +107,8 @@ runs:
       # https://github.com/orgs/community/discussions/25246
       uses: canonical/desktop-engineering/gh-actions/common/has-diff@reusable-actions
       with:
-        to-ignore: ${{ inputs.generate-diff-to-ignore }}
+        paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
+        regexp-to-ignore: ${{ inputs.generate-diff-regexp-to-ignore }}
 
     - name: Build any binaries
       if: ${{ always() && steps.go-version.outcome == 'success' }}
