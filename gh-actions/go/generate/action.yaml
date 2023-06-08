@@ -1,0 +1,71 @@
+name: Run go generate and report changes
+description: Run go generate from the current directory and report any changes. It supposes go is already installed.
+
+inputs:
+  tools-directory:
+    description: Directory pointing to go.mod file for checking tool versionning. If none is provided, it will download latest.
+  paths-to-ignore:
+    description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
+    default: po/* doc/*.md README.md
+  generate-diff-regexp-to-ignore:
+    description: Files and paths to ignore when checking if generated files changed. This is passed to diff -I.
+    default: "^//.*protoc.*v"
+  should-fail:
+    description: Fail the job on any detected diff
+    default: "true"
+outputs:
+  diff:
+    description: Returns if there is a local diff
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install protobuf if needed
+      run: |
+        echo  Install protobuf if needed
+        set -eu
+
+        hasProto=$(find . -name '*.proto')
+        if [ -z "${hasProto}" ]; then
+          exit 0
+        fi
+
+        # Get version to install if any
+        # This handles "require foo version" and "require (\nfoo version\n)"" formats
+        protobufVersion="latest"
+        grpcVersion="latest"
+        if [ -n "${{ inputs.tools-directory }}" ]; then
+          protobufVersion="$(grep protobuf ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          grpcVersion="$(grep protoc-gen-go-grpc ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+        fi
+
+        cd ${{ runner.temp }}
+        go install google.golang.org/protobuf/cmd/protoc-gen-go${protobufVersion} \
+                   google.golang.org/grpc/cmd/protoc-gen-go-grpc${grpcVersion}
+        cd --
+      shell: bash
+    - name: Regenerate files with go generate
+      id: go-generate-run
+      run: |
+        echo Regenerate files with go generate
+        set -eu
+
+        go generate ./...
+      shell: bash
+    - name: Ensure there is no diff between current and generated files
+      if: ${{ always() && steps.go-generate-run.outcome == 'success' }}
+      id: go-generate-check
+      # https://github.com/orgs/community/discussions/25246
+      uses: canonical/desktop-engineering/gh-actions/common/has-diff@reusable-actions
+      with:
+        paths-to-ignore: ${{ inputs.paths-to-ignore }}
+        regexp-to-ignore: ${{ inputs.generate-diff-regexp-to-ignore }}
+        should-fail: ${{ inputs.should-fail }}
+    - name: Return if generation created a diff
+      if: ${{ always() }}
+      run: |
+        echo Return if generation created a diff
+        set -eu
+
+        echo "diff=${{ steps.go-generate-check.outputs.diff }}" >> $GITHUB_OUTPUT
+      shell: bash
