@@ -4,7 +4,8 @@ description: Returns if there is diff within the repository from the current dir
 inputs:
   additional-regexp:
     description: Additional regexp passed to ignore-matching-lines when diffing
-    required: false
+  to-ignore:
+    description: Files and paths to ignore when checking if they changed. This is passed to git update-index.
 outputs:
   diff:
     description: Returns if there is a local diff
@@ -17,6 +18,17 @@ runs:
       run: |
         echo Returns if there is a local diff
         set -eu
+
+        # Ignore requested file for changes
+        if [ -n "${{ inputs.to-ignore }}" ]; then
+          git update-index --assume-unchanged ${{ inputs.to-ignore }}
+          on_exit() {
+              # Restore files
+              git update-index --no-assume-unchanged ${{ inputs.to-ignore }}
+          }
+          trap on_exit EXIT INT QUIT ABRT PIPE TERM
+        fi
+
 
         # Any new file needs to be considered as empty.
         git add -N .
