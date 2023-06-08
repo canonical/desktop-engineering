@@ -1,0 +1,45 @@
+name: Has diff
+description: Returns if there is diff within the repository from the current directory.
+
+inputs:
+  additional-regexp:
+    description: Additional regexp passed to ignore-matching-lines when diffing
+    required: false
+outputs:
+  diff:
+    description: Returns if there is a local diff
+
+runs:
+  using: "composite"
+  steps:
+    - name: Returns if there is a local diff
+      shell: bash
+      run: |
+        echo Returns if there is a local diff
+        set -eu
+
+        # Any new file needs to be considered as empty.
+        git add -N .
+
+        # Ignore modification time which will change anyway due to git checkout.
+        diffCmd="diff --ignore-matching-lines 'modTime'"
+
+        # Additional arguments to ignore.
+        if [ -n "${{ inputs.files-to-validate }}" ]; then
+          diffCmd="${diffCmd} --ignore-matching-lines '${{ inputs.additional-regexp }}'"
+        fi
+
+        DIFF=$(git difftool -y -x "${diffCmd}" .)
+        if [ -z "${DIFF}" ]; then
+          echo "diff=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        echo "diff=true" >> $GITHUB_OUTPUT
+
+        echo "A modification has been detected:"
+        git status .
+
+        echo ""
+        echo "::group::Full unfiltered diff"
+        git diff --ignore-cr-at-eol .
+        echo "::endgroup::"
