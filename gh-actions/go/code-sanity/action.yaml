@@ -1,5 +1,5 @@
-name: Golang code quality check
-description: Checks code against of our desktop Go code quality standard.
+name: Golang code sanity check
+description: Checks code against of our desktop Go code quality and process standards.
 
 inputs:
   go-build-script:
@@ -169,7 +169,7 @@ runs:
         echo Compute title of summary based on current directory
         set -eu
 
-        title="Code quality summary"
+        title="Code sanity summary"
 
         workspace=${{ github.workspace }}
         dir=$(pwd)
