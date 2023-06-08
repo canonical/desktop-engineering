@@ -1,0 +1,172 @@
+name: Golang code quality check
+description: Checks code against of our desktop Go code quality standard.
+
+inputs:
+  go-build-script:
+    description: For more complex build steps, pass the script directly to it (executed through bash). go-tags is then ignored for building.
+  go-tags:
+    description: A comma separate list of go tags to consider when linting, building and checking for vulnerabilities
+  tools-directory:
+    description: Directory pointing to go.mod file for checking tool versionning. If none is provided, it will download latest.
+  golangci-lint-configfile:
+    description: Which config file to check for golangci-lint
+    default: ".golangci-lint"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-go@v4
+      with:
+        go-version-file: go.mod
+    - name: Detect go version to use
+      id: go-version
+      run: |
+        echo Detect go version to use
+        set -eu
+
+        echo "version=$(grep '^go ' go.mod | cut -f2 -d' ')" >> $GITHUB_OUTPUT
+      shell: bash
+
+    - name: Get arguments and version for golangci-lint
+      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      id: golanci-lint
+      run: |
+        echo Get arguments and version for golangci-lint
+        set -eu
+
+        # This handles "require foo version" and "require (\nfoo version\n)"" formats
+        version=""
+        if [ -n "${{ inputs.tools-directory }}" ]; then
+          version="$(grep golangci-lint ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+        fi
+        [ -z "${version}" ] && version="latest"
+        echo "version=${version}" >> $GITHUB_OUTPUT
+
+        # Detect which config file to use
+        config=${{ github.action_path }}/.golangci-lint
+        if [ -f "${{ inputs.golangci-lint-configfile }}" ]; then
+          echo "Using project local config file"
+          config=${{ inputs.golangci-lint-configfile }}
+        fi
+        args="--config ${config}"
+
+        # Go version to use
+        args="${args} --go ${{ steps.go-version.outputs.version }}"
+
+        # Optional build tag go-tags
+        if [ -n "${{ inputs.go-tags }}" ]; then
+          args="${args} --build-tags=${{ inputs.go-tags }}"
+        fi
+
+        # And now, a terrible workaround for https://github.com/golangci/golangci-lint-action/issues/135
+        sudo chmod -R +w ../../../go/
+      shell: bash
+    - name: Code formatting, vet, static checker Security…
+      if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
+      id: golangci-lint-check
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: ${{ steps.golanci-lint.outputs.version }}
+        args: ${{ steps.golanci-lint.outputs.args }}
+
+    - name: Update module files
+      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      id: update-mod-files
+      run: |
+        echo Update module files
+        set -eu
+
+        echo "::group::Download dependencies"
+        go mod tidy
+        echo "::endgroup::"
+      shell: bash
+    - name: Ensure there is no diff between current and generated go.mod and go.sum files
+      if: ${{ always() && steps.update-mod-files.outcome == 'success' }}
+      id: gomod-check
+      # https://github.com/orgs/community/discussions/25246
+      uses: canonical/desktop-engineering/gh-actions/common/has-diff@reusable-actions
+
+    - name: Build any binaries
+      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      id: build-check
+      run: |
+        echo Build any binaries
+        set -eu
+
+        if [ -n "${{ inputs.go-build-script}}" ]; then
+          buildTest=$(mktemp)
+          echo "${{ inputs.go-build-script}}" > ${buildTest}
+          ./${buildTest}
+          exit 0
+        fi
+
+        tags="${{ inputs.go-tags }}"
+        if [ -n "${tags}" ]; then
+          tags="-tags=${tags}"
+        fi
+
+        go build ${tags} ./...
+      shell: bash
+
+    - name: Installing govulncheck
+      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      id: install-govulncheck
+      run: |
+        echo Installing govulncheck
+        set -eu
+
+        # Get version to install if any
+        # This handles "require foo version" and "require (\nfoo version\n)"" formats
+        version=""
+        if [ -n "${{ inputs.tools-directory }}" ]; then
+          version="$(grep govulncheck ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+        fi
+        [ -z "${version}" ] && version="latest"
+
+        cd ${{ runner.temp }}
+        go install golang.org/x/vuln/cmd/govulncheck@${version}
+        cd --
+      shell: bash
+    - name: Known vulnerabilities check
+      if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
+      id: vulnerabilities-check
+      run: |
+        echo Checking known vulnerabilities
+        set -eu
+
+        tags="${{ inputs.go-tags }}"
+        if [ -n "${tags}" ]; then
+          tags="-tags=${tags}"
+        fi
+
+        govulncheck -test ${{ inputs.go-build-parameters }} ${tags} ./...
+      shell: bash
+
+    - name: Compute title of summary
+      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      id: compute-summary-title
+      run: |
+        echo Compute title of summary based on current directory
+        set -eu
+
+        title="Code quality summary"
+
+        workspace=${{ github.workspace }}
+        dir=$(pwd)
+        dir=${dir#"${workspace}"}
+        if [ -n "${dir}" ]; then
+          title="${title} on ${dir}"
+        fi
+        echo "title=${title}" >> $GITHUB_OUTPUT
+      shell: bash
+    - name: Summary
+      if: ${{ always() && steps.compute-summary-title.outcome == 'success' }}
+      # https://github.com/orgs/community/discussions/25246
+      uses: canonical/desktop-engineering/gh-actions/common/print-summary@reusable-actions
+      with:
+        title: ${{ steps.compute-summary-title.outputs.title }}
+        step-results: |
+          ${{ steps.golangci-lint-check.outcome }} Linting
+          ${{ steps.gomod-check.outcome }} Go module files up to date
+          ${{ steps.build-check.outcome }} Build
+          ${{ steps.vulnerabilities-check.outcome }} Vulnerability scanning
