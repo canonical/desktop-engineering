@@ -62,7 +62,7 @@ runs:
       if: ${{ always() && steps.go-generate-run.outcome == 'success' }}
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/common/has-diff@reusable-actions
+      uses: canonical/desktop-engineering/gh-actions/common/has-diff@main
       with:
         paths-to-ignore: ${{ inputs.paths-to-ignore }}
         regexp-to-ignore: ${{ inputs.generate-diff-regexp-to-ignore }}

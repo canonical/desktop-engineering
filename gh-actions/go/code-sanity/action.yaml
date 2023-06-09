@@ -89,12 +89,12 @@ runs:
       if: ${{ always() && steps.update-mod-files.outcome == 'success' }}
       id: gomod-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/common/has-diff@reusable-actions
+      uses: canonical/desktop-engineering/gh-actions/common/has-diff@main
 
     - name: Ensure there is no diff between current and generated files
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/go/generate@reusable-actions
+      uses: canonical/desktop-engineering/gh-actions/go/generate@main
       with:
         tools-directory: ${{ inputs.tools-directory }}
 
@@ -174,7 +174,7 @@ runs:
     - name: Summary
       if: ${{ always() && steps.compute-summary-title.outcome == 'success' }}
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/common/print-summary@reusable-actions
+      uses: canonical/desktop-engineering/gh-actions/common/print-summary@main
       with:
         title: ${{ steps.compute-summary-title.outputs.title }}
         step-results: |
