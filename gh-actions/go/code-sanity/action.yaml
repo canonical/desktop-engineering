@@ -21,6 +21,8 @@ runs:
     - uses: actions/setup-go@v4
       with:
         go-version-file: go.mod
+        check-latest: true
+        cache: false
     - name: Detect go version to use
       id: go-version
       run: |
