@@ -107,10 +107,12 @@ runs:
         echo Build any binaries
         set -eu
 
-        if [ -n "${{ inputs.go-build-script}}" ]; then
+        if [ -n "${{ inputs.go-build-script }}" ]; then
           buildTest=$(mktemp)
-          echo "${{ inputs.go-build-script}}" > ${buildTest}
-          ./${buildTest}
+          cat > ${buildTest} <<SCRIPTEOF
+            ${{ inputs.go-build-script }}
+        SCRIPTEOF
+          bash ${buildTest}
           exit 0
         fi
 
