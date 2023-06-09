@@ -10,7 +10,7 @@ inputs:
   generate-diff-regexp-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to diff -I.
     default: "^//.*protoc.*v"
-  should-fail:
+  fail-on-diff:
     description: Fail the job on any detected diff
     default: "true"
 outputs:
@@ -66,7 +66,7 @@ runs:
       with:
         paths-to-ignore: ${{ inputs.paths-to-ignore }}
         regexp-to-ignore: ${{ inputs.generate-diff-regexp-to-ignore }}
-        should-fail: ${{ inputs.should-fail }}
+        fail-on-diff: ${{ inputs.fail-on-diff }}
     - name: Return if generation created a diff
       if: ${{ always() }}
       run: |

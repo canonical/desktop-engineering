@@ -6,7 +6,7 @@ inputs:
     description: Regexp patterns passed to ignore-matching-lines when diffing
   paths-to-ignore:
     description: Files and paths to ignore when checking if they changed. This is passed to git update-index.
-  should-fail:
+  fail-on-diff:
     description: Fail the job on any detected diff
     default: "true"
 outputs:
@@ -59,6 +59,6 @@ runs:
         git diff --ignore-cr-at-eol .
         echo "::endgroup::"
 
-        if [ "${{ inputs.should-fail }}" == true ]; then
+        if [ "${{ inputs.fail-on-diff }}" == true ]; then
           exit 1
         fi
