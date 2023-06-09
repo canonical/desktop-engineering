@@ -9,8 +9,7 @@ inputs:
   tools-directory:
     description: Directory pointing to go.mod file for checking tool versionning. If none is provided, it will download latest.
   golangci-lint-configfile:
-    description: Which config file to check for golangci-lint
-    default: ".golangci-lint"
+    description: Which config file to check for golangci-lint. If not set, it will look for .golangci-lint in your project, or default to desktop team defaults.
   generate-diff-paths-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* doc/*.md README.md
@@ -49,9 +48,12 @@ runs:
 
         # Detect which config file to use
         config=${{ github.action_path }}/.golangci-lint
-        if [ -f "${{ inputs.golangci-lint-configfile }}" ]; then
+        if [ -f ".golangci-lint" ]; then
+          config=".golangci-lint"
+        fi
+        if [ -n "${{ inputs.golangci-lint-configfile }}" ]; then
           echo "Using project local config file"
-          config=${{ inputs.golangci-lint-configfile }}
+          config="${{ inputs.golangci-lint-configfile }}"
         fi
         args="--config ${config}"
 
