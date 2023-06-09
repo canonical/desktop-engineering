@@ -3,15 +3,15 @@ description: Returns if there is diff within the repository from the current dir
 
 inputs:
   regexp-to-ignore:
-    description: Regexp patterns passed to ignore-matching-lines when diffing
+    description: Regexp patterns passed to ignore-matching-lines when diffing.
   paths-to-ignore:
     description: Files and paths to ignore when checking if they changed. This is passed to git update-index.
   fail-on-diff:
-    description: Fail the job on any detected diff
+    description: Fail the job on any detected diff.
     default: "true"
 outputs:
   diff:
-    description: Returns if there is a local diff
+    description: Returns if there is a local diff.
 
 runs:
   using: "composite"

@@ -5,7 +5,7 @@ inputs:
   go-build-script:
     description: For more complex build steps, pass the script directly to it (executed through bash). go-tags is then ignored for building.
   go-tags:
-    description: A comma separate list of go tags to consider when linting, building and checking for vulnerabilities
+    description: A comma separate list of go tags to consider when linting, building and checking for vulnerabilities.
   tools-directory:
     description: Directory pointing to go.mod file for checking tool versionning. If none is provided, it will download latest.
   golangci-lint-configfile:
@@ -155,7 +155,7 @@ runs:
           tags="-tags=${tags}"
         fi
 
-        govulncheck -test ${{ inputs.go-build-parameters }} ${tags} ./...
+        govulncheck -test ${tags} ./...
       shell: bash
 
     - name: Compute title of summary

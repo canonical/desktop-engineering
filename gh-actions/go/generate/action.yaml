@@ -11,11 +11,11 @@ inputs:
     description: Files and paths to ignore when checking if generated files changed. This is passed to diff -I.
     default: "^//.*protoc.*v"
   fail-on-diff:
-    description: Fail the job on any detected diff
+    description: Fail the job on any detected diff.
     default: "true"
 outputs:
   diff:
-    description: Returns if there is a local diff
+    description: Returns if there is a local diff.
 
 runs:
   using: "composite"

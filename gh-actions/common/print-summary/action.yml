@@ -3,7 +3,7 @@ description: This prints the summary of any given step results in an array.
 
 inputs:
   title:
-    description: The title header of the summary section
+    description: The title header of the summary section.
     required: true
   step-results:
     description: A new-line separate list of .outcome result of a job, followed by a space and then, the text to print next to the result.
