@@ -30,18 +30,22 @@ runs:
           exit 0
         fi
 
+        # Install protoc
+        sudo DEBIAN_FRONTEND=noninteractive apt update
+        sudo DEBIAN_FRONTEND=noninteractive apt install -y protobuf-compiler
+
         # Get version to install if any
         # This handles "require foo version" and "require (\nfoo version\n)"" formats
         protobufVersion="latest"
         grpcVersion="latest"
         if [ -n "${{ inputs.tools-directory }}" ]; then
-          protobufVersion="$(grep protobuf ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          protobufVersion="$(grep google.golang.org/protobuf ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
           grpcVersion="$(grep protoc-gen-go-grpc ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
         fi
 
         cd ${{ runner.temp }}
-        go install google.golang.org/protobuf/cmd/protoc-gen-go${protobufVersion} \
-                   google.golang.org/grpc/cmd/protoc-gen-go-grpc${grpcVersion}
+        go install google.golang.org/protobuf/cmd/protoc-gen-go@${protobufVersion}
+        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@${grpcVersion}
         cd --
       shell: bash
     - name: Regenerate files with go generate

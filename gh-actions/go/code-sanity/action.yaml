@@ -14,9 +14,6 @@ inputs:
   generate-diff-paths-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* doc/*.md README.md
-  generate-diff-regexp-to-ignore:
-    description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
-    default: po/* doc/*.md README.md
 
 runs:
   using: "composite"
@@ -92,23 +89,12 @@ runs:
       # https://github.com/orgs/community/discussions/25246
       uses: canonical/desktop-engineering/gh-actions/common/has-diff@reusable-actions
 
-    - name: Regenerate files with go generate
-      if: ${{ always() && steps.go-version.outcome == 'success' }}
-      id: go-generate-run
-      run: |
-        echo Regenerate files with go generate
-        set -eu
-
-        go generate ./...
-      shell: bash
     - name: Ensure there is no diff between current and generated files
-      if: ${{ always() && steps.go-generate-run.outcome == 'success' }}
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/common/has-diff@reusable-actions
+      uses: canonical/desktop-engineering/gh-actions/go/generate@reusable-actions
       with:
-        paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
-        regexp-to-ignore: ${{ inputs.generate-diff-regexp-to-ignore }}
+        tools-directory: ${{ inputs.tools-directory }}
 
     - name: Build any binaries
       if: ${{ always() && steps.go-version.outcome == 'success' }}
