@@ -39,8 +39,10 @@ runs:
         protobufVersion="latest"
         grpcVersion="latest"
         if [ -n "${{ inputs.tools-directory }}" ]; then
-          protobufVersion="$(grep google.golang.org/protobuf ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
-          grpcVersion="$(grep protoc-gen-go-grpc ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          modVersion="$(grep google.golang.org/protobuf ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          [ -n "${modVersion}" ] && protobufVersion=${modVersion}
+          modVersion="$(grep protoc-gen-go-grpc ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          [ -n "${modVersion}" ] && grpcVersion=${modVersion}
         fi
 
         cd ${{ runner.temp }}

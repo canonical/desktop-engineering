@@ -38,11 +38,11 @@ runs:
         set -eu
 
         # This handles "require foo version" and "require (\nfoo version\n)"" formats
-        version=""
+        version="latest"
         if [ -n "${{ inputs.tools-directory }}" ]; then
-          version="$(grep golangci-lint ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          modVersion="$(grep golangci-lint ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          [ -n "${modVersion}" ] && version=${modVersion}
         fi
-        [ -z "${version}" ] && version="latest"
         echo "version=${version}" >> $GITHUB_OUTPUT
 
         # Detect which config file to use
@@ -127,11 +127,11 @@ runs:
 
         # Get version to install if any
         # This handles "require foo version" and "require (\nfoo version\n)"" formats
-        version=""
+        version="latest"
         if [ -n "${{ inputs.tools-directory }}" ]; then
-          version="$(grep govulncheck ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          modVersion="$(grep govulncheck ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+          [ -n "${modVersion}" ] && version=${modVersion}
         fi
-        [ -z "${version}" ] && version="latest"
 
         cd ${{ runner.temp }}
         go install golang.org/x/vuln/cmd/govulncheck@${version}
