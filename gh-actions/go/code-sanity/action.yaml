@@ -64,6 +64,7 @@ runs:
         if [ -n "${{ inputs.go-tags }}" ]; then
           args="${args} --build-tags=${{ inputs.go-tags }}"
         fi
+        echo "args=${args}" >> $GITHUB_OUTPUT
 
         # And now, a terrible workaround for https://github.com/golangci/golangci-lint-action/issues/135
         sudo chmod -R +w ../../../go/
