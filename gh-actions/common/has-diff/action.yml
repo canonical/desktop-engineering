@@ -24,12 +24,15 @@ runs:
 
         # Ignore requested file for changes
         if [ -n "${{ inputs.paths-to-ignore }}" ]; then
-          git update-index --assume-unchanged ${{ inputs.paths-to-ignore }}
-          on_exit() {
-              # Restore files
-              git update-index --no-assume-unchanged ${{ inputs.paths-to-ignore }}
-          }
-          trap on_exit EXIT INT QUIT ABRT PIPE TERM
+          files_to_ignore=$(ls ${{ inputs.paths-to-ignore }} 2>/dev/null || true)
+          if [ -n "${files_to_ignore}" ]; then
+            git update-index --assume-unchanged ${files_to_ignore}
+            on_exit() {
+                # Restore files
+                git update-index --no-assume-unchanged ${files_to_ignore}
+            }
+            trap on_exit EXIT INT QUIT ABRT PIPE TERM
+          fi
         fi
 
 
