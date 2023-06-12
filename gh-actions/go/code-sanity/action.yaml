@@ -101,6 +101,7 @@ runs:
       uses: canonical/desktop-engineering/gh-actions/go/generate@main
       with:
         tools-directory: ${{ inputs.tools-directory }}
+        paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
 
     - name: Build any binaries
       if: ${{ always() && steps.go-version.outcome == 'success' }}
