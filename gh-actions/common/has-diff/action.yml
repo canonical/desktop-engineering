@@ -23,11 +23,11 @@ runs:
         set -eu
 
         # Ignore requested file for changes
-        if [ -n "${{ inputs.to-ignore }}" ]; then
-          git update-index --assume-unchanged ${{ inputs.to-ignore }}
+        if [ -n "${{ inputs.paths-to-ignore }}" ]; then
+          git update-index --assume-unchanged ${{ inputs.paths-to-ignore }}
           on_exit() {
               # Restore files
-              git update-index --no-assume-unchanged ${{ inputs.to-ignore }}
+              git update-index --no-assume-unchanged ${{ inputs.paths-to-ignore }}
           }
           trap on_exit EXIT INT QUIT ABRT PIPE TERM
         fi
