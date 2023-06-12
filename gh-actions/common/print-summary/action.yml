@@ -21,11 +21,13 @@ runs:
         print_status_line () {
           status=$1
 
-          icon=":grey_question:"
+          icon=":question:"
           if [ "${status}" == "success" ]; then
-            icon=":+1:"
+            icon=":green_circle:"
           elif [ "${status}" == "failure" ]; then
-            icon=":x:"
+            icon=":red_circle:"
+          elif [ "${status}" == "skipped" ]; then
+            icon=":white_circle:"
           fi
 
           echo "| $2 | ${icon} |" >> $GITHUB_STEP_SUMMARY
