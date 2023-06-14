@@ -20,34 +20,28 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Install protobuf if needed
+    - name: Install tools and dependencies
       run: |
-        echo  Install protobuf if needed
+        echo Install tools and dependencies
         set -eu
 
-        hasProto=$(find . -name '*.proto')
-        if [ -z "${hasProto}" ]; then
-          exit 0
+        cd ${{ inputs.tools-directory }}
+        tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
+
+        needsProtoc=false
+        for tool in ${tools}; do
+          if [[ "${tool}" == *protoc* ]]; then
+            needsProtoc=true
+          fi
+          go install ${tool}
+        done
+
+        # Install protoc (TODO: Windows)
+        if [ "${needsProtoc}" == true ]; then
+          sudo DEBIAN_FRONTEND=noninteractive apt update
+          sudo DEBIAN_FRONTEND=noninteractive apt install -y protobuf-compiler
         fi
 
-        # Install protoc
-        sudo DEBIAN_FRONTEND=noninteractive apt update
-        sudo DEBIAN_FRONTEND=noninteractive apt install -y protobuf-compiler
-
-        # Get version to install if any
-        # This handles "require foo version" and "require (\nfoo version\n)"" formats
-        protobufVersion="latest"
-        grpcVersion="latest"
-        if [ -n "${{ inputs.tools-directory }}" ]; then
-          modVersion="$(grep google.golang.org/protobuf ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
-          [ -n "${modVersion}" ] && protobufVersion=${modVersion}
-          modVersion="$(grep protoc-gen-go-grpc ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
-          [ -n "${modVersion}" ] && grpcVersion=${modVersion}
-        fi
-
-        cd ${{ runner.temp }}
-        go install google.golang.org/protobuf/cmd/protoc-gen-go@${protobufVersion}
-        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@${grpcVersion}
         cd --
       shell: bash
     - name: Regenerate files with go generate
