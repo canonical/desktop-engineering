@@ -16,6 +16,7 @@ inputs:
 outputs:
   diff:
     description: Returns if there is a local diff.
+    value: ${{ steps.go-generate-check.outputs.diff }}
 
 runs:
   using: "composite"
@@ -61,11 +62,3 @@ runs:
         paths-to-ignore: ${{ inputs.paths-to-ignore }}
         regexp-to-ignore: ${{ inputs.generate-diff-regexp-to-ignore }}
         fail-on-diff: ${{ inputs.fail-on-diff }}
-    - name: Return if generation created a diff
-      if: ${{ always() }}
-      run: |
-        echo Return if generation created a diff
-        set -eu
-
-        echo "diff=${{ steps.go-generate-check.outputs.diff }}" >> $GITHUB_OUTPUT
-      shell: bash

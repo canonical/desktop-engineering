@@ -12,11 +12,13 @@ inputs:
 outputs:
   diff:
     description: Returns if there is a local diff.
+    value: ${{ steps.has-diff.outputs.diff }}
 
 runs:
   using: "composite"
   steps:
     - name: Returns if there is a local diff
+      id: has-diff
       shell: bash
       run: |
         echo Returns if there is a local diff
