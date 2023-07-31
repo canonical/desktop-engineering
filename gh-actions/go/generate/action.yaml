@@ -22,6 +22,7 @@ runs:
   using: "composite"
   steps:
     - name: Install tools and dependencies
+      id: proto-deps
       run: |
         echo Install tools and dependencies
         set -eu
@@ -32,19 +33,16 @@ runs:
         needsProtoc=false
         for tool in ${tools}; do
           if [[ "${tool}" == *protoc* ]]; then
-            needsProtoc=true
+            echo "needs-protoc=true" >> $GITHUB_OUTPUT
           fi
           go install ${tool}
         done
 
-        # Install protoc (TODO: Windows)
-        if [ "${needsProtoc}" == true ]; then
-          sudo DEBIAN_FRONTEND=noninteractive apt update
-          sudo DEBIAN_FRONTEND=noninteractive apt install -y protobuf-compiler
-        fi
-
         cd --
       shell: bash
+    - name: Install latest protoc
+      uses: arduino/setup-protoc@v2
+      if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
     - name: Regenerate files with go generate
       id: go-generate-run
       run: |
