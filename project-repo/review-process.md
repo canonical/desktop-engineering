@@ -68,7 +68,7 @@ This cycle is repeated if there are further comments or if some are still left o
 1. The submitter examines one last time the diff, the test results, and the coverage.
 1. The submitter is in charge of merging the changes by clicking the merge button.
 
-> Note: The final merge steps may be proceeded by the reviewer if we are in a hurry. However, it’s preferable to allow the submitter to do the actual merging, as an additional way of acknowledging their work and enjoying the serotonin boost. :-)
+> Note: The final merge steps may be proceeded by the reviewer if we are in a hurry. However, it’s preferable to allow the submitter to do the actual merging, as an additional way of acknowledging their work and enjoying the dopamine boost. :-)
 
 [convcommits]: https://www.conventionalcommits.org/en/v1.0.0/
 [gh-docs-merge-commit]: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/configuring-commit-merging-for-pull-requests
