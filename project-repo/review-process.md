@@ -46,7 +46,7 @@ Don't hesitate to comment and reiterate! When you engage with a pull request, th
    > If the code change was developed in pair programming with another member of the owning team, the authors of the change can approve the pull request directly, after looking over the diff to make sure it's generally in good shape.
 1. Another member of the team does a code review:
    * Suggestion are to be as comments for the corresponding line(s) in the diff.
-     > If the diff is very large, using the "mark as read" check-mark on GitHub can help. Launchpad currently does not currently have a similar feature, unfortunately.
+     > If the diff is very large, using the "mark as read" check-mark on GitHub can help. Launchpad currently does not have a similar feature, unfortunately.
    * Code coverage is to be examined to see if there are new areas in the code that are not covered by the changes, which could have been covered.
    * Suggestions for revising/rewording history of the pull request's commits should be put in the general comment section.
      > If there are too many changes or strong disagreement on the approach, feel free to jump on a call, or even start a pair programming session.
