@@ -2,6 +2,9 @@ name: Run go generate and report changes
 description: Run go generate from the current directory and report any changes. It supposes go is already installed.
 
 inputs:
+  working-directory:
+    description: Directory were to run the action. All other paths are relative to this one.
+    default: '.'
   tools-directory:
     description: Directory pointing to go.mod file for checking tool versionning. If none is provided, it will download latest.
   paths-to-ignore:
@@ -23,6 +26,7 @@ runs:
   steps:
     - name: Install tools and dependencies
       id: proto-deps
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Install tools and dependencies
         set -eu
@@ -45,6 +49,7 @@ runs:
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
     - name: Regenerate files with go generate
       id: go-generate-run
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Regenerate files with go generate
         set -eu
@@ -57,6 +62,7 @@ runs:
       # https://github.com/orgs/community/discussions/25246
       uses: canonical/desktop-engineering/gh-actions/common/has-diff@main
       with:
+        working-directory: ${{ inputs.working-directory }}
         paths-to-ignore: ${{ inputs.paths-to-ignore }}
         regexp-to-ignore: ${{ inputs.generate-diff-regexp-to-ignore }}
         fail-on-diff: ${{ inputs.fail-on-diff }}
