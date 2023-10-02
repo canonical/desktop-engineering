@@ -2,6 +2,9 @@ name: Has diff
 description: Returns if there is diff within the repository from the current directory.
 
 inputs:
+  working-directory:
+    description: Directory were to run the action. All other paths are relative to this one.
+    default: '.'
   regexp-to-ignore:
     description: Regexp patterns passed to ignore-matching-lines when diffing.
   paths-to-ignore:
@@ -20,6 +23,7 @@ runs:
     - name: Returns if there is a local diff
       id: has-diff
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Returns if there is a local diff
         set -eu

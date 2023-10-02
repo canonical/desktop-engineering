@@ -2,6 +2,9 @@ name: Golang code sanity check
 description: Checks code against of our desktop Go code quality and process standards.
 
 inputs:
+  working-directory:
+    description: Directory were to run the action. All other paths are relative to this one.
+    default: '.'
   go-build-script:
     description: For more complex build steps, pass the script directly to it (executed through bash). go-tags is then ignored for building.
   go-tags:
@@ -19,11 +22,12 @@ runs:
   steps:
     - uses: actions/setup-go@v4
       with:
-        go-version-file: go.mod
+        go-version-file: ${{ inputs.working-directory }}/go.mod
         check-latest: true
         cache: false
     - name: Detect go version to use
       id: go-version
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Detect go version to use
         set -eu
@@ -34,6 +38,7 @@ runs:
     - name: Get arguments and version for golangci-lint
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: golanci-lint
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Get arguments and version for golangci-lint
         set -eu
@@ -76,10 +81,12 @@ runs:
       with:
         version: ${{ steps.golanci-lint.outputs.version }}
         args: ${{ steps.golanci-lint.outputs.args }}
+        working-directory: ${{ inputs.working-directory }}
 
     - name: Update module files
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: update-mod-files
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Update module files
         set -eu
@@ -93,6 +100,8 @@ runs:
       id: gomod-check
       # https://github.com/orgs/community/discussions/25246
       uses: canonical/desktop-engineering/gh-actions/common/has-diff@main
+      with:
+        working-directory: ${{ inputs.working-directory }}
 
     - name: Ensure there is no diff between current and generated files
       if: ${{ always() && steps.go-version.outcome == 'success' }}
@@ -102,10 +111,12 @@ runs:
       with:
         tools-directory: ${{ inputs.tools-directory }}
         paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
+        working-directory: ${{ inputs.working-directory }}
 
     - name: Build any binaries
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: build-check
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Build any binaries
         set -eu
@@ -130,6 +141,7 @@ runs:
     - name: Installing govulncheck
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: install-govulncheck
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Installing govulncheck
         set -eu
@@ -149,6 +161,7 @@ runs:
     - name: Known vulnerabilities check
       if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
       id: vulnerabilities-check
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Checking known vulnerabilities
         set -eu
@@ -164,6 +177,7 @@ runs:
     - name: Compute title of summary
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: compute-summary-title
+      working-directory: ${{ inputs.working-directory }}
       run: |
         echo Compute title of summary based on current directory
         set -eu
