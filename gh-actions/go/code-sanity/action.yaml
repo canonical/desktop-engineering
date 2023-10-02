@@ -39,6 +39,7 @@ runs:
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: golanci-lint
       working-directory: ${{ inputs.working-directory }}
+      shell: bash
       run: |
         echo Get arguments and version for golangci-lint
         set -eu
@@ -71,9 +72,13 @@ runs:
         fi
         echo "args=${args}" >> $GITHUB_OUTPUT
 
-        # And now, a terrible workaround for https://github.com/golangci/golangci-lint-action/issues/135
-        sudo chmod -R +w ../../../go/
+    - name: Workaround for golangci-lint bug
+      if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
       shell: bash
+      # This step is separated from the previous one because we need to be at the repository root
+      run: |
+        # A terrible workaround for https://github.com/golangci/golangci-lint-action/issues/135
+        sudo chmod -R +w ../../../go/
     - name: Code formatting, vet, static checker Security…
       if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
       id: golangci-lint-check
