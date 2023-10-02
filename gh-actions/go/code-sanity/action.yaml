@@ -25,6 +25,19 @@ runs:
         go-version-file: ${{ inputs.working-directory }}/go.mod
         check-latest: true
         cache: false
+    - name: Set up jq
+      shell: bash
+      run: |
+        echo "::group::Download jq"
+        if [ "${{runner.os}}" = "Windows" ]; then
+          winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
+        else
+          sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
+          DEBIAN_FRONTEND=noninteractive $SUDO apt update
+          DEBIAN_FRONTEND=noninteractive $SUDO apt install jq
+        fi
+        echo "::endgroup::"
+        jq --version
     - name: Detect go version to use
       id: go-version
       working-directory: ${{ inputs.working-directory }}
@@ -32,7 +45,17 @@ runs:
         echo Detect go version to use
         set -eu
 
-        echo "version=$(grep '^go ' go.mod | cut -f2 -d' ')" >> $GITHUB_OUTPUT
+        json=$(go mod edit --json 2>&1 || go work edit --json 2>&1)
+        if [[ "$?" != 0 ]]; then
+          echo "Could not find go.mod or go.work files:"
+          echo $json
+          exit 1
+        fi
+
+        version=$(echo $json | jq -r '.Go')
+        echo "Go version ${version}"
+
+        echo "version=${version}" >> $GITHUB_OUTPUT
       shell: bash
 
     - name: Get arguments and version for golangci-lint
@@ -44,11 +67,12 @@ runs:
         echo Get arguments and version for golangci-lint
         set -eu
 
-        # This handles "require foo version" and "require (\nfoo version\n)"" formats
         version="latest"
-        if [ -n "${{ inputs.tools-directory }}" ]; then
-          modVersion="$(grep golangci-lint ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+        if [ -n '${{ inputs.tools-directory }}' ]; then
+          cd '${{ inputs.tools-directory }}'
+          modVersion="$(go mod edit --json | jq -r '.Require[] | select(.Path=="github.com/golangci/golangci-lint") | .Version' || true)"
           [ -n "${modVersion}" ] && version=${modVersion}
+          cd - > /dev/null
         fi
         echo "version=${version}" >> $GITHUB_OUTPUT
 
@@ -156,11 +180,12 @@ runs:
         set -eu
 
         # Get version to install if any
-        # This handles "require foo version" and "require (\nfoo version\n)"" formats
         version="latest"
-        if [ -n "${{ inputs.tools-directory }}" ]; then
-          modVersion="$(grep govulncheck ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
+        if [ -n '${{ inputs.tools-directory }}' ]; then
+          cd '${{ inputs.tools-directory }}'
+          modVersion="$(go mod edit --json | jq -r '.Require[] | select(.Path=="golang.org/x/vuln") | .Version' || true)"
           [ -n "${modVersion}" ] && version=${modVersion}
+          cd - > /dev/null
         fi
 
         cd ${{ runner.temp }}
