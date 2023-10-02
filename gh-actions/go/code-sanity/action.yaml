@@ -78,7 +78,11 @@ runs:
       # This step is separated from the previous one because we need to be at the repository root
       run: |
         # A terrible workaround for https://github.com/golangci/golangci-lint-action/issues/135
-        sudo chmod -R +w ../../../go/
+
+        # Avoid using sudo (it is unavailable in docker)
+        sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
+
+        $SUDO chmod -R +w ../../../go/
     - name: Code formatting, vet, static checker Security…
       if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
       id: golangci-lint-check
