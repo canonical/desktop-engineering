@@ -98,7 +98,7 @@ runs:
         echo "args=${args}" >> $GITHUB_OUTPUT
 
     - name: Workaround for golangci-lint bug
-      if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
+      if: ${{ always() && steps.golanci-lint.outcome == 'success' && runner.os == 'Linux' }}
       shell: bash
       # This step is separated from the previous one because we need to be at the repository root
       run: |
