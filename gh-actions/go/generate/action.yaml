@@ -26,12 +26,11 @@ runs:
   steps:
     - name: Install tools and dependencies
       id: proto-deps
-      working-directory: ${{ inputs.working-directory }}
+      working-directory: ${{ inputs.tools-directory }}
       run: |
         echo Install tools and dependencies
         set -eu
 
-        cd '${{ inputs.tools-directory }}'
         tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
 
         needsProtoc=false
@@ -41,8 +40,6 @@ runs:
           fi
           go install ${tool}
         done
-
-        cd --
       shell: bash
     - name: Install latest protoc
       uses: arduino/setup-protoc@v2
