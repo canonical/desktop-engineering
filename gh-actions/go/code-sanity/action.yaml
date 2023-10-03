@@ -182,12 +182,11 @@ runs:
     - name: Installing govulncheck
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: install-govulncheck
-      working-directory: ${{ inputs.working-directory }}
+      working-directory: ${{ runner.temp }}
       run: |
         echo Installing govulncheck
         set -eu
 
-        cd ${{ runner.temp }}
         go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
       shell: bash
     - name: Known vulnerabilities check
