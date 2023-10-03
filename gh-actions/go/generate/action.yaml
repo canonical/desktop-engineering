@@ -28,7 +28,7 @@ runs:
       id: proto-deps
       working-directory: ${{ inputs.tools-directory }}
       run: |
-        echo Install tools and dependencies
+        echo "::group::Install tools and dependencies"
         set -eu
 
         tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
@@ -40,6 +40,8 @@ runs:
           fi
           go install ${tool}
         done
+
+        echo "::endgroup::"
       shell: bash
     - name: Install latest protoc
       uses: arduino/setup-protoc@v2
