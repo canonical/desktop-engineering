@@ -29,7 +29,7 @@ runs:
         set -eu
 
         # Ignore requested file for changes
-        if [ -n "${{ inputs.paths-to-ignore }}" ]; then
+        if [ -n '${{ inputs.paths-to-ignore }}' ]; then
           files_to_ignore=$(ls ${{ inputs.paths-to-ignore }} 2>/dev/null || true)
           if [ -n "${files_to_ignore}" ]; then
             git update-index --assume-unchanged ${files_to_ignore}
@@ -50,7 +50,8 @@ runs:
 
         # Additional arguments to ignore.
         if [ -n "${{ inputs.regexp-to-ignore }}" ]; then
-          diffCmd="${diffCmd} --ignore-matching-lines '${{ inputs.regexp-to-ignore }}'"
+          regexp-to-ignore='${{ inputs.regexp-to-ignore }}'
+          diffCmd="${diffCmd} --ignore-matching-lines ${regexp-to-ignore}"
         fi
 
         DIFF=$(git difftool -y -x "${diffCmd}" .)

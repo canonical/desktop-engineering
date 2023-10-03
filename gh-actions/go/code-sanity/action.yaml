@@ -77,13 +77,13 @@ runs:
         echo "version=${version}" >> $GITHUB_OUTPUT
 
         # Detect which config file to use
-        config=${{ github.action_path }}/.golangci-lint
+        config='${{ github.action_path }}/.golangci-lint'
         if [ -f ".golangci-lint" ]; then
           config=".golangci-lint"
         fi
-        if [ -n "${{ inputs.golangci-lint-configfile }}" ]; then
+        if [ -n '${{ inputs.golangci-lint-configfile }}' ]; then
           echo "Using project local config file"
-          config="${{ inputs.golangci-lint-configfile }}"
+          config='${{ inputs.golangci-lint-configfile }}'
         fi
         args="--config ${config}"
 
@@ -91,8 +91,9 @@ runs:
         args="${args} --go ${{ steps.go-version.outputs.version }}"
 
         # Optional build tag go-tags
-        if [ -n "${{ inputs.go-tags }}" ]; then
-          args="${args} --build-tags=${{ inputs.go-tags }}"
+        tags='${{ inputs.go-tags }}'
+        if [ -n "${tags}" ]; then
+          args="${args} --build-tags=${tags}"
         fi
         echo "args=${args}" >> $GITHUB_OUTPUT
 
@@ -154,7 +155,7 @@ runs:
         echo Build any binaries
         set -eu
 
-        if [ -n "${{ inputs.go-build-script }}" ]; then
+        if [ -n '${{ inputs.go-build-script }}' ]; then
           buildTest=$(mktemp)
           cat > ${buildTest} <<SCRIPTEOF
             ${{ inputs.go-build-script }}
@@ -163,7 +164,7 @@ runs:
           exit 0
         fi
 
-        tags="${{ inputs.go-tags }}"
+        tags='${{ inputs.go-tags }}'
         if [ -n "${tags}" ]; then
           tags="-tags=${tags}"
         fi
@@ -200,7 +201,7 @@ runs:
         echo Checking known vulnerabilities
         set -eu
 
-        tags="${{ inputs.go-tags }}"
+        tags='${{ inputs.go-tags }}'
         if [ -n "${tags}" ]; then
           tags="-tags=${tags}"
         fi

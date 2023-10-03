@@ -31,7 +31,7 @@ runs:
         echo Install tools and dependencies
         set -eu
 
-        cd ${{ inputs.tools-directory }}
+        cd '${{ inputs.tools-directory }}'
         tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
 
         needsProtoc=false
