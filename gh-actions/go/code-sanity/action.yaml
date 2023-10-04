@@ -25,6 +25,19 @@ runs:
         go-version-file: ${{ inputs.working-directory }}/go.mod
         check-latest: true
         cache: false
+    - name: Set up jq
+      shell: bash
+      run: |
+        echo "::group::Download jq"
+        if [ "${{runner.os}}" = "Windows" ]; then
+          winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
+        else
+          sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
+          DEBIAN_FRONTEND=noninteractive $SUDO apt update
+          DEBIAN_FRONTEND=noninteractive $SUDO apt install jq
+        fi
+        echo "::endgroup::"
+        jq --version
     - name: Detect go version to use
       id: go-version
       working-directory: ${{ inputs.working-directory }}
@@ -32,11 +45,37 @@ runs:
         echo Detect go version to use
         set -eu
 
-        echo "version=$(grep '^go ' go.mod | cut -f2 -d' ')" >> $GITHUB_OUTPUT
-      shell: bash
+        json=$(go mod edit --json 2>&1 || go work edit --json 2>&1)
+        if [[ "$?" != 0 ]]; then
+          echo "Could not find go.mod or go.work files:"
+          echo $json
+          exit 1
+        fi
 
-    - name: Get arguments and version for golangci-lint
+        version=$(echo $json | jq -r '.Go')
+        echo "Go version ${version}"
+
+        echo "version=${version}" >> $GITHUB_OUTPUT
+      shell: bash
+    - name: Get tooling version
+      shell: bash
+      id: tooling-version
       if: ${{ always() && steps.go-version.outcome == 'success' }}
+      working-directory: ${{ inputs.tools-directory }}
+      run: |
+        function set-version {
+          name=$1
+          path=$2
+          version="$(
+            go mod edit --json | jq -r ".Require[] | select(.Path==\"${path}\") | .Version" || echo 'latest'
+          )"
+          echo "${name}=${version}" >> $GITHUB_OUTPUT
+        }
+
+        set-version "golangci-lint" "github.com/golangci/golangci-lint"
+        set-version "vulncheck" "golang.org/x/vuln"
+    - name: Get arguments and version for golangci-lint
+      if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: golanci-lint
       working-directory: ${{ inputs.working-directory }}
       shell: bash
@@ -44,22 +83,14 @@ runs:
         echo Get arguments and version for golangci-lint
         set -eu
 
-        # This handles "require foo version" and "require (\nfoo version\n)"" formats
-        version="latest"
-        if [ -n "${{ inputs.tools-directory }}" ]; then
-          modVersion="$(grep golangci-lint ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
-          [ -n "${modVersion}" ] && version=${modVersion}
-        fi
-        echo "version=${version}" >> $GITHUB_OUTPUT
-
         # Detect which config file to use
-        config=${{ github.action_path }}/.golangci-lint
+        config='${{ github.action_path }}/.golangci-lint'
         if [ -f ".golangci-lint" ]; then
           config=".golangci-lint"
         fi
-        if [ -n "${{ inputs.golangci-lint-configfile }}" ]; then
+        if [ -n '${{ inputs.golangci-lint-configfile }}' ]; then
           echo "Using project local config file"
-          config="${{ inputs.golangci-lint-configfile }}"
+          config='${{ inputs.golangci-lint-configfile }}'
         fi
         args="--config ${config}"
 
@@ -67,24 +98,29 @@ runs:
         args="${args} --go ${{ steps.go-version.outputs.version }}"
 
         # Optional build tag go-tags
-        if [ -n "${{ inputs.go-tags }}" ]; then
-          args="${args} --build-tags=${{ inputs.go-tags }}"
+        tags='${{ inputs.go-tags }}'
+        if [ -n "${tags}" ]; then
+          args="${args} --build-tags=${tags}"
         fi
         echo "args=${args}" >> $GITHUB_OUTPUT
 
     - name: Workaround for golangci-lint bug
-      if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
+      if: ${{ always() && steps.golanci-lint.outcome == 'success' && runner.os == 'Linux' }}
       shell: bash
       # This step is separated from the previous one because we need to be at the repository root
       run: |
         # A terrible workaround for https://github.com/golangci/golangci-lint-action/issues/135
-        sudo chmod -R +w ../../../go/
+
+        # Avoid using sudo (it is unavailable in docker)
+        sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
+
+        $SUDO chmod -R +w ../../../go/
     - name: Code formatting, vet, static checker Security…
       if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
       id: golangci-lint-check
       uses: golangci/golangci-lint-action@v3
       with:
-        version: ${{ steps.golanci-lint.outputs.version }}
+        version: ${{ steps.tooling-version.outputs.golangci-lint }}
         args: ${{ steps.golanci-lint.outputs.args }}
         working-directory: ${{ inputs.working-directory }}
 
@@ -126,7 +162,7 @@ runs:
         echo Build any binaries
         set -eu
 
-        if [ -n "${{ inputs.go-build-script }}" ]; then
+        if [ -n '${{ inputs.go-build-script }}' ]; then
           buildTest=$(mktemp)
           cat > ${buildTest} <<SCRIPTEOF
             ${{ inputs.go-build-script }}
@@ -135,7 +171,7 @@ runs:
           exit 0
         fi
 
-        tags="${{ inputs.go-tags }}"
+        tags='${{ inputs.go-tags }}'
         if [ -n "${tags}" ]; then
           tags="-tags=${tags}"
         fi
@@ -144,24 +180,14 @@ runs:
       shell: bash
 
     - name: Installing govulncheck
-      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: install-govulncheck
-      working-directory: ${{ inputs.working-directory }}
+      working-directory: ${{ runner.temp }}
       run: |
         echo Installing govulncheck
         set -eu
 
-        # Get version to install if any
-        # This handles "require foo version" and "require (\nfoo version\n)"" formats
-        version="latest"
-        if [ -n "${{ inputs.tools-directory }}" ]; then
-          modVersion="$(grep govulncheck ${{ inputs.tools-directory }}/go.mod | rev | cut -f1 -d' ' | rev || true)"
-          [ -n "${modVersion}" ] && version=${modVersion}
-        fi
-
-        cd ${{ runner.temp }}
-        go install golang.org/x/vuln/cmd/govulncheck@${version}
-        cd --
+        go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
       shell: bash
     - name: Known vulnerabilities check
       if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
@@ -171,7 +197,7 @@ runs:
         echo Checking known vulnerabilities
         set -eu
 
-        tags="${{ inputs.go-tags }}"
+        tags='${{ inputs.go-tags }}'
         if [ -n "${tags}" ]; then
           tags="-tags=${tags}"
         fi
