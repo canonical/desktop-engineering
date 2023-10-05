@@ -66,9 +66,13 @@ runs:
         function set-version {
           name=$1
           path=$2
-          version="$(
-            go mod edit --json | jq -r ".Require[] | select(.Path==\"${path}\") | .Version" || echo 'latest'
+          version="latest"
+          mod_version="$(
+            go mod edit --json | jq -r ".Require[] | select(.Path==\"${path}\") | .Version"
           )"
+          if [ -n "${mod_version}" ]; then
+            version="${mod_version}"
+          fi
           echo "${name}=${version}" >> $GITHUB_OUTPUT
         }
 
