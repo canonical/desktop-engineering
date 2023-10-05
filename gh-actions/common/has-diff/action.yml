@@ -50,8 +50,8 @@ runs:
 
         # Additional arguments to ignore.
         if [ -n "${{ inputs.regexp-to-ignore }}" ]; then
-          regexp-to-ignore='${{ inputs.regexp-to-ignore }}'
-          diffCmd="${diffCmd} --ignore-matching-lines ${regexp-to-ignore}"
+          regexp_to_ignore='${{ inputs.regexp-to-ignore }}'
+          diffCmd="${diffCmd} --ignore-matching-lines ${regexp_to_ignore}"
         fi
 
         DIFF=$(git difftool -y -x "${diffCmd}" .)
