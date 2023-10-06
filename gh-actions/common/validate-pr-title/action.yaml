@@ -1,0 +1,103 @@
+name: Validate pull request title
+description: Ensures the title of the pull request complies with naming policy
+
+outputs:
+  tag:
+    description: 'The tag parsed from the PR title'
+    value: ${{ steps.parse.outputs.tag }}
+  component:
+    description: 'The component parsed from the PR title'
+    value: ${{ steps.parse.outputs.component }}
+  title:
+    description: 'The title parsed from the PR title'
+    value: ${{ steps.parse.outputs.title }}
+
+runs:
+  using: composite
+  steps:
+    - name: Parse PR title
+      id: parse
+      shell: bash
+      env:
+        # These variables are defined here so that they can be used verbatim,
+        # without this bash attempting to perform substitutions or character
+        # escapes. The last thing a regex needs is more escaped characters.
+        pattern: >-
+          ^([^() ]+)(\([^() ]+\))?: ([^ ].*)$
+        #   ~~~~~~~  ~~~~~~~~~~~    ~~~~~~~~
+        #   │        │              └─Title: free text after a colon and a single space.
+        #   │        └─Component: inside parentheses, optional.
+        #   └─Tag: limited to those pre-approved (see steps.validate.env.valid_tags).
+        pr_title: ${{ github.event.pull_request.title }}
+      run: |
+        # Parse ${{ github.event.pull_request.title }}
+        set -eu
+
+        echo "${pr_title}" | grep -P "${pattern}" > /dev/null || {
+            echo "::error::Pull request title does not match regex ${pattern}"
+            exit 1
+        }
+
+        output=$'\\1\t\\2\t\\3'
+        fields=$(perl -pe "s#${pattern}#${output}#" <<< "${pr_title}")
+        IFS=$'\t' read -r first second third <<< $fields
+
+        if [ -n "${third}" ]; then
+            echo "tag=${first}"               >> $GITHUB_OUTPUT
+            echo "component=${second:1:-1}"   >> $GITHUB_OUTPUT
+            echo "title=${third}"             >> $GITHUB_OUTPUT
+        else
+            echo "tag=${first}"               >> $GITHUB_OUTPUT
+            echo "component=''"               >> $GITHUB_OUTPUT
+            echo "title=${second}"            >> $GITHUB_OUTPUT
+        fi
+    - name: Validate tag
+      shell: bash
+      id: validate
+      env:
+        tag: ${{ steps.parse.outputs.tag }}
+        valid_tags: build deps ci docs feat fix maint perf refactor test
+      run: |
+        # Validate ${{ env.tag }}
+        set -eu
+
+        # Covert to list so that we can check each word separatelly
+        valid_tags=( ${{ env.valid_tags }} )
+
+        # Grep ^tag$ against every valid tag
+        printf '%s\n' "${valid_tags[@]}"                                           \
+            | grep  "^${tag}\$"  > /dev/null                                       \
+            || {
+                echo "::error::'$tag' is not in the list of admissible tags"
+                echo "Use any of:"
+                printf ' - %s\n' "${valid_tags[@]}"
+                exit 1
+            }
+    - name: Print result
+      shell: bash
+      if: always() && steps.parse.outcome == 'success'
+      env:
+        tag: ${{ steps.parse.outputs.tag }}
+        component: ${{ steps.parse.outputs.component }}
+        title: ${{ steps.parse.outputs.title }}
+      run: |
+        # Print table
+        set -eu
+
+        case ${{ steps.validate.outcome }} in
+          "success")
+            icon=":green_circle:"
+            ;;
+          "failure")
+            icon=":red_circle:"
+            ;;
+          "skipped")
+            icon=":white_circle:"
+            ;;
+          *)
+            icon=":question:"
+        esac
+
+        echo "| Tag            | Component    | Title      |"  >> $GITHUB_STEP_SUMMARY
+        echo "| -------------- | ------------ | ---------- |"  >> $GITHUB_STEP_SUMMARY
+        echo "| ${tag} ${icon} | ${component} | ${title}   |"  >> $GITHUB_STEP_SUMMARY
