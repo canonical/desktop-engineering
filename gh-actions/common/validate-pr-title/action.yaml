@@ -40,7 +40,7 @@ runs:
         # Validate ${{ env.tag }}
         set -eu
 
-        # Covert to list so that we can check each word separatelly
+        # Convert to list so that we can check each word separatelly
         valid_tags=( ${{ env.valid_tags }} )
 
         # Grep ^tag$ against every valid tag
@@ -48,7 +48,7 @@ runs:
           exit 0
         fi
 
-        # Print result failure
+        # Failure: print results and help
         echo "::error::'${{ env.tag }}' is not in the list of admissible tags"
 
         # Printing as a summary because multiline error messages are not supported
