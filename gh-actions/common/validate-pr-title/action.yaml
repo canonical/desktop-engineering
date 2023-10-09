@@ -43,7 +43,7 @@ runs:
       id: validate
       env:
         tag: ${{ steps.parse.outputs.tag }}
-        valid_tags: build deps ci docs feat fix maint perf refactor test
+        valid_tags: build deps ci docs feat fix maint perf refactor tests
       run: |
         # Validate ${{ env.tag }}
         set -eu
