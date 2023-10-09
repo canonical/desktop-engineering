@@ -1,17 +1,6 @@
 name: Validate pull request title
 description: Ensures the title of the pull request complies with naming policy
 
-outputs:
-  tag:
-    description: 'The tag parsed from the PR title'
-    value: ${{ steps.parse.outputs.tag }}
-  component:
-    description: 'The component parsed from the PR title'
-    value: ${{ steps.parse.outputs.component }}
-  title:
-    description: 'The title parsed from the PR title'
-    value: ${{ steps.parse.outputs.title }}
-
 runs:
   using: composite
   steps:
@@ -38,19 +27,9 @@ runs:
             exit 1
         }
 
-        output=$'\\1\t\\2\t\\3'
-        fields=$(perl -pe "s#${pattern}#${output}#" <<< "${pr_title}")
-        IFS=$'\t' read -r first second third <<< $fields
-
-        if [ -n "${third}" ]; then
-            echo "tag=${first}"               >> $GITHUB_OUTPUT
-            echo "component=${second:1:-1}"   >> $GITHUB_OUTPUT
-            echo "title=${third}"             >> $GITHUB_OUTPUT
-        else
-            echo "tag=${first}"               >> $GITHUB_OUTPUT
-            echo "component=''"               >> $GITHUB_OUTPUT
-            echo "title=${second}"            >> $GITHUB_OUTPUT
-        fi
+        output=$'\\1'
+        tag=$(perl -pe "s#${pattern}#${output}#" <<< "${pr_title}")
+        echo "tag=${tag}" >> $GITHUB_OUTPUT
     - name: Validate tag
       shell: bash
       id: validate
@@ -65,39 +44,16 @@ runs:
         valid_tags=( ${{ env.valid_tags }} )
 
         # Grep ^tag$ against every valid tag
-        printf '%s\n' "${valid_tags[@]}"                                           \
-            | grep  "^${tag}\$"  > /dev/null                                       \
-            || {
-                echo "::error::'$tag' is not in the list of admissible tags"
-                echo "Use any of:"
-                printf ' - %s\n' "${valid_tags[@]}"
-                exit 1
-            }
-    - name: Print result
-      shell: bash
-      if: always() && steps.parse.outcome == 'success'
-      env:
-        tag: ${{ steps.parse.outputs.tag }}
-        component: ${{ steps.parse.outputs.component }}
-        title: ${{ steps.parse.outputs.title }}
-      run: |
-        # Print table
-        set -eu
+        if printf '%s\n' "${valid_tags[@]}" | grep "^${tag}\$" > /dev/null ; then
+          exit 0
+        fi
 
-        case ${{ steps.validate.outcome }} in
-          "success")
-            icon=":green_circle:"
-            ;;
-          "failure")
-            icon=":red_circle:"
-            ;;
-          "skipped")
-            icon=":white_circle:"
-            ;;
-          *)
-            icon=":question:"
-        esac
+        # Print result failure
+        echo "::error::'${{ env.tag }}' is not in the list of admissible tags"
 
-        echo "| Tag            | Component    | Title      |"  >> $GITHUB_STEP_SUMMARY
-        echo "| -------------- | ------------ | ---------- |"  >> $GITHUB_STEP_SUMMARY
-        echo "| ${tag} ${icon} | ${component} | ${title}   |"  >> $GITHUB_STEP_SUMMARY
+        # Printing as a summary because multiline error messages are not supported
+        echo "'${{ env.tag }}' is not in the list of admissible tags" >> $GITHUB_STEP_SUMMARY
+        echo "Valid tags are:"                                        >> $GITHUB_STEP_SUMMARY
+        printf ' - %s\n' "${valid_tags[@]}"                           >> $GITHUB_STEP_SUMMARY
+
+        exit 1
