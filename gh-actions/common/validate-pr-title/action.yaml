@@ -24,6 +24,14 @@ runs:
 
         echo "${pr_title}" | grep -P "${pattern}" > /dev/null || {
             echo "::error::Pull request title does not match regex ${pattern}"
+
+            # Printing as a summary because multiline error messages are not supported
+            echo "Pull request title does not match regex \`${pattern}\`"                 >> $GITHUB_STEP_SUMMARY
+            echo "Example titles:"                                                        >> $GITHUB_STEP_SUMMARY
+            echo " - deps(turboencabulator): updated logarithmic casing"                  >> $GITHUB_STEP_SUMMARY
+            echo " - feat(guidance): enable location tracking via knowing where it isn't" >> $GITHUB_STEP_SUMMARY
+            echo " - docs: clarified behaviour of liblaurem in ipsum-compatible machines" >> $GITHUB_STEP_SUMMARY
+            echo " - maint: fix typo in example title"                                    >> $GITHUB_STEP_SUMMARY
             exit 1
         }
 
