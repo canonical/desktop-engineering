@@ -157,7 +157,7 @@ runs:
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/go/generate@main
+      uses: canonical/desktop-engineering/gh-actions/go/generate@setup-grpc-github-token
       with:
         github-token: ${{ inputs.github-token }}
         tools-directory: ${{ inputs.tools-directory }}
