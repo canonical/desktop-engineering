@@ -16,6 +16,11 @@ inputs:
   fail-on-diff:
     description: Fail the job on any detected diff.
     default: "true"
+  github-token:
+    description: |
+      Your repository's GitHub token. Only necessary to circumvent GitHub API rate limits.
+      See the documentation for arduino/setup-protoc for more details.
+    default: ''
 outputs:
   diff:
     description: Returns if there is a local diff.
@@ -46,6 +51,8 @@ runs:
     - name: Install latest protoc
       uses: arduino/setup-protoc@v2
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
+      with:
+        repo-token: ${{ inputs.github-token }}
     - name: Regenerate files with go generate
       id: go-generate-run
       working-directory: ${{ inputs.working-directory }}

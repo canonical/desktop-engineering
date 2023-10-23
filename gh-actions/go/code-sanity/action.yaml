@@ -16,6 +16,11 @@ inputs:
   generate-diff-paths-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* doc/*.md README.md
+  github-token:
+    description: |
+      Your repository's GitHub token. Only necessary to circumvent GitHub API rate limits.
+      See the documentation for arduino/setup-protoc for more details.
+    default: ''
 
 runs:
   using: "composite"
@@ -154,6 +159,7 @@ runs:
       # https://github.com/orgs/community/discussions/25246
       uses: canonical/desktop-engineering/gh-actions/go/generate@main
       with:
+        github-token: ${{ inputs.github-token }}
         tools-directory: ${{ inputs.tools-directory }}
         paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
         working-directory: ${{ inputs.working-directory }}
