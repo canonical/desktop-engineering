@@ -29,7 +29,22 @@ The aim of these guidances is to ease the maintainability of code and the projec
 
 We should use the **merge commit workflow** (not squash and merge). The history of each branch should make sense on its own, with few or no "fixup" commits.
 
-However, for better readability of the mainline, the merge commit in the mainline should follow [conventional commits][convcommits]. This can be enforced [on a per project][gh-docs-merge-commit] basis on GitHub. FIXME: do we still want this?
+Individual commits do not follow [conventional commits][convcommits] and are free form. However, for better readability of the mainline, the merge commit in the mainline should follow [conventional commits][convcommits].
+
+For this, the PR title should be of the form: `<type>(<scope>): <subject>`. The scope is optional. The first comment will be the commit body and needs to reference any associated JIRA card on the last line, separated by a blank line.
+
+The accepted `types` are:
+
+* `build`: Changes that affect the build system or external dependencies
+* `ci`: Changes to the CI configuration
+* `deps`: Update dependencies
+* `docs`: Documentation only changes
+* `feat`: A new feature
+* `fix`: A bug fix
+* `maint`: Changes that do not affect the meaning of the code (white-spaces, formatting, missing semi-colons, typo fixes, etc). Gardening…
+* `perf`: A code change that improves performance
+* `refactor`: A code change that neither fixes a bug nor adds a feature (nor add bugs)!
+* `tests`: Adding missing tests or correcting existing tests
 
 > TODO: have a document defining what to configure in every new GitHub project (webhook for Jira, merge commit + default commit template, automated merged branch deletion).
 
@@ -71,4 +86,3 @@ This cycle is repeated if there are further comments or if some are still left o
 > Note: The final merge steps may be proceeded by the reviewer if we are in a hurry. However, it’s preferable to allow the submitter to do the actual merging, as an additional way of acknowledging their work and enjoying the dopamine boost. :-)
 
 [convcommits]: https://www.conventionalcommits.org/en/v1.0.0/
-[gh-docs-merge-commit]: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/configuring-commit-merging-for-pull-requests
