@@ -52,6 +52,7 @@ The accepted `types` are:
 
 Don't hesitate to comment and reiterate! When you engage with a pull request, the expectation is that you remain responsive, and not let the pull request go stale.
 
+1. Team members should [sign their commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits). While this may be difficult to enforce for community contributions, we expect team members to _always_ follow this guideline.
 1. The pull request should always be opened as a draft, to avoid notifying the reviewers before the tests pass and the pull request is fully ready for review. Ensure the description of changes is readable and understandable by prospective reviewers. The pull request should be linked to a Jira card, using `UDENG-XXX` in its description, so that Jira links against it.
 1. The pull request diff should be examined by the submitter - it may happen that a debug print statement was left in, or a non-related change was accidentally `git add`ed. Please at least do a quick visual scan to help catch such potential issues/typos.
 1. The submitter should wait and check for the CI feedback to indicate a pass (linting, testing, building, automated generation, etc.). Static security check tool (part of linting if possible) is part of that stage. Feel free to ping a team member to ask for help before a formal review, if something doesn’t pass (like tests) and you don’t have any ideas on how to fix it. In such cases, the pull request description should mention that the tests don’t pass.
