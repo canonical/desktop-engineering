@@ -83,3 +83,8 @@ You may use whatever colors you'd like, but below are some recommendations to fo
 Most repositories should have [issue templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates) to get better information on initial open and reduce back and forth with the opener. Issue templates also allow the issue to be automatically labeled when its open; this is useful for templates that differentiate bugs, feature requests, etc.
 
 Issue templates can take the form of simple [Markdown files](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository#creating-issue-templates) or more advanced [YAML files](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository#creating-issue-forms). Markdown issue templates will simply insert the content of the file into the issue body when an issue is opened for that type. YAML form templates instead create interactive forms, with elements like text boxes, drop-downs, checkboxes, etc.
+
+## Further Resources
+
+- [Bug Triage, Ubuntu Wiki](https://wiki.ubuntu.com/Bugs/Triage)
+- [Bug Triage Flowcharts, Ubuntu Wiki](https://wiki.ubuntu.com/Bugs/Triage/Charts)
