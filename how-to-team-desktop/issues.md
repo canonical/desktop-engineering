@@ -62,6 +62,7 @@ Labels that may be added or removed at any point to an issue or PR that further 
 | `good-first-issue` | Issues that are good for first-time contributors. These should be small, well defined, well documented, and low priority fixes or features with a clear solution. In addition, team members should be willing to guide the contributor through the process. `help-wanted` should always be used alongside `good-first-issue`. |
 | `help-wanted` | Issues or PRs that may need additional help from others. These should be clearly defined, have assisting documentation, and have a low priority. |
 | `jira` | Used to open a corresponding Jira card for the issue. |
+| `needs-information` | Issues that need more information before further work or triage is possible. |
 | `needs-scoping` | Issues that needs to be scoped/investigated before committing to solving. Usually used alongside the `type/enhancement` label. |
 | `needs-triage` | Issues that still need to be triaged. Could be automatically added alongside `type/bug` for bug [templates](#templates). |
 | `wontfix` | Issues or PRs that will no longer be considered. The issue or PR should generally be closed after adding this label. |
