@@ -47,6 +47,7 @@ runs:
         set -eu
 
         echo "::group::Install devscripts"
+        DEBIAN_FRONTEND=noninteractive sudo apt update
         DEBIAN_FRONTEND=noninteractive sudo apt install -y devscripts
         echo "::endgroup::"
 
