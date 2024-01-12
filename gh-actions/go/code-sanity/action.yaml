@@ -45,15 +45,13 @@ runs:
         echo Detect go version to use
         set -eu
 
-        json=$(go mod edit --json 2>&1 || go work edit --json 2>&1)
-        if [[ "$?" != 0 ]]; then
-          echo "Could not find go.mod or go.work files:"
-          echo $json
-          exit 1
-        fi
+        # First call to go version which may download a newever go toolchain
+        go version
 
-        version=$(echo $json | jq -r '.Go')
-        echo "Go version ${version}"
+        # The output would be on that form, grab the version itself
+        # go version go1.21.5 linux/amd64
+        ver=$(go version)
+        version=$(echo "${ver}" | sed "s#go version go\(.*\) \(.*\)#\1#")
 
         echo "version=${version}" >> $GITHUB_OUTPUT
       shell: bash
