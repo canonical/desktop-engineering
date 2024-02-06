@@ -55,10 +55,20 @@ runs:
         DEBIAN_FRONTEND=noninteractive sudo apt install -y devscripts
         echo "::endgroup::"
 
-        echo "::group::Append commit SHA to local version"
+        echo "::group::Create local version with commit and docker container"
         cd '${{ inputs.source-dir }}'
-        sanitized_docker=$( echo "${{ inputs.docker-image }}" | sed 's/://' )
-        debchange --local "+${sanitized_docker}+${{ github.sha }}" "Github build. Job id: ${{ github.run_id }}. Attempt: ${{ github.run_number }}."
+
+        # Sanitize the docker name so that it stick to debian policy
+        # https://www.debian.org/doc/debian-policy/ch-controlfields.html#version
+        sanitized_docker=$( echo "${{ inputs.docker-image }}" | sed -r 's/[^a-zA-Z0-9.+~]+/+/g' )
+
+        # Short commit to avoid "package-has-long-file-name"
+        commit=$(echo ${{ github.sha }} | cut -c1-8)
+
+        export DEBFULLNAME="GitHub actions runner"
+        export DEBEMAIL="noreply@github.com"
+        debchange --local "~${sanitized_docker}+${commit}" "Github build. Run id: ${{ github.run_id }}. Run number: ${{ github.run_number }}."
+        
         echo "::endgroup::"
 
         echo "::group::Parsing name and version"
