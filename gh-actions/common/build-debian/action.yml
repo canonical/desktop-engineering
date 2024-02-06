@@ -12,6 +12,10 @@ inputs:
   token:
     required: false
     description: If provided, used for git authentication in the source build
+  lintian:
+    required: false
+    description: Arguments to pass to lintian, if any. Set to false to skip the lintian chek.
+    default: ''
 
 
 # The process:
@@ -79,6 +83,11 @@ runs:
           if [ -n "${GITHUB_TOKEN}" ]; then
             git config --system url."https://api:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           fi
+    - name: Run lintian
+      if: inputs.lintian != 'false'
+      shell: bash
+      working-directory: ${{ env.SOURCE_OUTPUT_DIR }}
+      run: lintian ${{ inputs.lintian }} -- *.changes
     - name: Set up package build
       shell: bash
       run: |
