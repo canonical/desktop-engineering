@@ -24,6 +24,29 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Set up jq
+      shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        echo "::group::Ensure jq is installed"
+        set -eu
+
+        if command -v jq &> /dev/null; then
+          echo "::endgroup::"
+          exit 0
+        fi
+
+        set -eu
+        if [ "${{runner.os}}" = "Windows" ]; then
+          winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
+        else
+          SUDO=$(command -v sudo || true)
+          $SUDO apt update
+          $SUDO apt install jq
+        fi
+        echo "::endgroup::"
+        jq --version
     - name: Install tools and dependencies
       id: proto-deps
       working-directory: ${{ inputs.tools-directory }}
@@ -31,14 +54,20 @@ runs:
         echo "::group::Install tools and dependencies"
         set -eu
 
-        tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
+        tools=$(go mod edit --json | \
+          jq -r '.Require[] | select(.Indirect!=true) | [.Path,.Version] | join("@")')
 
-        needsProtoc=false
         for tool in ${tools}; do
+          IFS='@' read -r -a pair <<< "${tool}"
+          echo "${pair[0]}"
           if [[ "${tool}" == *protoc* ]]; then
             echo "needs-protoc=true" >> $GITHUB_OUTPUT
           fi
-          go install ${tool}
+
+          cmd=$(grep -F "\"${pair[0]}\"" ./*.go | sed -nr 's/.*_\s+"([^"]+)".*/\1/p' | head -1)
+          if [ -n "$cmd" ]; then
+            go install "${cmd}@${pair[1]}"
+          fi
         done
 
         echo "::endgroup::"
