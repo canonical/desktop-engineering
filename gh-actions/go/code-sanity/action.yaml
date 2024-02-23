@@ -27,14 +27,16 @@ runs:
         cache: false
     - name: Set up jq
       shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
         echo "::group::Download jq"
         if [ "${{runner.os}}" = "Windows" ]; then
           winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
         else
           sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
-          DEBIAN_FRONTEND=noninteractive $SUDO apt update
-          DEBIAN_FRONTEND=noninteractive $SUDO apt install jq
+          $SUDO apt update
+          $SUDO apt install jq
         fi
         echo "::endgroup::"
         jq --version
