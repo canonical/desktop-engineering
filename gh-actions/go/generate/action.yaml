@@ -24,6 +24,22 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Set up jq
+      shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        echo "::group::Download jq"
+        set -eu
+        if [ "${{runner.os}}" = "Windows" ]; then
+          winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
+        else
+          SUDO=$(command -v sudo || true)
+          $SUDO apt update
+          $SUDO apt install jq
+        fi
+        echo "::endgroup::"
+        jq --version
     - name: Install tools and dependencies
       id: proto-deps
       working-directory: ${{ inputs.tools-directory }}
@@ -31,7 +47,8 @@ runs:
         echo "::group::Install tools and dependencies"
         set -eu
 
-        tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
+        tools=$(go mod edit --json | \
+          jq -r '.Require[] | select(.Indirect!=true) | [.Path,.Version] | join("@")')
 
         needsProtoc=false
         for tool in ${tools}; do
