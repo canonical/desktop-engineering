@@ -27,14 +27,16 @@ runs:
         cache: false
     - name: Set up jq
       shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
         echo "::group::Download jq"
         if [ "${{runner.os}}" = "Windows" ]; then
           winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
         else
-          sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
-          DEBIAN_FRONTEND=noninteractive $SUDO apt update
-          DEBIAN_FRONTEND=noninteractive $SUDO apt install jq
+          SUDO=$(command -v sudo || true)
+          $SUDO apt update
+          $SUDO apt install jq
         fi
         echo "::endgroup::"
         jq --version
@@ -114,7 +116,7 @@ runs:
         # A terrible workaround for https://github.com/golangci/golangci-lint-action/issues/135
 
         # Avoid using sudo (it is unavailable in docker)
-        sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
+        SUDO=$(command -v sudo || true)
 
         $SUDO chmod -R +w ../../../go/
     - name: Code formatting, vet, static checker Security…
