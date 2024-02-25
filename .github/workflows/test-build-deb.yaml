@@ -1,0 +1,87 @@
+name: Test build debian package
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - gh-actions/common/build-debian/**
+      - .github/workflows/test-build-deb*
+  pull_request:
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  DEBCONF_NONINTERACTIVE_SEEN: true
+
+jobs:
+  build_native_deb:
+    name: Test build native debian package
+    runs-on: ubuntu-latest
+    outputs:
+      pkg-name: ${{ env.PKG_NAME }}
+      pkg-version: ${{ env.PKG_VERSION }}
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install ubuntu-dev-tools
+
+      - name: Get and prepare package source
+        run: |
+          set -eu
+
+          echo "::group::Get source"
+          pull-lp-source --download-only hello
+          dpkg-source -x hello*.dsc hello-src
+          rm -rf hello_*
+          mv -v hello-src/* .
+          echo "::endgroup::"
+
+          echo "::group::Mark package as a native package"
+          echo "3.0 (native)" > debian/source/format
+          dch -v$(dpkg-parsechangelog -S Version | cut -f1 -d-).1 \
+            "Mark as native package"
+          echo "::endgroup::"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: .source
+
+      - name: Build package
+        uses: ./.source/gh-actions/common/build-debian
+        with:
+          docker-image: ubuntu:devel
+
+  build_source_deb:
+    name: Test build quilt debian package
+    runs-on: ubuntu-latest
+    outputs:
+      pkg-name: ${{ env.PKG_NAME }}
+      pkg-version: ${{ env.PKG_VERSION }}
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install ubuntu-dev-tools
+
+      - name: Get package source
+        run: |
+          set -eu
+
+          pull-lp-source --download-only hello
+          dpkg-source -x hello*.dsc hello-src
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: .source
+
+      - name: Build package
+        uses: ./.source/gh-actions/common/build-debian
+        with:
+          source-dir: ./hello-src
+          docker-image: ubuntu:devel
+        continue-on-error: true
