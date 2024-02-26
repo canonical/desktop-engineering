@@ -61,7 +61,6 @@ runs:
         echo DEBEMAIL="noreply@github.com" >> $GITHUB_ENV
 
         if git status --porcelain &>/dev/null; then
-          echo VERSION_REF="$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action" >> $GITHUB_ENV
           echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)" >> $GITHUB_ENV
         fi
