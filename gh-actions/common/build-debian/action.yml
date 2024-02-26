@@ -169,12 +169,23 @@ runs:
           apt dist-upgrade
           echo "::endgroup::"
 
+          echo "::group::Create build user"
+          apt install adduser
+          apt-mark auto adduser
+          adduser --disabled-password --gecos "" builder
+          chown builder:builder .. -R
+          echo "::endgroup::"
+
+          echo "::group::Cleanup unneeded packages"
+          apt autoremove
+          echo "::endgroup::"
+
           echo "::group::Install build dependencies"
           apt build-dep .
           echo "::endgroup::"
 
           echo "::group::Build debian packages"
-          dpkg-buildpackage -D -b --sanitize-env
+          runuser -u builder -- dpkg-buildpackage -D -b --sanitize-env
           echo "::endgroup::"
 
           mv -v ../*"_${{ env.PKG_VERSION }}_"*.deb "${{ env.BUILD_OUTPUT_DIR }}"
