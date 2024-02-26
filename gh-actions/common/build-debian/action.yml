@@ -122,9 +122,9 @@ runs:
         workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
         shell: bash
         run: |
+          echo "::group::Update builder instance"
           set -eu
 
-          echo "::group::Update builder instance"
           echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
           apt update
           apt dist-upgrade
