@@ -63,6 +63,11 @@ runs:
 
         echo DEBFULLNAME="GitHub actions runner" >> $GITHUB_ENV
         echo DEBEMAIL="noreply@github.com" >> $GITHUB_ENV
+
+        if git status --porcelain &>/dev/null; then
+          echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action" >> $GITHUB_ENV
+          echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)" >> $GITHUB_ENV
+        fi
         echo "::endgroup::"
 
     - name: Prepare source package
