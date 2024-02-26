@@ -76,7 +76,6 @@ runs:
       with:
         image: ${{ inputs.docker-image }}
         environment: |
-          TERM=dumb
           DEBIAN_FRONTEND=noninteractive
           DEBFULLNAME=${{ env.DEBFULLNAME }}
           DEBEMAIL=${{ env.DEBEMAIL }}
