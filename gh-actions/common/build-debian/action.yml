@@ -83,9 +83,9 @@ runs:
         workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
         shell: bash
         run: |
+          echo "::group::Update builder instance and install dependencies"
           set -eu
 
-          echo "::group::Update builder instance and install dependencies"
           echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
           apt update
           apt install devscripts lsb-release
