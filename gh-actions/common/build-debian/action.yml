@@ -74,21 +74,43 @@ runs:
         echo "::endgroup::"
 
         echo "::group::Prepare source build"
-        echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir=. )" >> $GITHUB_ENV
+        echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
         echo "::endgroup::"
+
     - name: Build source package
-      uses: jtdor/build-deb-action@v1
+      uses: kohlerdominik/docker-run-action@v1.2.0
       with:
-        source-dir: ${{ inputs.source-dir }}
-        artifacts-dir: ${{ env.SOURCE_OUTPUT_DIR }}
-        docker-image: ${{ inputs.docker-image }}
-        buildpackage-opts: --build=source
-        extra-build-deps: ca-certificates git
-        before-build-hook: |
+        image: ${{ inputs.docker-image }}
+        environment: |
+          DEBIAN_FRONTEND=noninteractive
+        volumes: ${{ github.workspace }}:${{ github.workspace }}
+        workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
+        shell: bash
+        run: |
+          echo "::group::Update builder instance"
+          set -eu
+
+          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
+          apt update
+          apt dist-upgrade
+          echo "::endgroup::"
+
+          echo "::group::Install build dependencies"
+          apt build-dep .
+          apt install git ca-certificates
+          echo "::endgroup::"
+
           GITHUB_TOKEN="${{ inputs.token }}"
           if [ -n "${GITHUB_TOKEN}" ]; then
             git config --system url."https://api:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           fi
+
+          echo "::group::Build debian source package"
+          dpkg-buildpackage -D -S --sanitize-env
+          echo "::endgroup::"
+
+          mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
+
     - name: Set up package build
       shell: bash
       run: |
