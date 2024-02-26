@@ -175,7 +175,7 @@ runs:
         BUILD_INPUT_DIR="${BUILD_INPUT_BASEDIR}/source"
         echo BUILD_INPUT_DIR="${BUILD_INPUT_DIR}" >> $GITHUB_ENV
         echo "::endgroup::"
-        
+
         echo "::group::Create build output directory"
         echo BUILD_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
         echo "::endgroup::"
