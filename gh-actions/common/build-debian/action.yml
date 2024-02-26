@@ -107,7 +107,7 @@ runs:
         echo "::group::Extract source package"
         BUILD_INPUT_DIR=$(realpath "${BUILD_INPUT_DIR}")
         cd ${{ env.SOURCE_OUTPUT_DIR }}
-        dpkg-source --extract *.dsc "${BUILD_INPUT_DIR}"
+        dpkg-source --extract ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}.dsc "${BUILD_INPUT_DIR}"
         cd -
         echo "::endgroup::"
     - name: Build package
