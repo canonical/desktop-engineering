@@ -88,7 +88,8 @@ runs:
 
           echo "::group::Update debian package changelog"
           dch --local "~$(lsb_release -r -s)+git${{ env.VERSION_REF }}" \
-            "Github build. Run id: ${{ github.run_id }}. Run number: ${{ github.run_number }}."
+            "Github build. Run id: ${{ github.run_id }}. Run number: ${{ github.run_number }}." \
+            --distribution "$(lsb_release -c -s)"
 
           dpkg-parsechangelog
           echo "::endgroup::"
