@@ -91,7 +91,7 @@ runs:
           apt install devscripts lsb-release
           echo "::endgroup::"
 
-          dch --local "~$(lsb_release -r -s)+${{ env.VERSION_REF }}" \
+          dch --local "~$(lsb_release -r -s)+git${{ env.VERSION_REF }}" \
             "Github build. Run id: ${{ github.run_id }}. Run number: ${{ github.run_number }}."
 
     - name: Parse package source info
