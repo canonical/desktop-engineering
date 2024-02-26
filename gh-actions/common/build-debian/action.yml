@@ -12,11 +12,16 @@ inputs:
   token:
     required: false
     description: If provided, used for git authentication in the source build
+  extra-source-build-deps:
+    description: A list of extra build dependencies required during source build.
+    required: false
+    # FIXME: this should default to '', but we don't want to break job depending on us for now
+    default: 'ca-certificates git'
 
 
 # The process:
-# 1. We build the source package in a docker container with ca-certificates installed and thus,
-#    a useful internet connection.
+# 1. We build the source package in a docker container. If ca-certificates are
+#    installed via extra-source-build-deps we can have a useful internet connection.
 # 2. We the extract the source package.
 # 3. We build the .deb from the source package, in a container without ca-certificates (unless it
 #    is added as a build dependency), hence without a useful internet connection.
@@ -97,7 +102,11 @@ runs:
 
           echo "::group::Install build dependencies"
           apt build-dep .
-          apt install git ca-certificates
+          if [ -n "${{ inputs.extra-source-build-deps }}" ]; then
+            # Install extra packages for build-deps, to allow downloading vendored sources
+            deps=(${{ inputs.extra-source-build-deps }})
+            apt install ${deps[@]}
+          fi
           echo "::endgroup::"
 
           GITHUB_TOKEN="${{ inputs.token }}"
