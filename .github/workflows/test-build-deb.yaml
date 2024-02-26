@@ -86,4 +86,5 @@ jobs:
         with:
           source-dir: ./hello-src
           docker-image: ubuntu:devel
+          lintian: --fail-on error
           extra-source-build-deps: ''

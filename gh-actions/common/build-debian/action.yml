@@ -17,6 +17,10 @@ inputs:
     required: false
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates git'
+  lintian:
+    required: false
+    description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
+    default: ''
 
 
 # The process:
@@ -160,6 +164,47 @@ runs:
         path: ${{ env.SOURCE_OUTPUT_DIR }}/
         if-no-files-found: error
 
+    - name: Run lintian on sources
+      # We do this in a different step for various reasons:
+      # 1. To still be able to upload the source for manual inspection without
+      #    adding extra complexity to the action logic.
+      # 2. To ensure that we don't install extra dependencies during sources
+      #    building phase or during lintian phase.
+      if: inputs.lintian != 'skip'
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        image: ${{ inputs.docker-image }}
+        environment:
+          TERM=dumb
+          DEBIAN_FRONTEND=noninteractive
+          SOURCE_OUTPUT_DIR=${{ env.SOURCE_OUTPUT_DIR }}
+        volumes: ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
+        workdir: ${{ env.SOURCE_OUTPUT_DIR }}
+        shell: bash
+        run: |
+          echo "::group::Update tester instance"
+          set -eu
+
+          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
+          apt update
+          apt dist-upgrade
+          echo "::endgroup::"
+
+          echo "::group::Install lintian"
+          apt install adduser lintian
+          echo "::endgroup::"
+
+          echo "::group::Create test user"
+          adduser --disabled-password --gecos "" tester
+          chown tester:tester . -R
+          echo "::endgroup::"
+
+          echo "::group::Run lintian on source package"
+          runuser -u tester -- \
+            lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
+              "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes
+          echo "::endgroup::"
+
     - name: Set up package build
       shell: bash
       run: |
@@ -250,3 +295,38 @@ runs:
         name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-packages
         path: ${{ env.BUILD_OUTPUT_DIR }}/
         if-no-files-found: error
+
+    - name: Run lintian on binaries
+      if: inputs.lintian != 'skip'
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        image: ${{ inputs.docker-image }}
+        environment:
+          TERM=dumb
+          DEBIAN_FRONTEND=noninteractive
+        volumes: ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
+        workdir: ${{ env.BUILD_OUTPUT_DIR }}
+        shell: bash
+        run: |
+          echo "::group::Update builder instance"
+          set -eu
+
+          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
+          apt update
+          apt dist-upgrade
+          echo "::endgroup::"
+
+          echo "::group::Install lintian"
+          apt install adduser lintian
+          echo "::endgroup::"
+
+          echo "::group::Create test user"
+          adduser --disabled-password --gecos "" tester
+          chown tester:tester . -R
+          echo "::endgroup::"
+
+          echo "::group::Run lintian on binaries"
+          runuser -u tester -- \
+            lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
+              *_"${{ env.PKG_VERSION }}"_*.deb
+          echo "::endgroup::"
