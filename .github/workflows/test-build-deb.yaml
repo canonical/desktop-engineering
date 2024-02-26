@@ -12,7 +12,6 @@ on:
 env:
   DEBIAN_FRONTEND: noninteractive
   DEBCONF_NONINTERACTIVE_SEEN: true
-  TERM: dumb
 
 jobs:
   build_native_deb:
