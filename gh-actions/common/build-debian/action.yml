@@ -23,8 +23,8 @@ inputs:
 # 1. We build the source package in a docker container. If ca-certificates are
 #    installed via extra-source-build-deps we can have a useful internet connection.
 # 2. We the extract the source package.
-# 3. We build the .deb from the source package, in a container without ca-certificates (unless it
-#    is added as a build dependency), hence without a useful internet connection.
+# 3. We build the .deb from the source package, in a container without internet
+#    kind of internet connection.
 #
 # To help with debugging, here are the processes and the directories they takes place in:
 #
@@ -153,6 +153,7 @@ runs:
       uses: kohlerdominik/docker-run-action@v1.2.0
       with:
         image: ${{ inputs.docker-image }}
+        options: --cap-add=NET_ADMIN
         environment: |
           DEBIAN_FRONTEND=noninteractive
         workdir: ${{ env.BUILD_INPUT_DIR }}
@@ -174,6 +175,13 @@ runs:
           apt-mark auto adduser
           adduser --disabled-password --gecos "" builder
           chown builder:builder .. -R
+          echo "::endgroup::"
+
+          echo "::group::Fully disable internet access for user"
+          apt install iptables
+          apt-mark auto iptables
+          iptables -A OUTPUT -m owner --uid-owner $(id -u builder) -d 127.0.0.1 -j ACCEPT
+          iptables -A OUTPUT -m owner --uid-owner $(id -u builder) -j DROP
           echo "::endgroup::"
 
           echo "::group::Cleanup unneeded packages"
