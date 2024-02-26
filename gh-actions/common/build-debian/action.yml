@@ -17,6 +17,10 @@ inputs:
     required: false
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates git'
+  DEB_BUILD_OPTIONS:
+    required: false
+    default: ''
+    description: The DEB_BUILD_OPTIONS environment variable that is used during builds.
 
 
 # The process:
@@ -88,6 +92,7 @@ runs:
         image: ${{ inputs.docker-image }}
         environment: |
           DEBIAN_FRONTEND=noninteractive
+          DEB_BUILD_OPTIONS=${{ inputs.DEB_BUILD_OPTIONS }}
         volumes: ${{ github.workspace }}:${{ github.workspace }}
         workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
         shell: bash
@@ -156,6 +161,7 @@ runs:
         options: --cap-add=NET_ADMIN
         environment: |
           DEBIAN_FRONTEND=noninteractive
+          DEB_BUILD_OPTIONS=${{ inputs.DEB_BUILD_OPTIONS }}
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
           ${{ env.BUILD_INPUT_BASEDIR }}:${{ env.BUILD_INPUT_BASEDIR }}
