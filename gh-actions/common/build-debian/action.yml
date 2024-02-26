@@ -53,9 +53,9 @@ runs:
     - name: Set up source package build
       shell: bash
       run: |
+        echo "::group::Create local version with commit and docker container"
         set -eu
 
-        echo "::group::Create local version with commit and docker container"
         cd '${{ inputs.source-dir }}'
 
         # Short commit to avoid "package-has-long-file-name"
@@ -167,9 +167,9 @@ runs:
     - name: Set up package build
       shell: bash
       run: |
+        echo "::group::Create build input directory"
         set -eu
 
-        echo "::group::Create build input directory"
         # Appending /source because 'dpkg-source --extract' needs the output directory to be non-existent
         BUILD_INPUT_BASEDIR="$( mktemp --directory --tmpdir="${PWD}" )"
         echo BUILD_INPUT_BASEDIR="${BUILD_INPUT_BASEDIR}" >> $GITHUB_ENV
