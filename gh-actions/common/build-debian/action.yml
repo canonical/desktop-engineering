@@ -120,6 +120,13 @@ runs:
 
           mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
 
+    - name: Uploading source packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-source
+        path: ${{ env.SOURCE_OUTPUT_DIR }}/
+        if-no-files-found: error
+
     - name: Set up package build
       shell: bash
       run: |
