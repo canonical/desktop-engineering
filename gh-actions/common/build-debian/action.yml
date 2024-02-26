@@ -158,6 +158,7 @@ runs:
 
     - name: Uploading source packages
       uses: actions/upload-artifact@v4
+      id: build-debian-source-package-upload-step
       with:
         name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-source
         path: ${{ env.SOURCE_OUTPUT_DIR }}/
@@ -244,6 +245,7 @@ runs:
           echo "::endgroup::"
 
     - name: Upload artifacts
+      id: build-debian-binary-packages-upload-step
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-packages

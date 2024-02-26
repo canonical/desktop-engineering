@@ -60,6 +60,8 @@ jobs:
     outputs:
       pkg-name: ${{ env.PKG_NAME }}
       pkg-version: ${{ env.PKG_VERSION }}
+      source-pkg: ${{ steps.build-debian-source-package-upload-step.outputs.artifact-url }}
+      binaries: ${{ steps.build-debian-binary-packages-upload-step.outputs.artifact-url }}
 
     steps:
       - name: Install dependencies
