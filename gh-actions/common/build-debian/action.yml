@@ -87,8 +87,12 @@ runs:
           apt install devscripts lsb-release
           echo "::endgroup::"
 
+          echo "::group::Update debian package changelog"
           dch --local "~$(lsb_release -r -s)+git${{ env.VERSION_REF }}" \
             "Github build. Run id: ${{ github.run_id }}. Run number: ${{ github.run_number }}."
+
+          dpkg-parsechangelog
+          echo "::endgroup::"
 
     - name: Parse package source info
       shell: bash
