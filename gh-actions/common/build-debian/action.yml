@@ -235,6 +235,14 @@ runs:
 
           mv -v ../*"_${{ env.PKG_VERSION }}_"*.deb "${{ env.BUILD_OUTPUT_DIR }}"
 
+          echo "::group::Show binaries information"
+          for i in "${{ env.BUILD_OUTPUT_DIR }}"/*.deb; do
+            echo "$(basename "$i")"
+            dpkg --info "$i"
+            dpkg --contents "$i"
+          done
+          echo "::endgroup::"
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
