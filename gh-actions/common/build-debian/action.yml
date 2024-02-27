@@ -179,7 +179,7 @@ runs:
         echo "::endgroup::"
 
     - name: Build packages
-      uses: kohlerdominik/docker-run-action@v1.1.0
+      uses: kohlerdominik/docker-run-action@v1.2.0
       with:
         image: ${{ inputs.docker-image }}
         options: --cap-add=NET_ADMIN
