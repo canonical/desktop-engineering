@@ -67,7 +67,7 @@ runs:
         echo "::endgroup::"
 
     - name: Prepare source package
-      uses: kohlerdominik/docker-run-action@v1.1.0
+      uses: kohlerdominik/docker-run-action@v1.2.0
       with:
         image: ${{ inputs.docker-image }}
         environment: |
