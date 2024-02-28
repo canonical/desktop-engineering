@@ -15,7 +15,7 @@ inputs:
     description: Which config file to check for golangci-lint. If not set, it will look for .golangci-lint in your project, or default to desktop team defaults.
   generate-diff-paths-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
-    default: po/* doc/*.md README.md
+    default: po/* docs/**/*.md README.md
 
 runs:
   using: "composite"
