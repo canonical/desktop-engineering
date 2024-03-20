@@ -44,7 +44,7 @@ runs:
         echo "::endgroup::"
       shell: bash
     - name: Install latest protoc
-      uses: arduino/setup-protoc@v2
+      uses: arduino/setup-protoc@v3
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
     - name: Regenerate files with go generate
       id: go-generate-run
