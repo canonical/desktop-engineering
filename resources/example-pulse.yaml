@@ -1,0 +1,58 @@
+# This is an example of the format accepted by bin/jira.py for creating a new pulse.
+# Any fields not marked with "optional" are required. See the dataclass definitions
+# at the top of jira.py for more details. (This file is parsed as a Pulse)
+
+# The Jira backlog name containing the board you want to create a pulse in
+backlog: UDENG
+# The ID of the board you are creating a pulse for. You can find this by opening
+# your backlog in the Jira web UI and checking the URL:
+# -> https://warthogs.atlassian.net/jira/software/c/projects/$backlog/boards/$board_id/backlog
+board_id: 1196
+# The name to use for the new pulse (or name of an existing pulse to add to when using "--pulse-exists")
+pulse_name: "(Awesome Squad) Pulse 2024#22"
+# The goal for the pulse (visible in the backlog view beneath the pulse name)
+pulse_goal: "Turning up the awesome"
+# Date to start the pulse on in YYYY-MM-DD format
+start_date: "2024-11-04"
+# The number of days after start_date to complete the pulse on
+duration_days: 14
+# (optional) Names of existing components that should be added to all created issues
+shared_components: []
+# (optional) Names of existing labels to add to all created issues
+shared_labels: []
+# (optional) Names of existing fix versions to add to all created issues
+shared_fix_versions: []
+
+# (optional) Jira issue IDs for existing issues that should be moved into the created pulse
+existing_issues: []
+
+# Issues to be created. Each item here is a parsed as a single Issue.
+issues:
+    # Title for the issue
+  - title: "My first issue"
+    # Epic to use as the parent
+    # Running "./jira.py list-epics --backlog=$backlog" will print open epics for reference
+    parent: "UDENG-1234"
+    # The type of issue to create: one of Story, Task or Bug
+    issue_type: Story
+    # The number of story points to assign
+    story_points: 8
+    # (optional) Names of existing labels to add to this issue
+    labels: []
+    # (optional) Names of existing components to add to this issue
+    components: []
+    # (optional) Names of existing fix versions to add to this issue
+    fix_versions: []
+    # The body of the issue
+    description: |
+      https://yaml-multiline.info/ is a useful resource for checking the
+      different ways that YAML supports writing a multi-line string wrt line
+      breaks and formatting.
+
+  - title: "A second issue"
+    parent: "UDENG-1234"
+    issue_type: Task
+    story_points: 3
+    description: |
+      This is what a simple, minimal issue tends to look like without the line noise
+      of all of the comments and optional fields.
