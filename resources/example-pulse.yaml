@@ -8,7 +8,7 @@ backlog: UDENG
 # your backlog in the Jira web UI and checking the URL:
 # -> https://warthogs.atlassian.net/jira/software/c/projects/$backlog/boards/$board_id/backlog
 board_id: 1196
-# The name to use for the new pulse (or name of an existing pulse to add to when using "--pulse-exists")
+# The name to use for the new pulse (or name of an existing pulse to add to when using "add-to-pulse")
 pulse_name: "(Awesome Squad) Pulse 2024#22"
 # The goal for the pulse (visible in the backlog view beneath the pulse name)
 pulse_goal: "Turning up the awesome"

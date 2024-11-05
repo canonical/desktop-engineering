@@ -27,7 +27,7 @@ Usage:
   ./jira.py new-pulse --path=my-pulse.yaml
 
   # Add tickets to an existing pulse in Jira
-  ./jira.py new-pulse --path=my-pulse.yaml --pulse-exists
+  ./jira.py add-to-pulse --path=my-pulse.yaml
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -105,15 +105,24 @@ class JiraClient:
     def __init__(self, creds: Credentials):
         self._credentials = creds
 
-    def create_pulse(self, p: Pulse, pulse_exists: bool):
-        if not pulse_exists:
-            log("Creating new pulse in Jira...")
-            pulse_id = self._new_pulse(p)
-        else:
-            log(f"Fetching ID of existing pulse: '{p.pulse_name}'...")
-            pulse_id = self._get_pulse_id(p.board_id, p.pulse_name)
-            log("Pulse ID found")
+    def new_pulse(self, path: str):
+        with open(os.path.expanduser(path)) as f:
+            p = Pulse(**yaml.safe_load(f))
 
+        log("Creating new pulse in Jira...")
+        pulse_id = self._new_pulse(p)
+        self._create_and_add_issues(p, pulse_id)
+
+    def add_to_pulse(self, path: str):
+        with open(os.path.expanduser(args.path)) as f:
+            p = Pulse(**yaml.safe_load(f))
+
+        log(f"Fetching ID of existing pulse: '{p.pulse_name}'...")
+        pulse_id = self._get_pulse_id(p.board_id, p.pulse_name)
+        log("Pulse ID found")
+        self._create_and_add_issues(p, pulse_id)
+
+    def _create_and_add_issues(self, p: Pulse, pulse_id: int):
         log(f"Creating {len(p.issues)} issues...")
         issues = []
         for issue in p.issues:
@@ -127,11 +136,10 @@ class JiraClient:
         self._add_issues_to_pulse(issues, pulse_id)
         log("Done")
 
-    def get_epics(self, project: str) -> list[str]:
+    def print_epics(self, project: str):
         jql = f"project={project} AND issuetype=Epic AND statusCategory!=Done"
         start = 0
         page_size = 100
-        epics = []
 
         log(f"Pulling Epic details for {project}...")
         while True:
@@ -150,10 +158,10 @@ class JiraClient:
             data = resp.json()
 
             if len(data["issues"]) == 0:
-                return epics
+                return
 
             for issue in data["issues"]:
-                epics.append(f"{issue["key"]}\t{issue["fields"]["summary"]}")
+                print(f"{issue["key"]}\t{issue["fields"]["summary"]}")
             start += page_size
 
     def _auth(self):
@@ -288,10 +296,15 @@ def parse_args():
         type=str,
         help='Path to yaml file with the pulse contents'
     )
-    pulse_parser.add_argument(
-        "--pulse-exists",
-        action="store_true",
-        help="expect the pulse named in the YAML file to already exist"
+
+    existing_pulse_parser = subparsers.add_parser(
+        "add-to-pulse",
+        description="update an existing pulse in Jira"
+    )
+    existing_pulse_parser.add_argument(
+        '--path',
+        type=str,
+        help='Path to yaml file with the pulse contents'
     )
 
     return parser.parse_args()
@@ -304,12 +317,11 @@ if __name__ == '__main__':
         client = JiraClient(Credentials(**yaml.safe_load(f)))
 
     if args.subparser_name == "list-epics":
-        for epic in client.get_epics(args.backlog):
-            print(epic)
+        client.print_epics(args.backlog)
     elif args.subparser_name == "new-pulse":
-        with open(os.path.expanduser(args.path)) as f:
-            pulse = Pulse(**yaml.safe_load(f))
-        client.create_pulse(pulse, args.pulse_exists)
+        client.new_pulse(args.path)
+    elif args.subparser_name == "add-to-pulse":
+        client.add_to_pulse(args.path)
     else:
         print(f"Unknown subcommand: {args.subparser_name}")
         sys.exit(1)
