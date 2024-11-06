@@ -61,6 +61,8 @@ JIRA_URL = 'https://warthogs.atlassian.net'
 class Credentials:
     user: str
     token: str
+    board_id: int
+    sprint_prefix: str
 
 
 @dataclass
