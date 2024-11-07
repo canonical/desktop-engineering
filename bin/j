@@ -16,7 +16,6 @@
 # If you are adding anything to this then see here for API docs:
 #   https://developer.atlassian.com/cloud/jira/software/rest/intro/#introduction
 #   https://docs.atlassian.com/software/jira/docs/api/REST/9.17.0/#api/2/
-AUTH_HEADER="$JIRA_API_USER:$JIRA_API_TOKEN"
 USER="$(grep user ~/.jira_credentials | cut -d' ' -f2 | tr -d '"')"
 TOKEN="$(grep token ~/.jira_credentials | cut -d' ' -f2 | tr -d '"')"
 PREFIX="$(grep sprint_prefix ~/.jira_credentials | cut -d' ' -f2 | tr -d '"')"
@@ -193,7 +192,9 @@ function assign_issue_to_self {
 function jira_issue_fields {
   local issue=$1 fields=$2
 
-  curl -s -u "$AUTH_HEADER" "$JIRA_BASE_URL/issue/$issue?fields=$fields"
+  curl -s \
+    "https://warthogs.atlassian.net/rest/api/2/issue/$issue?fields=$fields" \
+    -u "$USER:$TOKEN" 
 }
 
 function _raw_summaries {
@@ -213,7 +214,7 @@ function _raw_current_sprint {
 
   echo "Issue|Status|Title|Type"
   curl -s \
-    --url "https://warthogs.atlassian.net/rest/agile/1.0/sprint/$sprint_id/issue?fields=status,summary,issuetype" \
+    "https://warthogs.atlassian.net/rest/agile/1.0/sprint/$sprint_id/issue?fields=status,summary,issuetype" \
     -u "$USER:$TOKEN" \
     --header 'Accept: application/json' \
     --header 'Content-Type: application/json' |
@@ -229,7 +230,7 @@ function summarise_current_sprint {
   sprint_id="$(current_sprint_id)"
 
   curl -s \
-    --url "https://warthogs.atlassian.net/rest/agile/1.0/sprint/$sprint_id" \
+     "https://warthogs.atlassian.net/rest/agile/1.0/sprint/$sprint_id" \
     -u "$USER:$TOKEN" \
     --header 'Accept: application/json' \
     --header 'Content-Type: application/json' |
