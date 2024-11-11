@@ -31,6 +31,7 @@ Usage:
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Optional
 import argparse
 import os
 import sys
@@ -67,9 +68,9 @@ class Credentials:
 class Issue:
     title: str
     parent: str
-    story_points: int
     description: str
     issue_type: str
+    story_points: Optional[int] = None
     labels: list[str] = field(default_factory=list)
     components: list[str] = field(default_factory=list)
     fix_versions: list[str] = field(default_factory=list)
@@ -127,7 +128,11 @@ class JiraClient:
         issues = []
         for issue in p.issues:
             key = self._new_issue(
-                issue, p.backlog, p.shared_labels, p.shared_components
+                issue,
+                p.backlog,
+                p.shared_labels,
+                p.shared_components,
+                p.shared_fix_versions
             )
             issues.append(key)
 
@@ -200,7 +205,7 @@ class JiraClient:
 
         payload = {
             "fields": {
-                "asignee": None,
+                "assignee": None,
                 "project": {"key": backlog},
                 "summary": i.title,
                 "description": i.description,
@@ -208,9 +213,11 @@ class JiraClient:
                 "components": [{"name": comp} for comp in i.components],
                 "fixVersions": [{"name": v} for v in i.fix_versions],
                 "issuetype": {"name": i.issue_type},
-                "customfield_10024": i.story_points,
             }
         }
+        if i.story_points is not None:
+            payload["customfield_10024"] = i.story_points
+
         resp = requests.post(
             f"{JIRA_URL}/rest/api/2/issue",
             json=payload,
@@ -263,7 +270,7 @@ class JiraClient:
             start += n
 
 
-def parse_args():
+def arg_parser():
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -310,11 +317,12 @@ def parse_args():
         help='Path to yaml file with the pulse contents'
     )
 
-    return parser.parse_args()
+    return parser
 
 
 if __name__ == '__main__':
-    args = parse_args()
+    parser = arg_parser()
+    args = parser.parse_args()
 
     with open(os.path.expanduser(args.credentials)) as f:
         raw = yaml.safe_load(f)
@@ -327,5 +335,5 @@ if __name__ == '__main__':
     elif args.subparser_name == "add-to-pulse":
         client.add_to_pulse(args.path)
     else:
-        print(f"Unknown subcommand: {args.subparser_name}")
+        print(parser.format_help())
         sys.exit(1)
