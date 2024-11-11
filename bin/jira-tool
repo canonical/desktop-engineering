@@ -69,16 +69,16 @@ function require_external {
 # [ Actions ]
 
 function usage {
-  heading "j - quick and simple Jira"
+  heading "jira-tool - quick and simple Jira"
   cat <<EOF
 
 usage:
-  j current-sprint                 pretty print the details of the current sprint
-    summarise <tickets...>         pretty print ticket titles and status
-    show <ticket>                  show the details of a given ticket
-    new <type> <component> <title> open a new ticket using your \$EDITOR
+  jira-tool current-sprint                 pretty print the details of the current sprint
+            summarise <tickets...>         pretty print ticket titles and status
+            show <ticket>                  show the details of a given ticket
+            new <type> <component> <title> open a new ticket using your \$EDITOR
 
-    [-h|--help]                    display this help message
+            [-h|--help]                    display this help message
 EOF
 }
 
@@ -268,7 +268,7 @@ case $action in
    current-sprint) summarise_current_sprint "$@";;
         summarise) summarise_jira_issues "$@";;
              show) show_jira_issue "$@";;
-              new) create_issue_in_current_sprint "$*";;
+              new) create_issue_in_current_sprint "$@";;
              noot) cecho blue "   _   < noot! >\n  (o< /\n  //\\ \n  V_/_";;
            assign) assign_issue_to_self "$1" ;;
         -h|--help) usage; exit 0;;
