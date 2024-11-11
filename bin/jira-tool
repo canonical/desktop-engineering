@@ -2,7 +2,7 @@
 # Jira but as a quick and dirty CLI
 #
 # This script expects you to have a ~/.jira_credentials file with the following
-# contents:
+# contents (double quotes are required for string values):
 # ```yaml
 # user: "<your canonical email address>"
 # token: "<a valid Jira API token>"
@@ -16,10 +16,10 @@
 # If you are adding anything to this then see here for API docs:
 #   https://developer.atlassian.com/cloud/jira/software/rest/intro/#introduction
 #   https://docs.atlassian.com/software/jira/docs/api/REST/9.17.0/#api/2/
-USER="$(grep user ~/.jira_credentials | cut -d' ' -f2 | tr -d '"')"
-TOKEN="$(grep token ~/.jira_credentials | cut -d' ' -f2 | tr -d '"')"
-PREFIX="$(grep sprint_prefix ~/.jira_credentials | cut -d' ' -f2 | tr -d '"')"
-BOARD_ID="$(grep board_id ~/.jira_credentials | cut -d' ' -f2)"
+USER="$(sed -n 's/^user:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
+TOKEN="$(sed -n 's/^token:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
+PREFIX="$(sed -n 's/^sprint_prefix:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
+BOARD_ID="$(sed -n 's/^board_id:\s*\(.\+\)/\1/p' ~/.jira_credentials)"
 BACKLOG="UDENG"
 
 declare -A C=(
