@@ -61,8 +61,6 @@ JIRA_URL = 'https://warthogs.atlassian.net'
 class Credentials:
     user: str
     token: str
-    board_id: int
-    sprint_prefix: str
 
 
 @dataclass
@@ -286,6 +284,7 @@ def parse_args():
     epics_parser.add_argument(
         '--backlog',
         type=str,
+        required=True,
         help='The backlog to list open epics in'
     )
 
@@ -296,6 +295,7 @@ def parse_args():
     pulse_parser.add_argument(
         '--path',
         type=str,
+        required=True,
         help='Path to yaml file with the pulse contents'
     )
 
@@ -306,6 +306,7 @@ def parse_args():
     existing_pulse_parser.add_argument(
         '--path',
         type=str,
+        required=True,
         help='Path to yaml file with the pulse contents'
     )
 
@@ -316,7 +317,8 @@ if __name__ == '__main__':
     args = parse_args()
 
     with open(os.path.expanduser(args.credentials)) as f:
-        client = JiraClient(Credentials(**yaml.safe_load(f)))
+        raw = yaml.safe_load(f)
+        client = JiraClient(Credentials(user=raw["user"], token=raw["token"]))
 
     if args.subparser_name == "list-epics":
         client.print_epics(args.backlog)
