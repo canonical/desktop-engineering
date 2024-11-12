@@ -16,6 +16,8 @@
 # If you are adding anything to this then see here for API docs:
 #   https://developer.atlassian.com/cloud/jira/software/rest/intro/#introduction
 #   https://docs.atlassian.com/software/jira/docs/api/REST/9.17.0/#api/2/
+set -eu
+
 USER="$(sed -n 's/^user:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 TOKEN="$(sed -n 's/^token:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 PREFIX="$(sed -n 's/^sprint_prefix:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
@@ -54,7 +56,7 @@ function txt_from_editor {
 
   fname=$(mktemp) || exit 1
   echo "$default_body" >"$fname"
-  $EDITOR "$fname" </dev/tty >/dev/tty  # make sure that we have a TTY to work with for the editor
+  sensible-editor "$fname" </dev/tty >/dev/tty  # make sure that we have a TTY to work with for the editor
   cat "$fname"
   rm "$fname"
 }
