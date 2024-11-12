@@ -236,7 +236,7 @@ class JiraClient:
             auth=self._auth()
         )
         resp.raise_for_status()
-        log(f"{key} created")
+        log(f"https://warthogs.atlassian.net/browse/{key} created")
 
         return key
 
