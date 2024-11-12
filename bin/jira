@@ -134,7 +134,7 @@ function create_issue_in_current_sprint {
 
   add_issue_to_sprint "$key" "$sprint_id"
   assign_issue_to_self "$key"
-  heading "Issue created and added to active pulse: $key"
+  heading "Issue created and added to active pulse: https://warthogs.atlassian.net/browse/$key"
 }
 
 function current_sprint_id {
