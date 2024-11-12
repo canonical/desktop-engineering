@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+# Jira but as a quick and dirty CLI
+#
+# This script expects you to have a ~/.jira_credentials file with the following
+# contents (double quotes are required for string values):
+# ```yaml
+# user: "<your canonical email address>"
+# token: "<a valid Jira API token>"
+# board_id: <integer board id>
+# sprint_prefix: "<string prefix for you Jira pulse names>"  # e.g. "(Apps)"
+# ```
+#
+# See here for details of how to obtain a Jira API token:
+#   https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/
+#
+# If you are adding anything to this then see here for API docs:
+#   https://developer.atlassian.com/cloud/jira/software/rest/intro/#introduction
+#   https://docs.atlassian.com/software/jira/docs/api/REST/9.17.0/#api/2/
+set -eu
+
+USER="$(sed -n 's/^user:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
+TOKEN="$(sed -n 's/^token:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
+PREFIX="$(sed -n 's/^sprint_prefix:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
+BOARD_ID="$(sed -n 's/^board_id:\s*\(.\+\)/\1/p' ~/.jira_credentials)"
+BACKLOG="UDENG"
+
+declare -A C=(
+  [red]='\033[31m'   [green]='\033[32m'  [yellow]='\033[33m'
+  [blue]='\033[34m'  [purple]='\033[35m' [cyan]='\033[36m'
+  [white]='\033[37m' [bold]='\033[1m'    [nc]='\033[0m'
+)
+C_HEADING="${C[cyan]}${C[bold]}"
+C_WARN="${C[yellow]}${C[bold]}"
+C_ERROR="${C[red]}${C[bold]}"
+
+
+# == helpers ==
+function cecho {
+  echo -e "${C[$1]}$2${C[nc]}"
+}
+function warn {
+  echo -e "${C_WARN}::${C[nc]} $*"
+}
+function heading {
+  echo -e "${C_HEADING}::${C[nc]} $*"
+}
+function warn_and_exit {
+  echo -e "${C_WARN}::${C[nc]} $*" && exit 0
+}
+function error_and_exit {
+  echo -e "${C_ERROR}error:${C[nc]} $*" && exit 1
+}
+
+function txt_from_editor {
+  local default_body=$1
+
+  fname=$(mktemp) || exit 1
+  echo "$default_body" >"$fname"
+  sensible-editor "$fname" </dev/tty >/dev/tty  # make sure that we have a TTY to work with for the editor
+  cat "$fname"
+  rm "$fname"
+}
+
+function require_external {
+  for prog in "$@"; do
+    [ -x "$(command -v "$prog")" ] || error_and_exit "'$prog' is required for this script to run"
+  done
+}
+
+
+# [ Actions ]
+
+function usage {
+  heading "jira - quick and simple Jira"
+  cat <<EOF
+
+usage:
+  jira current-sprint                 pretty print the details of the current sprint
+       summarise <tickets...>         pretty print ticket titles and status
+       show <ticket>                  show the details of a given ticket
+       new <type> <component> <title> open a new ticket using your \$EDITOR
+
+       [-h|--help]                    display this help message
+EOF
+}
+
+
+function create_issue_in_current_sprint {
+  local data description key sprint_id issue_type=$1 component=$2 summary=$3
+
+  sprint_id="$(current_sprint_id)"
+  description=$(txt_from_editor "Enter issue body here...")
+
+  echo "  Project: UDENG"
+  echo "  Summary: $summary"
+  echo "  Type: $issue_type"
+  echo "  Component: $component"
+  echo -e "  Description:\n$description"
+
+  warn "Create a new issue with these details? [y/n]"
+  read -r confirm; echo
+  [ "$confirm" = "y" ] || exit
+
+  heading "Creating issue..."
+  data=$(jq -n \
+    --arg summary "$summary" \
+    --arg description "$description" \
+    --arg issue_type "$issue_type" \
+    --arg component "$component" \
+    --arg backlog "$BACKLOG" \
+    '{
+      "fields": {
+        "project": {"key": $backlog},
+        "summary": $summary,
+        "description": $description,
+        "issuetype": {"name": $issue_type},
+        "components": [{"name": $component}]
+      }
+    }'
+  )
+
+  key="$(
+    curl -s \
+      'https://warthogs.atlassian.net/rest/api/2/issue' \
+      -H 'Content-type: application/json' \
+      -u "$USER:$TOKEN" \
+      --data "$data" |
+        jq -r '.key'
+  )"
+  [ -z "$key" ] && error_and_exit "failed to create issue"
+
+  add_issue_to_sprint "$key" "$sprint_id"
+  assign_issue_to_self "$key"
+  heading "Issue created and added to active pulse: $key"
+}
+
+function current_sprint_id {
+  local sprints sprint_ids
+
+  sprints="$(
+    curl -s \
+      "https://warthogs.atlassian.net/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" \
+      -H 'Content-type: application/json' \
+      -H 'Accept: application/json' \
+      -u "$USER:$TOKEN" |
+        jq -r "
+          .values |
+          map(select(.originBoardId == $BOARD_ID)) |
+          map(select(.name | startswith(\"$PREFIX\")))
+        "
+  )"
+
+  sprint_ids="$(echo "$sprints" | jq -r '. | map(.id) | join("\n")')"
+  if [[ "$(echo "$sprint_ids" | wc -l)" -ne 1 ]]; then
+    error_and_exit "Ambiguous sprint IDs. Exiting\n$sprints"
+  fi
+
+  echo "$sprint_ids" | head -n1
+}
+
+function add_issue_to_sprint {
+  local key=$1 sprint_id=$2
+  curl -s \
+    "https://warthogs.atlassian.net/rest/agile/1.0/sprint/$sprint_id/issue" \
+    -H 'Content-type: application/json' \
+    -H 'Accept: application/json' \
+    -u "$USER:$TOKEN" \
+    --data "{\"issues\": [\"$key\"]}"
+}
+
+function assign_issue_to_self {
+  local accountId key=$1
+
+  accountId="$(
+    curl -s \
+      'https://warthogs.atlassian.net/rest/api/2/myself' \
+      -u "$USER:$TOKEN" \
+      --header 'Accept: application/json' \
+      --header 'Content-Type: application/json' |
+        jq -r '.accountId'
+  )"
+
+  curl -s \
+    "https://warthogs.atlassian.net/rest/api/2/issue/$key/assignee" \
+    -H 'Content-type: application/json' \
+    -H 'Accept: application/json' \
+    -u "$USER:$TOKEN" \
+    -X PUT \
+    --data "{\"accountId\": \"$accountId\"}"
+}
+
+# Fields needs to be a comma-delimited list of valid fields for a jira issue.
+# See https://docs.atlassian.com/software/jira/docs/api/REST/latest/ for details
+function jira_issue_fields {
+  local issue=$1 fields=$2
+
+  curl -s \
+    "https://warthogs.atlassian.net/rest/api/2/issue/$issue?fields=$fields" \
+    -u "$USER:$TOKEN" 
+}
+
+function _raw_summaries {
+  echo "Issue|Status|Title|Type"
+
+  for issue in "$@"; do
+    raw=$(jira_issue_fields "$issue" 'status,summary,issuetype')
+    issuetype=$(echo "$raw" | jq -r '.fields.issuetype.name')
+    status=$(echo "$raw" | jq -r '.fields.status.name')
+    summary=$(echo "$raw" | jq -r '.fields.summary')
+    echo "$issue|$status|$summary|$issuetype"
+  done
+}
+
+function _raw_current_sprint {
+  local sprint_id=$1
+
+  echo "Issue|Status|Title|Type"
+  curl -s \
+    "https://warthogs.atlassian.net/rest/agile/1.0/sprint/$sprint_id/issue?fields=status,summary,issuetype" \
+    -u "$USER:$TOKEN" \
+    --header 'Accept: application/json' \
+    --header 'Content-Type: application/json' |
+      jq -r '
+        .issues |
+        map("\(.key)|\(.fields.status.name)|\(.fields.summary)|\(.fields.issuetype.name)") |
+        join("\n")
+      ' | sort
+}
+
+function summarise_current_sprint {
+  heading "pulling sprint details..."
+  sprint_id="$(current_sprint_id)"
+
+  curl -s \
+     "https://warthogs.atlassian.net/rest/agile/1.0/sprint/$sprint_id" \
+    -u "$USER:$TOKEN" \
+    --header 'Accept: application/json' \
+    --header 'Content-Type: application/json' |
+      jq -r '"Sprint name: \(.name)\nSprint goal: \(.goal)\n"'
+
+  _raw_current_sprint "$sprint_id" | column -t -s '|'
+}
+
+function summarise_jira_issues {
+  heading "pulling issue details..."
+
+  _raw_summaries "$@" | column -t -s '|' | sort
+}
+
+function show_jira_issue {
+  heading "pulling issue details from JIRA..."
+
+  raw=$(jira_issue_fields "$1" 'status,summary,issuetype,description,assignee')
+  assignee=$(echo "$raw" | jq -r '.fields.assignee.displayName')
+  issuetype=$(echo "$raw" | jq -r '.fields.issuetype.name')
+  description=$(echo "$raw" | jq -r '.fields.description')
+  status=$(echo "$raw" | jq -r '.fields.status.name')
+  summary=$(echo "$raw" | jq -r '.fields.summary')
+
+  echo -e "Title: $summary\nAssignee: $assignee\nType: $issuetype\nStatus: $status\n\n$description"
+}
+
+# [ main ]
+require_external curl jq column
+
+action=$1
+shift 1
+
+case $action in
+   current-sprint) summarise_current_sprint "$@";;
+        summarise) summarise_jira_issues "$@";;
+             show) show_jira_issue "$@";;
+              new) create_issue_in_current_sprint "$@";;
+             noot) cecho blue "   _   < noot! >\n  (o< /\n  //\\ \n  V_/_";;
+           assign) assign_issue_to_self "$1" ;;
+        -h|--help) usage; exit 0;;
+                *) usage; exit 1;;
+esac
