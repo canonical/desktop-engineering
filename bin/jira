@@ -69,16 +69,16 @@ function require_external {
 # [ Actions ]
 
 function usage {
-  heading "jira-tool - quick and simple Jira"
+  heading "jira - quick and simple Jira"
   cat <<EOF
 
 usage:
-  jira-tool current-sprint                 pretty print the details of the current sprint
-            summarise <tickets...>         pretty print ticket titles and status
-            show <ticket>                  show the details of a given ticket
-            new <type> <component> <title> open a new ticket using your \$EDITOR
+  jira current-sprint                 pretty print the details of the current sprint
+       summarise <tickets...>         pretty print ticket titles and status
+       show <ticket>                  show the details of a given ticket
+       new <type> <component> <title> open a new ticket using your \$EDITOR
 
-            [-h|--help]                    display this help message
+       [-h|--help]                    display this help message
 EOF
 }
 
