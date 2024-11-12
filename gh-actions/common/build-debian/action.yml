@@ -221,6 +221,10 @@ runs:
           apt autoremove
           echo "::endgroup::"
 
+          echo "::group::Install fakeroot"
+          apt install fakeroot
+          echo "::endgroup::"
+
           echo "::group::Install build dependencies"
           apt build-dep .
           echo "::endgroup::"
