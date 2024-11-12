@@ -75,10 +75,13 @@ function usage {
   cat <<EOF
 
 usage:
-  jira current-sprint                 pretty print the details of the current sprint
-       summarise <tickets...>         pretty print ticket titles and status
+  jira new <type> <component> <title> open a new ticket using your \$EDITOR
        show <ticket>                  show the details of a given ticket
-       new <type> <component> <title> open a new ticket using your \$EDITOR
+       current-sprint                 pretty print the details of the current sprint
+       summarise <tickets...>         pretty print ticket titles and status
+       list-epics --backlog=\$backlog  list open epics within the given backlog
+       pulse new --path=\$filepath     create a new pulse from a YAML file (see jira-tools.py)
+       pulse add --path=\$filepath     add to an existing pulse from a YAML file (see jira-tools.py)
 
        [-h|--help]                    display this help message
 EOF
@@ -260,8 +263,22 @@ function show_jira_issue {
   echo -e "Title: $summary\nAssignee: $assignee\nType: $issuetype\nStatus: $status\n\n$description"
 }
 
+function run_jira_tools {
+  local script_dir cmd
+  cmd="$1"
+  shift
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+  python3 "$script_dir/jira-tools.py" "$cmd" "$*"
+}
+
 # [ main ]
 require_external curl jq column
+
+
+if [ "$#" -eq 0 ]; then
+    usage
+    exit 0
+fi
 
 action=$1
 shift 1
@@ -273,6 +290,15 @@ case $action in
               new) create_issue_in_current_sprint "$@";;
              noot) cecho blue "   _   < noot! >\n  (o< /\n  //\\ \n  V_/_";;
            assign) assign_issue_to_self "$1" ;;
-        -h|--help) usage; exit 0;;
-                *) usage; exit 1;;
+       list-epics) run_jira_tools list-epics "$*" ;;
+            pulse)
+              subcmd=$1
+              shift
+              case $subcmd in
+                new) run_jira_tools new-pulse "$*" ;;
+                add) run_jira_tools add-to-pulse "$*" ;;
+                  *) usage; exit 1 ;;
+              esac ;;
+        -h|--help) usage; exit 0 ;;
+                *) usage; exit 1 ;;
 esac
