@@ -1,11 +1,16 @@
 name: Install gotestfmt and our wrapper script
 description: Install gotestfmt and our wrapper script which improves the output and copies it to log files
 
+inputs:
+  version:
+    description: The version of gotestfmt to install
+    default: "latest"
+
 runs:
   using: "composite"
   steps:
     - name: Install gotestfmt
-      run: go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
+      run: go install "github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@${{ inputs.version }}"
       shell: bash
 
     - name: Install gotestfmt wrapper script
