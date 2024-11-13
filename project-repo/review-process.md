@@ -35,16 +35,11 @@ For this, the PR title should be of the form: `<type>(<scope>): <subject>`. The 
 
 The accepted `types` are:
 
-* `build`: Changes that affect the build system or external dependencies
-* `ci`: Changes to the CI configuration
-* `deps`: Update dependencies
 * `docs`: Documentation only changes
 * `feat`: A new feature
 * `fix`: A bug fix
-* `maint`: Changes that do not affect the meaning of the code (white-spaces, formatting, missing semi-colons, typo fixes, etc). Gardening…
-* `perf`: A code change that improves performance
 * `refactor`: A code change that neither fixes a bug nor adds a feature (nor add bugs)!
-* `tests`: Adding missing tests or correcting existing tests
+* `misc`: A miscellaneous change that doesn't fit any of the other cases, e.g. build system or CI changes, dependency updates, code formatting changes, or changes to the test suite. Providing a `scope` is mandatory.
 
 > TODO: have a document defining what to configure in every new GitHub project (webhook for Jira, merge commit + default commit template, automated merged branch deletion).
 
