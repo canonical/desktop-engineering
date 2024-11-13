@@ -1,0 +1,21 @@
+name: Install gotestfmt and our wrapper script
+description: Install gotestfmt and our wrapper script which improves the output and copies it to log files
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install gotestfmt
+      run: go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
+      shell: bash
+
+    - name: Install gotestfmt wrapper script
+      run: |
+        # We install the wrapper to a different directory to avoid conflicts
+        # with the gotestfmt binary. We also add the directory to the PATH.
+        # The wrapper script expects gotestfmt to be in $GOPATH/bin, where
+        # go install puts it.
+        set -eu
+        DEST=${GITHUB_ACTION_PATH}/bin
+        install -D --mode=755 -t "${DEST}" "${GITHUB_ACTION_PATH}/gotestfmt"
+        echo "${DEST}" >> "${GITHUB_PATH}"
+      shell: bash
