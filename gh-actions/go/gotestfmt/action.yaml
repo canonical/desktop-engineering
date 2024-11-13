@@ -2,15 +2,24 @@ name: Install gotestfmt and our wrapper script
 description: Install gotestfmt and our wrapper script which improves the output and copies it to log files
 
 inputs:
-  version:
-    description: The version of gotestfmt to install
-    default: "latest"
+  tools-directory:
+    description: Directory pointing to go.mod file for checking tool versioning. If none is provided, the latest version will be downloaded.
 
 runs:
   using: "composite"
   steps:
     - name: Install gotestfmt
-      run: go install "github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@${{ inputs.version }}"
+      working-directory: ${{ inputs.tools-directory }}
+      run: |
+        set -eu
+        TOOL=github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt
+        VERSION=$(go mod edit --json | jq -r ".Require[] | select(.Path==\"${TOOL}\") | .Version" || true)
+
+        if [ -z "${VERSION}" ]; then
+          VERSION="latest"
+        fi
+
+        go install "${TOOL}@${VERSION}"
       shell: bash
 
     - name: Install gotestfmt wrapper script

@@ -10,7 +10,7 @@ This script is a wrapper around gotestfmt. It expects the output of 'go test -js
 on stdin. The output of failed tests is written to stdout, while the full output
 (including successful tests) is written to a logfile.
 
-The gotestfmt binary is expected to be in GOPATH/bin, or in $HOME/go/bin if GOPATH
+The gotestfmt binary is expected to be in GOPATH/bin, or in HOME/go/bin if GOPATH
 is not set. If your gotestfmt binary is located elsewhere, you can set the GOTESTFMT
 environment variable to the correct path.
 
