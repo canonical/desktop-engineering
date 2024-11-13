@@ -82,4 +82,12 @@ copy_output | \
 # Print the stderr file to stderr
 cat >&2 "${STDERR_FILE}"
 
+# If the exitcode is 0 (i.e. no tests failed), print the logfile to
+# stdout, so that we can see which tests were run. We don't do that
+# if tests failed, so that the failed tests don't get lost in the
+# amount of successful tests.
+if [ "${exitcode:-0}" -eq 0 ]; then
+    cat "${LOGFILE}"
+fi
+
 exit "${exitcode:-0}"
