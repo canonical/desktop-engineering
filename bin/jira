@@ -90,15 +90,35 @@ EOF
 
 
 function create_issue_in_current_sprint {
-  local data description key sprint_id issue_type=$1 component=$2 summary=$3
+  ASSIGN=true
+  LISTARGS=()
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -n|--no-assign)
+        ASSIGN=false
+        shift
+        ;;
+      -*|--*)
+        echo "Unknown option $1"
+        exit 1
+        ;;
+      *)
+        LISTARGS+=("$1") # save positional arg
+        shift # past argument
+        ;;
+    esac
+  done
+
+  local data description key sprint_id issue_type=${LISTARGS[0]} component=${LISTARGS[1]} summary=${LISTARGS[2]}
 
   sprint_id="$(current_sprint_id)"
 
-  if [ $# -eq 3 ];
+  if [ ${#LISTARGS[@]} -eq 3 ];
   then
     description=$(txt_from_editor "Enter issue body here...")
   else
-    description=$4
+    description=${LISTARGS[3]}
   fi
 
   echo "  Project: UDENG"
@@ -140,7 +160,11 @@ function create_issue_in_current_sprint {
   [ -z "$key" ] && error_and_exit "failed to create issue"
 
   add_issue_to_sprint "$key" "$sprint_id"
-  assign_issue_to_self "$key"
+
+  if [ $ASSIGN == "true" ]; then
+    assign_issue_to_self "$key"
+  fi
+
   heading "Issue created and added to active pulse: https://warthogs.atlassian.net/browse/$key"
 }
 
