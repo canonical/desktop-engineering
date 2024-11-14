@@ -91,12 +91,17 @@ EOF
 
 function create_issue_in_current_sprint {
   ASSIGN=true
+  SPRINT=true
   LISTARGS=()
 
   while [[ $# -gt 0 ]]; do
     case $1 in
-      -n|--no-assign)
+      -na|--no-assign)
         ASSIGN=false
+        shift
+        ;;
+      -ns|--no-sprint)
+        SPRINT=false
         shift
         ;;
       -*|--*)
@@ -112,7 +117,9 @@ function create_issue_in_current_sprint {
 
   local data description key sprint_id issue_type=${LISTARGS[0]} component=${LISTARGS[1]} summary=${LISTARGS[2]}
 
-  sprint_id="$(current_sprint_id)"
+  if [ $SPRINT == "true" ]; then
+    sprint_id="$(current_sprint_id)"
+  fi
 
   if [ ${#LISTARGS[@]} -eq 3 ];
   then
@@ -159,13 +166,19 @@ function create_issue_in_current_sprint {
   )"
   [ -z "$key" ] && error_and_exit "failed to create issue"
 
-  add_issue_to_sprint "$key" "$sprint_id"
+  if [ $SPRINT == "true" ]; then
+    add_issue_to_sprint "$key" "$sprint_id"
+  fi
 
   if [ $ASSIGN == "true" ]; then
     assign_issue_to_self "$key"
   fi
 
-  heading "Issue created and added to active pulse: https://warthogs.atlassian.net/browse/$key"
+  if [ $SPRINT == "true" ]; then
+    heading "Issue created and added to active pulse: https://warthogs.atlassian.net/browse/$key"
+  else
+    heading "Issue created and added to the backlog: https://warthogs.atlassian.net/browse/$key"
+  fi
 }
 
 function current_sprint_id {
