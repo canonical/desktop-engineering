@@ -92,6 +92,7 @@ EOF
 function create_issue_in_current_sprint {
   ASSIGN=true
   SPRINT=true
+  YES=false
   LISTARGS=()
 
   while [[ $# -gt 0 ]]; do
@@ -102,6 +103,10 @@ function create_issue_in_current_sprint {
         ;;
       -ns|--no-sprint)
         SPRINT=false
+        shift
+        ;;
+      -y|--yes)
+        YES=true
         shift
         ;;
       -*|--*)
@@ -135,8 +140,12 @@ function create_issue_in_current_sprint {
   echo -e "  Description:\n$description"
 
   warn "Create a new issue with these details? [y/n]"
-  read -r confirm; echo
-  [ "$confirm" = "y" ] || exit
+  if [ $YES == "false" ]; then
+    read -r confirm; echo
+    [ "$confirm" = "y" ] || exit
+  else
+    echo "y"
+  fi
 
   heading "Creating issue..."
   data=$(jq -n \
