@@ -45,6 +45,11 @@ STDERR_FILE=${LOGFILE%.log}.stderr
 STDOUT_FILE=${LOGFILE%.log}.stdout
 GOTESTFMT=${GOTESTFMT:-${GOPATH:-$HOME/go}/bin/gotestfmt}
 
+# Store the cleaned stdout in a temporary file distinct from the logfile, so
+# that even if the logfile is stored in a directory that is uploaded as an
+# artifact, the cleaned stdout is not uploaded.
+CLEANED_STDOUT_FILE=$(mktemp -t gotestfmt.XXXXXX.cleaned.stdout)
+
 strip_go_downloading_lines() {
     # Strip "go: downloading" lines which would cause jq (used by
     # `strip_empty_coverage_lines`) to fail.
@@ -76,18 +81,17 @@ copy_output() {
 copy_output | \
     strip_go_downloading_lines | \
     strip_empty_coverage_lines | \
+    tee "${CLEANED_STDOUT_FILE}" | \
     copy_to_logfile | \
     "${GOTESTFMT}" --hide all <&0 2> "${STDERR_FILE}" || exitcode=$?
 
 # Print the stderr file to stderr
 cat >&2 "${STDERR_FILE}"
 
-# If the exitcode is 0 (i.e. no tests failed), print the logfile to
-# stdout, so that we can see which tests were run. We don't do that
-# if tests failed, so that the failed tests don't get lost in the
-# amount of successful tests.
+# If the exitcode is 0 (i.e. no tests failed), print the successful tests
+# (i.e. run gotestfmt without the --hide flag).
 if [ "${exitcode:-0}" -eq 0 ]; then
-    cat "${LOGFILE}"
+    "${GOTESTFMT}" < "${CLEANED_STDOUT_FILE}"
 fi
 
 exit "${exitcode:-0}"
