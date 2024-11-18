@@ -216,7 +216,7 @@ class JiraClient:
             }
         }
         if i.story_points is not None:
-            payload["customfield_10024"] = i.story_points
+            payload["fields"]["customfield_10024"] = i.story_points
 
         resp = requests.post(
             f"{JIRA_URL}/rest/api/2/issue",
