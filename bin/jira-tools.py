@@ -20,8 +20,8 @@ of the file structure used for creating pulses.
 
 
 Usage:
-  # Write the list of the open Epics in a given backlog to stdout
-  ./jira.py list-epics --backlog=UDENG
+  # Write the list of the open Epics in a given project to stdout
+  ./jira.py list-epics --project=UDENG
 
   # Create a new pulse in Jira from a YAML file containing tickets details
   ./jira.py new-pulse --path=my-pulse.yaml
@@ -85,7 +85,7 @@ class Issue:
 
 @dataclass
 class Pulse:
-    backlog: str
+    project: str
     board_id: int
     pulse_name: str
     pulse_goal: str
@@ -129,7 +129,7 @@ class JiraClient:
         for issue in p.issues:
             key = self._new_issue(
                 issue,
-                p.backlog,
+                p.project,
                 p.shared_labels,
                 p.shared_components,
                 p.shared_fix_versions
@@ -196,7 +196,7 @@ class JiraClient:
     def _new_issue(
         self,
         i: Issue,
-        backlog: str,
+        project: str,
         labels: list[str],
         components: list[str],
         fix_versions: list[str]
@@ -208,7 +208,7 @@ class JiraClient:
         payload = {
             "fields": {
                 "assignee": None,
-                "project": {"key": backlog},
+                "project": {"key": project},
                 "summary": i.title,
                 "description": i.description,
                 "labels": i.labels,
@@ -288,13 +288,13 @@ def arg_parser():
 
     epics_parser = subparsers.add_parser(
         "list-epics",
-        description="list epics for a backlog"
+        description="list epics for a project"
     )
     epics_parser.add_argument(
-        '--backlog',
+        '--project',
         type=str,
         required=True,
-        help='The backlog to list open epics in'
+        help='The project to list open epics in'
     )
 
     epics_parser.add_argument(
@@ -338,7 +338,7 @@ if __name__ == '__main__':
         client = JiraClient(Credentials(user=raw["user"], token=raw["token"]))
 
     if args.subparser_name == "list-epics":
-        client.print_epics(args.backlog, args.components)
+        client.print_epics(args.project, args.components)
     elif args.subparser_name == "new-pulse":
         client.new_pulse(args.path)
     elif args.subparser_name == "add-to-pulse":
