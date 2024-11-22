@@ -321,7 +321,7 @@ function run_jira_tools {
   cmd="$1"
   shift
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-  python3 "$script_dir/jira-tools.py" "$cmd" "$*"
+  python3 "$script_dir/jira-tools.py" "$cmd" $@
 }
 
 # [ main ]
