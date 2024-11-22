@@ -22,7 +22,7 @@ USER="$(sed -n 's/^user:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 TOKEN="$(sed -n 's/^token:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 PREFIX="$(sed -n 's/^sprint_prefix:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 BOARD_ID="$(sed -n 's/^board_id:\s*\(.\+\)/\1/p' ~/.jira_credentials)"
-BACKLOG="UDENG"
+PROJECT="UDENG"
 
 declare -A C=(
   [red]='\033[31m'   [green]='\033[32m'  [yellow]='\033[33m'
@@ -80,7 +80,7 @@ usage:
        show <ticket>                                  show the details of a given ticket
        current-sprint                                 pretty print the details of the current sprint
        summarise <tickets...>                         pretty print ticket titles and status
-       list-epics --backlog=\$backlog                  list open epics within the given backlog
+       list-epics --project=\$project                  list open epics within the given project
        pulse new --path=\$filepath                     create a new pulse from a YAML file (see jira-tools.py)
        pulse add --path=\$filepath                     add to an existing pulse from a YAML file (see jira-tools.py)
 
@@ -153,10 +153,10 @@ function create_issue_in_current_sprint {
     --arg description "$description" \
     --arg issue_type "$issue_type" \
     --arg component "$component" \
-    --arg backlog "$BACKLOG" \
+    --arg project "$PROJECT" \
     '{
       "fields": {
-        "project": {"key": $backlog},
+        "project": {"key": $project},
         "summary": $summary,
         "description": $description,
         "issuetype": {"name": $issue_type},
