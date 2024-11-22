@@ -141,8 +141,10 @@ class JiraClient:
         self._add_issues_to_pulse(issues, pulse_id)
         log("Done")
 
-    def print_epics(self, project: str):
+    def print_epics(self, project: str, components: str):
         jql = f"project={project} AND issuetype=Epic AND statusCategory!=Done"
+        if components != None:
+            jql +=  f" AND component IN ({components})"
         start = 0
         page_size = 100
 
@@ -295,6 +297,13 @@ def arg_parser():
         help='The backlog to list open epics in'
     )
 
+    epics_parser.add_argument(
+        '--components',
+        type=str,
+        required=False,
+        help='The components to list open epics in'
+    )
+
     pulse_parser = subparsers.add_parser(
         "new-pulse",
         description="create a new pulse in Jira"
@@ -329,7 +338,7 @@ if __name__ == '__main__':
         client = JiraClient(Credentials(user=raw["user"], token=raw["token"]))
 
     if args.subparser_name == "list-epics":
-        client.print_epics(args.backlog)
+        client.print_epics(args.backlog, args.components)
     elif args.subparser_name == "new-pulse":
         client.new_pulse(args.path)
     elif args.subparser_name == "add-to-pulse":
