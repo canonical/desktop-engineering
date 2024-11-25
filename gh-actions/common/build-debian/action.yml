@@ -98,19 +98,17 @@ runs:
           dpkg-parsechangelog
           echo "::endgroup::"
 
+          echo "::group::Parsing name and version"
+          echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
+          echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
+          echo "::endgroup::"
+
     - name: Parse package source info
       shell: bash
       run: |
-        echo "::group::Parsing name and version"
+        echo "::group::Prepare source build"
         set -eu
 
-        cd '${{ inputs.source-dir }}'
-        echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
-        echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
-        cd -
-        echo "::endgroup::"
-
-        echo "::group::Prepare source build"
         echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
         echo ACTION_BIN_PATH="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
         echo "::endgroup::"
