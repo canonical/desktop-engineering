@@ -112,6 +112,7 @@ runs:
 
         echo "::group::Prepare source build"
         echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
+        echo ACTION_BIN_PATH="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
         echo "::endgroup::"
 
     - name: Build source package
@@ -164,6 +165,18 @@ runs:
         path: ${{ env.SOURCE_OUTPUT_DIR }}/
         if-no-files-found: error
 
+    - name: Install lintian result parser
+      if: inputs.lintian != 'skip'
+      shell: bash
+      run: |
+        echo "::group::Install lintian result parser"
+        set -eu
+
+        cp "${GITHUB_ACTION_PATH}/lintian-to-md.sh" \
+          "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
+        chmod +x "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
+        echo "::endgroup::"
+
     - name: Run lintian on sources
       # We do this in a different step for various reasons:
       # 1. To still be able to upload the source for manual inspection without
@@ -178,7 +191,9 @@ runs:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
           SOURCE_OUTPUT_DIR=${{ env.SOURCE_OUTPUT_DIR }}
-        volumes: ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
+        volumes: |
+          ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
+          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.SOURCE_OUTPUT_DIR }}
         shell: bash
         run: |
@@ -200,9 +215,13 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Run lintian on source package"
+          out_file=$(mktemp)
           runuser -u tester -- \
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
-              "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes
+              "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes \
+            | tee "${out_file}"
+          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+            >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
 
     - name: Set up package build
@@ -304,7 +323,9 @@ runs:
         environment:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
-        volumes: ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
+        volumes: |
+          ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
+          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.BUILD_OUTPUT_DIR }}
         shell: bash
         run: |
@@ -326,7 +347,11 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Run lintian on binaries"
+          out_file=$(mktemp)
           runuser -u tester -- \
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
-              *_"${{ env.PKG_VERSION }}"_*.deb
+              *_"${{ env.PKG_VERSION }}"_*.deb \
+            | tee "${out_file}"
+          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+            >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"

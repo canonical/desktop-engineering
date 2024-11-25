@@ -88,3 +88,64 @@ jobs:
           docker-image: ubuntu:devel
           lintian: --fail-on error
           extra-source-build-deps: ''
+
+  lintian-to-md:
+    name: Test lintian results parser to markdown
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:rolling
+
+    steps:
+      - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -eu
+
+          apt update -y
+          apt install -y lintian
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create test input
+        shell: bash
+        env:
+          NUMBER_OF_RANDOM_TAGS: 50
+        run: |
+          set -eu
+
+          test_tags=$(mktemp)
+          mapfile -t tags < <(lintian-explain-tags -l | shuf | head -n${NUMBER_OF_RANDOM_TAGS})
+          tags+=(
+            # Tags with edge cases to test
+            debhelper-compat-level
+            init.d-script-missing-lsb-keyword
+            team/pkg-js/testsuite/no-testsuite-header
+          )
+
+          for tag in "${tags[@]}"; do
+            lintian_line=$(lintian-explain-tags "${tag}" --output-width 80 | \
+              sed -n "s/^\([^N]\): \(.*\)/\1: package-$RANDOM: \2/p");
+            if [ $((RANDOM%2)) -ne 0 ]; then
+              lintian_line+=" with some random data [$RANDOM]"
+            fi
+            echo "${lintian_line}" | tee -a "${test_tags}"
+            test "${PIPESTATUS[1]}" -eq 0
+          done
+          echo TEST_TAGS="${test_tags}" >> "${GITHUB_ENV}"
+
+      - name: Test lintian markdown parser
+        shell: bash
+        run: |
+          set -eu
+
+          cat "${{ env.TEST_TAGS }}" | \
+            ./gh-actions/common/build-debian/lintian-to-md.sh |
+            tee -a "${GITHUB_STEP_SUMMARY}"
+
+          pipe_status=(${PIPESTATUS[@]})
+          for s in ${pipe_status[@]}; do
+            echo "Pipe return value: $s"
+            test "${s}" -eq 0
+          done
