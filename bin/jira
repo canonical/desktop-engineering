@@ -77,10 +77,14 @@ function usage {
 usage:
   jira new <type> <component> <title> [<description>] open a new ticket, prompting for a description
                                                       to be entered in \$EDITOR if not provided
+                                                      optional arguments:
+                                                       -na|--no-assign: do not self assign
+                                                       -ns|--no-sprint: do not include in the current sprint
+                                                       -y|--yes: do not ask for confirmation
        show <ticket>                                  show the details of a given ticket
        current-sprint                                 pretty print the details of the current sprint
        summarise <tickets...>                         pretty print ticket titles and status
-       list-epics --project=\$project                  list open epics within the given project
+       list-epics --project=\$project [--components]  list open epics within the given project (and optional components)
        pulse new --path=\$filepath                     create a new pulse from a YAML file (see jira-tools.py)
        pulse add --path=\$filepath                     add to an existing pulse from a YAML file (see jira-tools.py)
 
