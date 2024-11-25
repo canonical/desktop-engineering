@@ -59,7 +59,7 @@ runs:
         cd '${{ inputs.source-dir }}'
 
         # Short commit to avoid "package-has-long-file-name"
-        echo VERSION_REF=$(date +'%y%m%d').${{ github.run_number }}.$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
+        echo VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
 
         echo DEBFULLNAME="GitHub actions runner" >> $GITHUB_ENV
         echo DEBEMAIL="noreply@github.com" >> $GITHUB_ENV
