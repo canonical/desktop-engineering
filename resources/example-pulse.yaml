@@ -2,11 +2,11 @@
 # Any fields not marked with "optional" are required. See the dataclass definitions
 # at the top of jira.py for more details. (This file is parsed as a Pulse)
 
-# The Jira backlog name containing the board you want to create a pulse in
-backlog: UDENG
+# The Jira project name containing the board you want to create a pulse in
+project: UDENG
 # The ID of the board you are creating a pulse for. You can find this by opening
 # your backlog in the Jira web UI and checking the URL:
-# -> https://warthogs.atlassian.net/jira/software/c/projects/$backlog/boards/$board_id/backlog
+# -> https://warthogs.atlassian.net/jira/software/c/projects/$project/boards/$board_id/backlog
 board_id: 1196
 # The name to use for the new pulse (or name of an existing pulse to add to when using "add-to-pulse")
 pulse_name: "(Awesome Squad) Pulse 2024#22"
@@ -31,7 +31,7 @@ issues:
     # Title for the issue
   - title: "My first issue"
     # Epic to use as the parent
-    # Running "./jira.py list-epics --backlog=$backlog" will print open epics for reference
+    # Running "./jira.py list-epics --project=$project" will print open epics for reference
     parent: "UDENG-1234"
     # The type of issue to create: one of Story, Task or Bug
     issue_type: Story
