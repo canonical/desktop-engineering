@@ -143,6 +143,9 @@ function create_issue_in_current_sprint {
     description=${LISTARGS[3]}
   fi
 
+  # Uppercase first letter of issue type else JIRA fails to recognize it
+  issue_type=${issue_type^}
+
   echo "  Project: UDENG"
   echo "  Summary: $summary"
   echo "  Type: $issue_type"
