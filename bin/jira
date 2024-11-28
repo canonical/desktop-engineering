@@ -80,6 +80,7 @@ usage:
                                                       optional arguments:
                                                        -na|--no-assign: do not self assign
                                                        -ns|--no-sprint: do not include in the current sprint
+                                                       -p|--parent: specify a parent
                                                        -y|--yes: do not ask for confirmation
        show <ticket>                                  show the details of a given ticket
        current-sprint                                 pretty print the details of the current sprint
@@ -96,6 +97,7 @@ EOF
 function create_issue_in_current_sprint {
   ASSIGN=true
   SPRINT=true
+  PARENT=""
   YES=false
   LISTARGS=()
 
@@ -107,6 +109,10 @@ function create_issue_in_current_sprint {
         ;;
       -ns|--no-sprint)
         SPRINT=false
+        shift
+        ;;
+      -p=*|--parent=*)
+        PARENT="${1#*=}"
         shift
         ;;
       -y|--yes)
@@ -141,6 +147,9 @@ function create_issue_in_current_sprint {
   echo "  Summary: $summary"
   echo "  Type: $issue_type"
   echo "  Component: $component"
+  if [ ! -z $PARENT ]; then
+    echo "  Parent: $PARENT"
+  fi
   echo -e "  Description:\n$description"
 
   warn "Create a new issue with these details? [y/n]"
@@ -187,6 +196,10 @@ function create_issue_in_current_sprint {
     assign_issue_to_self "$key"
   fi
 
+  if [ ! -z $PARENT ]; then
+    set_issue_parent "$key" "$PARENT"
+  fi
+
   if [ $SPRINT == "true" ]; then
     heading "Issue created and added to active pulse: https://warthogs.atlassian.net/browse/$key"
   else
@@ -226,6 +239,18 @@ function add_issue_to_sprint {
     -H 'Accept: application/json' \
     -u "$USER:$TOKEN" \
     --data "{\"issues\": [\"$key\"]}"
+}
+
+function set_issue_parent {
+  local key=$1 parent=$2
+
+  curl -s \
+    "https://warthogs.atlassian.net/rest/api/2/issue/$key" \
+    -H 'Content-type: application/json' \
+    -H 'Accept: application/json' \
+    -u "$USER:$TOKEN" \
+    -X PUT \
+    --data "{\"fields\": {\"parent\":{\"key\":\"$parent\"}}}"
 }
 
 function assign_issue_to_self {
