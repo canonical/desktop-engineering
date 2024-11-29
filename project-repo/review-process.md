@@ -31,21 +31,6 @@ We should use the **merge commit workflow** (not squash and merge). The history 
 
 Individual commits do not follow [conventional commits][convcommits] and are free form. However, for better readability of the mainline, the merge commit in the mainline should follow [conventional commits][convcommits].
 
-For this, the PR title should be of the form: `<type>(<scope>): <subject>`. The scope is optional. The first comment will be the commit body and needs to reference any associated JIRA card on the last line, separated by a blank line.
-
-The accepted `types` are:
-
-* `build`: Changes that affect the build system or external dependencies
-* `ci`: Changes to the CI configuration
-* `deps`: Update dependencies
-* `docs`: Documentation only changes
-* `feat`: A new feature
-* `fix`: A bug fix
-* `maint`: Changes that do not affect the meaning of the code (white-spaces, formatting, missing semi-colons, typo fixes, etc). Gardening…
-* `perf`: A code change that improves performance
-* `refactor`: A code change that neither fixes a bug nor adds a feature (nor add bugs)!
-* `tests`: Adding missing tests or correcting existing tests
-
 > TODO: have a document defining what to configure in every new GitHub project (webhook for Jira, merge commit + default commit template, automated merged branch deletion).
 
 ## Process
