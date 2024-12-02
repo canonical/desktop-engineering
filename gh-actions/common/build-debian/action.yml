@@ -17,6 +17,10 @@ inputs:
     required: false
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates git'
+  lintian:
+    required: false
+    description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
+    default: ''
 
 
 # The process:
@@ -55,7 +59,7 @@ runs:
         cd '${{ inputs.source-dir }}'
 
         # Short commit to avoid "package-has-long-file-name"
-        echo VERSION_REF=$(date +'%y%m%d').${{ github.run_number }}.$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
+        echo VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
 
         echo DEBFULLNAME="GitHub actions runner" >> $GITHUB_ENV
         echo DEBEMAIL="noreply@github.com" >> $GITHUB_ENV
@@ -94,20 +98,19 @@ runs:
           dpkg-parsechangelog
           echo "::endgroup::"
 
+          echo "::group::Parsing name and version"
+          echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
+          echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
+          echo "::endgroup::"
+
     - name: Parse package source info
       shell: bash
       run: |
-        echo "::group::Parsing name and version"
+        echo "::group::Prepare source build"
         set -eu
 
-        cd '${{ inputs.source-dir }}'
-        echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
-        echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
-        cd -
-        echo "::endgroup::"
-
-        echo "::group::Prepare source build"
         echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
+        echo ACTION_BIN_PATH="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
         echo "::endgroup::"
 
     - name: Build source package
@@ -159,6 +162,65 @@ runs:
         name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-source
         path: ${{ env.SOURCE_OUTPUT_DIR }}/
         if-no-files-found: error
+
+    - name: Install lintian result parser
+      if: inputs.lintian != 'skip'
+      shell: bash
+      run: |
+        echo "::group::Install lintian result parser"
+        set -eu
+
+        cp "${GITHUB_ACTION_PATH}/lintian-to-md.sh" \
+          "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
+        chmod +x "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
+        echo "::endgroup::"
+
+    - name: Run lintian on sources
+      # We do this in a different step for various reasons:
+      # 1. To still be able to upload the source for manual inspection without
+      #    adding extra complexity to the action logic.
+      # 2. To ensure that we don't install extra dependencies during sources
+      #    building phase or during lintian phase.
+      if: inputs.lintian != 'skip'
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        image: ${{ inputs.docker-image }}
+        environment:
+          TERM=dumb
+          DEBIAN_FRONTEND=noninteractive
+          SOURCE_OUTPUT_DIR=${{ env.SOURCE_OUTPUT_DIR }}
+        volumes: |
+          ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
+          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
+        workdir: ${{ env.SOURCE_OUTPUT_DIR }}
+        shell: bash
+        run: |
+          echo "::group::Update tester instance"
+          set -eu
+
+          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
+          apt update
+          apt dist-upgrade
+          echo "::endgroup::"
+
+          echo "::group::Install lintian"
+          apt install adduser lintian
+          echo "::endgroup::"
+
+          echo "::group::Create test user"
+          adduser --disabled-password --gecos "" tester
+          chown tester:tester . -R
+          echo "::endgroup::"
+
+          echo "::group::Run lintian on source package"
+          out_file=$(mktemp)
+          runuser -u tester -- \
+            lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
+              "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes \
+            | tee "${out_file}"
+          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+            >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
 
     - name: Set up package build
       shell: bash
@@ -237,9 +299,24 @@ runs:
 
           echo "::group::Show binaries information"
           for i in "${{ env.BUILD_OUTPUT_DIR }}"/*.deb; do
-            echo "$(basename "$i")"
-            dpkg --info "$i"
-            dpkg --contents "$i"
+            {
+              pkg_name=$(basename "$i")
+              echo '## Package `'"${pkg_name}"'`'
+              echo
+              echo '```'
+              echo "❯ dpkg --info $pkg_name"
+              dpkg --info "$i" 2>&1
+              echo '```'
+              echo
+              echo "<details>"
+              echo "<summary>Package contents</summary>"
+              echo
+              echo '```'
+              echo "❯ dpkg --contents $pkg_name" 2>&1
+              dpkg --contents "$i"
+              echo '```'
+              echo "<details>"
+            } | tee -a "${GITHUB_STEP_SUMMARY}"
           done
           echo "::endgroup::"
 
@@ -250,3 +327,44 @@ runs:
         name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-packages
         path: ${{ env.BUILD_OUTPUT_DIR }}/
         if-no-files-found: error
+
+    - name: Run lintian on binaries
+      if: inputs.lintian != 'skip'
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        image: ${{ inputs.docker-image }}
+        environment:
+          TERM=dumb
+          DEBIAN_FRONTEND=noninteractive
+        volumes: |
+          ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
+          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
+        workdir: ${{ env.BUILD_OUTPUT_DIR }}
+        shell: bash
+        run: |
+          echo "::group::Update builder instance"
+          set -eu
+
+          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
+          apt update
+          apt dist-upgrade
+          echo "::endgroup::"
+
+          echo "::group::Install lintian"
+          apt install adduser lintian
+          echo "::endgroup::"
+
+          echo "::group::Create test user"
+          adduser --disabled-password --gecos "" tester
+          chown tester:tester . -R
+          echo "::endgroup::"
+
+          echo "::group::Run lintian on binaries"
+          out_file=$(mktemp)
+          runuser -u tester -- \
+            lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
+              *_"${{ env.PKG_VERSION }}"_*.deb \
+            | tee "${out_file}"
+          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+            >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
