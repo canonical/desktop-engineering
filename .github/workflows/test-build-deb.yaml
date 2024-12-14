@@ -88,6 +88,12 @@ jobs:
           docker-image: ubuntu:devel
           lintian: --fail-on error
           extra-source-build-deps: ''
+          extra-source-build-script: |
+            echo '$HOME' is "${HOME}"
+            echo "::group::Get some system information"
+            uname -a
+            cat /etc/os-release
+            echo "::endgroup::"
 
   lintian-to-md:
     name: Test lintian results parser to markdown

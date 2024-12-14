@@ -17,6 +17,13 @@ inputs:
     required: false
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates git'
+  extra-source-build-script:
+    description: |
+      A script to run to prepare the source build machine.
+      This happens after the dependencies have been installed, but before
+      running `dpkg-buildpackage -S`.
+    required: false
+    default: ''
   lintian:
     required: false
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
@@ -147,6 +154,15 @@ runs:
           GITHUB_TOKEN="${{ inputs.token }}"
           if [ -n "${GITHUB_TOKEN}" ]; then
             git config --system url."https://api:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
+
+          if [ -n "${{ inputs.extra-source-build-script != '' && 'true' || '' }}" ]; then
+            echo "::group::Run source build script"
+            (
+              set -eux
+              ${{ inputs.extra-source-build-script }}
+            )
+            echo "::endgroup::"
           fi
 
           echo "::group::Build debian source package"
