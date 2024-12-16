@@ -181,15 +181,19 @@ function create_issue_in_current_sprint {
     }'
   )
 
-  key="$(
+  response=$(
     curl -s \
       'https://warthogs.atlassian.net/rest/api/2/issue' \
       -H 'Content-type: application/json' \
       -u "$USER:$TOKEN" \
-      --data "$data" |
-        jq -r '.key'
-  )"
-  [ -z "$key" ] && error_and_exit "failed to create issue"
+      --data "$data"
+  )
+  key=$(echo "$response" | jq -r '.key')
+
+  if [ -z "$key" ] || [ "$key" == "null" ]; then
+    echo "response: $response"
+    error_and_exit "failed to create issue"
+  fi
 
   if [ $SPRINT == "true" ]; then
     add_issue_to_sprint "$key" "$sprint_id"
