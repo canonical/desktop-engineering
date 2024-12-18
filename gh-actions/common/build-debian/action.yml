@@ -143,6 +143,7 @@ runs:
         environment: |
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
           DEBFULLNAME=${{ env.DEBFULLNAME }}
           DEBEMAIL=${{ env.DEBEMAIL }}
         volumes: |
@@ -187,6 +188,7 @@ runs:
         environment: |
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ github.workspace }}:${{ github.workspace }}
@@ -261,6 +263,7 @@ runs:
         environment:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
           SOURCE_OUTPUT_DIR=${{ env.SOURCE_OUTPUT_DIR }}
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
@@ -327,6 +330,7 @@ runs:
         environment: |
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
@@ -412,6 +416,7 @@ runs:
         environment:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
