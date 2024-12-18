@@ -66,10 +66,18 @@ runs:
         cd '${{ inputs.source-dir }}'
 
         # Short commit to avoid "package-has-long-file-name"
-        echo VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
+        VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8)
+        echo "::endgroup::"
 
+        echo "::group::Prepare source output directory"
+        src_output_dir="$(mktemp --directory --tmpdir="${PWD}" -t output-XXXXXX)"
+        echo SOURCE_OUTPUT_DIR="${src_output_dir}" >> ${GITHUB_ENV}
+        echo "::endgroup::"
+
+        echo "::group::Set build environment"
         echo DEBFULLNAME="GitHub actions runner" >> $GITHUB_ENV
         echo DEBEMAIL="noreply@github.com" >> $GITHUB_ENV
+        echo VERSION_REF="${VERSION_REF}" >> ${GITHUB_ENV}
 
         if git status --porcelain &>/dev/null; then
           echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action" >> $GITHUB_ENV
@@ -112,16 +120,6 @@ runs:
           echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
           echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
           echo "::endgroup::"
-
-    - name: Parse package source info
-      shell: bash
-      run: |
-        echo "::group::Prepare source build"
-        set -eu
-
-        echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo ACTION_BIN_PATH="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo "::endgroup::"
 
     - name: Build source package
       uses: kohlerdominik/docker-run-action@v2.0.0
