@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Configure here all the directories where are source files
 SOURCE_FILES="src/*.[ch] tests/*.[ch]"
