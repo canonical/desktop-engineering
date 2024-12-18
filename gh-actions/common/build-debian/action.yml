@@ -98,6 +98,7 @@ runs:
       with:
         image: ${{ inputs.docker-image }}
         environment: |
+          TERM=dumb
           DEBIAN_FRONTEND=noninteractive
           DEBFULLNAME=${{ env.DEBFULLNAME }}
           DEBEMAIL=${{ env.DEBEMAIL }}
@@ -135,6 +136,7 @@ runs:
       with:
         image: ${{ inputs.docker-image }}
         environment: |
+          TERM=dumb
           DEBIAN_FRONTEND=noninteractive
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
@@ -269,6 +271,7 @@ runs:
         image: ${{ inputs.docker-image }}
         options: --cap-add=NET_ADMIN
         environment: |
+          TERM=dumb
           DEBIAN_FRONTEND=noninteractive
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
