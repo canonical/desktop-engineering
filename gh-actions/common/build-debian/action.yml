@@ -85,7 +85,8 @@ runs:
         cd '${{ inputs.source-dir }}'
 
         # Short commit to avoid "package-has-long-file-name"
-        echo VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
+        VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8)
+        echo "::endgroup::"
 
         echo "::group::Prepare source output directory"
         src_output_dir="$(mktemp --directory --tmpdir="${PWD}" -t output-XXXXXX)"
@@ -97,6 +98,8 @@ runs:
           echo DEBFULLNAME="GitHub actions runner"
           echo DEBEMAIL="noreply@github.com"
           echo VERSION_REF="${VERSION_REF}"
+          echo "SOURCE_DIR=${{ github.workspace }}/${{ inputs.source-dir }}"
+          echo "GITHUB_ACTION_PATH=${GITHUB_ACTION_PATH}"
         ) >> "${GITHUB_ENV}"
 
         if git status --porcelain &>/dev/null; then
@@ -105,11 +108,6 @@ runs:
             echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)"
           ) >> "${GITHUB_ENV}"
         fi
-
-        (
-          echo "SOURCE_DIR=${{ github.workspace }}/${{ inputs.source-dir }}"
-          echo "GITHUB_ACTION_PATH=${GITHUB_ACTION_PATH}"
-        ) >> "${GITHUB_ENV}"
         echo "::endgroup::"
 
     - name: Extract source file
@@ -170,16 +168,6 @@ runs:
             echo PKG_SOURCE_CHANGES="${PKG_NAME}_${PKG_VERSION}_source.changes"
           ) >> "${GITHUB_ENV}"
           echo "::endgroup::"
-
-    - name: Parse package source info
-      shell: bash
-      run: |
-        echo "::group::Prepare source build"
-        set -eu
-
-        echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo ACTION_BIN_PATH="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo "::endgroup::"
 
     - name: Build source package
       uses: kohlerdominik/docker-run-action@v2.0.0
