@@ -14,21 +14,22 @@ passed=true
 for file in $SOURCE_FILES; do
     if [ $# -eq 0 ]; then
         # no parameters? Just apply the changes
-        echo Formating $file
-        clang-format -i $file
+        echo Formating "$file"
+        clang-format -i "$file"
     else
         # any parameter? check that the formatting is fine
-        clang-format $file > $file.formatted
+        clang-format "$file" > "$file.formatted"
         echo Checking $file
         if [ $PRE_COMMIT -eq 0 ]; then
-            diff $file $file.formatted
+            if ! diff "$file" "$file.formatted"; then
+                passed=false
+            fi
         else
-            diff $file $file.formatted > /dev/null
+            if ! diff "$file" "$file.formatted" > /dev/null; then
+                passed=false
+            fi
         fi
-        if [ $? != 0 ]; then
-            passed=false
-        fi
-        rm $file.formatted
+        rm "$file.formatted"
     fi
 done
 if [ $passed = false ]; then
