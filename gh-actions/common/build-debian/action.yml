@@ -192,7 +192,7 @@ runs:
 
           GITHUB_TOKEN="${{ inputs.token }}"
 
-          if [ -n "${{ inputs.extra-source-build-deps }}" ]; then
+          if [ -n "${{ inputs.extra-source-build-deps != '' && 'true' || '' }}" ]; then
             # Install extra packages for build-deps, to allow downloading vendored sources
             deps=(${{ inputs.extra-source-build-deps }})
 
