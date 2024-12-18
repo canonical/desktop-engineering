@@ -107,10 +107,13 @@ runs:
         workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
         shell: bash
         run: |
-          echo "::group::Update builder instance and install dependencies"
+          echo "::group::Update source builder instance"
           set -eu
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
+          echo "::endgroup::"
+
+          echo "::group::Install source build dependencies"
           apt install devscripts lsb-release
           echo "::endgroup::"
 
@@ -139,7 +142,7 @@ runs:
         workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
         shell: bash
         run: |
-          echo "::group::Update builder instance"
+          echo "::group::Update source builder instance"
           set -eu
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
@@ -213,7 +216,7 @@ runs:
         workdir: ${{ env.SOURCE_OUTPUT_DIR }}
         shell: bash
         run: |
-          echo "::group::Update tester instance"
+          echo "::group::Update lintian sources tester instance"
           set -eu
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
@@ -357,7 +360,7 @@ runs:
         workdir: ${{ env.BUILD_OUTPUT_DIR }}
         shell: bash
         run: |
-          echo "::group::Update builder instance"
+          echo "::group::Update lintian binary tester instance"
           set -eu
 
           ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
