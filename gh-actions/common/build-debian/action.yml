@@ -95,7 +95,10 @@ runs:
           echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)" >> $GITHUB_ENV
         fi
 
-        echo "SOURCE_DIR=${{ github.workspace }}/${{ inputs.source-dir }}" >> "${GITHUB_ENV}"
+        (
+          echo "SOURCE_DIR=${{ github.workspace }}/${{ inputs.source-dir }}"
+          echo "GITHUB_ACTION_PATH=${GITHUB_ACTION_PATH}"
+        ) >> "${GITHUB_ENV}"
         echo "::endgroup::"
 
     - name: Extract source file
@@ -125,15 +128,16 @@ runs:
           DEBIAN_FRONTEND=noninteractive
           DEBFULLNAME=${{ env.DEBFULLNAME }}
           DEBEMAIL=${{ env.DEBEMAIL }}
-        volumes: ${{ github.workspace }}:${{ github.workspace }}
+        volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
+          ${{ github.workspace }}:${{ github.workspace }}
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
           echo "::group::Update builder instance and install dependencies"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           apt install devscripts lsb-release
           echo "::endgroup::"
 
@@ -172,16 +176,16 @@ runs:
         image: ${{ inputs.docker-image }}
         environment: |
           DEBIAN_FRONTEND=noninteractive
-        volumes: ${{ github.workspace }}:${{ github.workspace }}
+        volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
+          ${{ github.workspace }}:${{ github.workspace }}
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
           echo "::group::Update builder instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Install build dependencies"
@@ -260,6 +264,7 @@ runs:
           DEBIAN_FRONTEND=noninteractive
           SOURCE_OUTPUT_DIR=${{ env.SOURCE_OUTPUT_DIR }}
         volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
           ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.SOURCE_OUTPUT_DIR }}
@@ -268,9 +273,7 @@ runs:
           echo "::group::Update tester instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Install lintian"
@@ -325,6 +328,7 @@ runs:
           DEBIAN_FRONTEND=noninteractive
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.BUILD_INPUT_BASEDIR }}:${{ env.BUILD_INPUT_BASEDIR }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
         shell: bash
@@ -332,9 +336,7 @@ runs:
           echo "::group::Update builder instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Create build user"
@@ -410,6 +412,7 @@ runs:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
         volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
           ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.BUILD_OUTPUT_DIR }}
@@ -418,9 +421,7 @@ runs:
           echo "::group::Update builder instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Install lintian"
