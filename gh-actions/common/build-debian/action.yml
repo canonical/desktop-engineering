@@ -24,6 +24,11 @@ inputs:
       running `dpkg-buildpackage -S`.
     required: false
     default: ''
+  eatmydata:
+    description: Use eatmydata as dpkg replacement to speedup file writes
+    required: false
+    type: boolean
+    default: true
   lintian:
     required: false
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
@@ -85,6 +90,7 @@ runs:
         fi
 
         echo GITHUB_ACTION_PATH="${GITHUB_ACTION_PATH}" >> "${GITHUB_ENV}"
+        echo "${{ inputs.eatmydata }}" >> "${GITHUB_ACTION_PATH}/.use-eatmydata"
         echo "::endgroup::"
 
     - name: Prepare source package
