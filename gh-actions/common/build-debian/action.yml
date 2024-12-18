@@ -36,6 +36,11 @@ inputs:
       If this is provided, then the source package won't be prepared from the repository code.
     required: false
     default: ''
+  eatmydata:
+    description: Use eatmydata as dpkg replacement to speedup file writes
+    required: false
+    type: boolean
+    default: true
   lintian:
     required: false
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
@@ -108,6 +113,8 @@ runs:
             echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)"
           ) >> "${GITHUB_ENV}"
         fi
+
+        echo "${{ inputs.eatmydata }}" >> "${GITHUB_ACTION_PATH}/.use-eatmydata"
         echo "::endgroup::"
 
     - name: Extract source file

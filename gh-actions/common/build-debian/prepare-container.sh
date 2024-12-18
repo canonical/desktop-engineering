@@ -39,3 +39,14 @@ EOF
 fi
 
 apt dist-upgrade
+
+eatmydata_check=$(dirname "$0")/.use-eatmydata
+if [ "$(cat "${eatmydata_check}" || true)" == "true" ]; then
+  # Install and use eatmydata
+  apt install eatmydata
+
+  mkdir -p "/usr/local/libexec/dt-deb-action"
+  ln -s /usr/bin/eatmydata /usr/local/libexec/dt-deb-action/dpkg
+  echo 'Dir::Bin::dpkg /usr/local/libexec/dt-deb-action/dpkg;' > \
+    /etc/apt/apt.conf.d/00dt-deb-action-eatmydata
+fi
