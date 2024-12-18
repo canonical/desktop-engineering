@@ -189,18 +189,6 @@ runs:
         path: ${{ env.SOURCE_OUTPUT_DIR }}/
         if-no-files-found: error
 
-    - name: Install lintian result parser
-      if: inputs.lintian != 'skip'
-      shell: bash
-      run: |
-        echo "::group::Install lintian result parser"
-        set -eu
-
-        cp "${GITHUB_ACTION_PATH}/lintian-to-md.sh" \
-          "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
-        chmod +x "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
-        echo "::endgroup::"
-
     - name: Run lintian on sources
       # We do this in a different step for various reasons:
       # 1. To still be able to upload the source for manual inspection without
@@ -218,7 +206,6 @@ runs:
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
-          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.SOURCE_OUTPUT_DIR }}
         shell: bash
         run: |
@@ -243,7 +230,7 @@ runs:
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
               "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes \
             | tee "${out_file}"
-          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+          cat "${out_file}" | "${{ env.GITHUB_ACTION_PATH }}"/lintian-to-md.sh \
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
 
@@ -363,7 +350,6 @@ runs:
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
-          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.BUILD_OUTPUT_DIR }}
         shell: bash
         run: |
@@ -388,6 +374,6 @@ runs:
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
               *_"${{ env.PKG_VERSION }}"_*.deb \
             | tee "${out_file}"
-          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+          cat "${out_file}" | "${{ env.GITHUB_ACTION_PATH }}"/lintian-to-md.sh \
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
