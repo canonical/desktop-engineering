@@ -87,12 +87,23 @@ runs:
         # Short commit to avoid "package-has-long-file-name"
         echo VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
 
-        echo DEBFULLNAME="GitHub actions runner" >> $GITHUB_ENV
-        echo DEBEMAIL="noreply@github.com" >> $GITHUB_ENV
+        echo "::group::Prepare source output directory"
+        src_output_dir="$(mktemp --directory --tmpdir="${PWD}" -t output-XXXXXX)"
+        echo SOURCE_OUTPUT_DIR="${src_output_dir}" >> ${GITHUB_ENV}
+        echo "::endgroup::"
+
+        echo "::group::Set build environment"
+        (
+          echo DEBFULLNAME="GitHub actions runner"
+          echo DEBEMAIL="noreply@github.com"
+          echo VERSION_REF="${VERSION_REF}"
+        ) >> "${GITHUB_ENV}"
 
         if git status --porcelain &>/dev/null; then
-          echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action" >> $GITHUB_ENV
-          echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)" >> $GITHUB_ENV
+          (
+            echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action"
+            echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)"
+          ) >> "${GITHUB_ENV}"
         fi
 
         (
@@ -291,9 +302,11 @@ runs:
 
         # Appending /source because 'dpkg-source --extract' needs the output directory to be non-existent
         BUILD_INPUT_BASEDIR="$( mktemp --directory --tmpdir="${PWD}" )"
-        echo BUILD_INPUT_BASEDIR="${BUILD_INPUT_BASEDIR}" >> $GITHUB_ENV
         BUILD_INPUT_DIR="${BUILD_INPUT_BASEDIR}/source"
-        echo BUILD_INPUT_DIR="${BUILD_INPUT_DIR}" >> $GITHUB_ENV
+        (
+          echo BUILD_INPUT_BASEDIR="${BUILD_INPUT_BASEDIR}"
+          echo BUILD_INPUT_DIR="${BUILD_INPUT_DIR}"
+        ) >> "${GITHUB_ENV}"
         echo "::endgroup::"
 
         echo "::group::Create build output directory"
