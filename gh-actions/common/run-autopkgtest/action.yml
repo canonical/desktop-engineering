@@ -1,0 +1,177 @@
+name: Run autopkgtest for debian packages
+description: |
+  Runs autopkgtest for a built source package, optionally using
+  already built deb files.
+  The build happens in an LXD container so that autopkgtest can setup all the
+  required parameters to run the test with all the expected constraints.
+
+inputs:
+  source-changes:
+    description: |
+      The path to the source .changes file.
+      The the rest of the source files are expected to be in the same directory.
+    required: true
+
+  debs-dir:
+    description: |
+      Directory where the deb files are located.
+      It will be the same of the source-dir if not provided.
+    required: false
+
+  lxd-image:
+    description: |
+      The LXD image used to build the package.
+      A docker-style image aliases can also be used.
+    required: false
+    default: ubuntu:rolling
+
+  autopkgtest-args:
+    description: Additional arguments to pass to autopkgtest
+    required: false
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check prerequisites
+      shell: bash
+      env:
+        TERM: dumb
+        DEBIAN_FRONTEND: noninteractive
+        DEBCONF_NONINTERACTIVE_SEEN: true
+      run: |
+        echo "::group::Check prerequisites"
+        set -eux
+
+        sudo apt install -y dctrl-tools
+        pkg_version=$(grep-dctrl -s Version -n - "${{ inputs.source-changes }}")
+
+        if [ -z "${pkg_version}" ]; then
+          echo "${{ inputs.source-changes }} is not a valid source .changes file" | \
+            tee "${GITHUB_STEP_SUMMARY}"
+          exit 1
+        fi
+
+        echo "PKG_VERSION=${pkg_version}" >> "${GITHUB_ENV}"
+
+        debs_dir=${{ inputs.debs-dir }}
+        if [ -z "${debs_dir}" ]; then
+          debs_dir=$(dirname "${{ inputs.source-changes }}")
+        fi
+
+        if ls "${debs_dir}"/*_"${pkg_version}"_*.deb &>/dev/null; then
+          echo "DEBS_DIR=${debs_dir}" >> "${GITHUB_ENV}"
+          echo "Testing debian packages"
+        else
+          msg="${debs_dir} is not containing any debian package"
+          echo "${msg}"
+
+          if [[ "${debs_dir}" == "${{ inputs.debs-dir }}" ]]; then
+            echo "${msg}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+          echo "The package source ${{ inputs.source-changes }} will be compiled before being tested."
+        fi
+
+        echo "::endgroup::"
+
+    - name: Setup LXD
+      uses: canonical/setup-lxd@v0.1.2
+      with:
+        channel: latest/stable
+
+    - name: Map the docker image name to LXD
+      shell: bash
+      run: |
+        echo "::group::Set image for autopkgtest"
+        set -eu
+
+        case "${{ inputs.lxd-image }}" in
+          ubuntu:latest)
+            series=$(wget -O- https://api.launchpad.net/devel/ubuntu/series)
+            lts=$(echo "${series}" | \
+              jq -r '[.entries | .[] | select(.supported) | select(.version | test("^[0-9]?[02468].04")) | .name][0]')
+            img=ubuntu-daily:${lts}
+            ;;
+          ubuntu:rolling|"")
+            series=$(wget -O- https://api.launchpad.net/devel/ubuntu/series)
+            stable=$(echo "${series}" | \
+              jq -r '.entries | .[] | select(.status=="Current Stable Release").name')
+            if [ -z "${stable}" ]; then
+              stable=$(echo "${series}" | jq -r '[.entries | .[] | select(.supported) | .name][0]')
+            fi
+            img=ubuntu-daily:${stable}
+            ;;
+          ubuntu:devel)
+            img=ubuntu-daily:devel
+            ;;
+          *)
+            img=$(echo "${{ inputs.lxd-image }}" | sed "s/^ubuntu:/ubuntu-daily:/")
+            ;;
+        esac
+
+        echo "AUTOPKGTESTS_BASE_IMAGE=${img}" >> "${GITHUB_ENV}"
+
+        echo "::endgroup::"
+
+    - name: Install autopkgtest
+      shell: bash
+      env:
+        TERM: dumb
+        DEBIAN_FRONTEND: noninteractive
+        DEBCONF_NONINTERACTIVE_SEEN: true
+      run: |
+        echo "::group::Install autopkgtest"
+        set -eu
+
+        sudo apt update
+        sudo apt install -y autopkgtest
+
+        echo "::endgroup::"
+
+    - name: Prepare autopkgtest LXD container
+      shell: bash
+      env:
+        TERM: dumb
+      run: |
+        echo "::group::Prepare autopkgtest LXD container"
+        set -eu
+
+        autopkgtest-build-lxd ${{ env.AUTOPKGTESTS_BASE_IMAGE }}
+        echo "AUTOPKGTEST_IMAGE=$(lxc image list --format=csv -cl autopkgtest)" | \
+          tee -a "${GITHUB_ENV}"
+
+        echo "::endgroup::"
+
+    - name: Run autopkgtest
+      shell: bash
+      env:
+        TERM: dumb
+      run: |
+        echo "::group::Run autopkgtest"
+        set -eu
+
+        args=(
+          -s
+          --setup-commands "apt-get install -y eatmydata"
+          --apt-pocket proposed
+          --apt-upgrade
+          --summary-file "${GITHUB_STEP_SUMMARY}"
+          ${{ inputs.autopkgtest-args }}
+          "${{ inputs.source-changes }}"
+        )
+
+        if [ -n "${{ env.DEBS_DIR != '' && 'true' || '' }}" ]; then
+          args+=(
+            "${{ env.DEBS_DIR }}"/*_"${{ env.PKG_VERSION }}"_*.deb
+            --no-built-binaries
+          )
+        fi
+
+        args+=(-- lxd ${{ env.AUTOPKGTEST_IMAGE }})
+
+        echo "Running autopkgtest ${args[@]}"
+        autopkgtest "${args[@]}"
+
+        echo "::endgroup::"

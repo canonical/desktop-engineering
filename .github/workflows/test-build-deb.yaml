@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - gh-actions/common/build-debian/**
+      - gh-actions/common/run-autopkgtest/**
       - .github/workflows/test-build-deb*
   pull_request:
 
@@ -17,9 +18,14 @@ jobs:
   build_native_deb:
     name: Test build native debian package
     runs-on: ubuntu-latest
+    env:
+      UBUNTU_IMAGE: ubuntu:devel
     outputs:
       pkg-name: ${{ env.PKG_NAME }}
       pkg-version: ${{ env.PKG_VERSION }}
+      pkg-src-changes: ${{ env.PKG_SOURCE_CHANGES }}
+      run-id: ${{ github.run_id }}
+      ubuntu-image: ${{ env.UBUNTU_IMAGE }}
 
     steps:
       - name: Install dependencies
@@ -52,7 +58,31 @@ jobs:
       - name: Build package
         uses: ./.source/gh-actions/common/build-debian
         with:
-          docker-image: ubuntu:devel
+          docker-image: ${{ env.UBUNTU_IMAGE }}
+
+
+  run_autopkgtest_from_src_and_binaries:
+    name: Run autopkgtests from source and binaries
+    needs: build_native_deb
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ needs.build_native_deb.outputs.run-id }}
+          merge-multiple: true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: .source
+
+      - name: Run autopkgtests
+        uses: ./.source/gh-actions/common/run-autopkgtest
+        with:
+          source-changes: ${{ needs.build_native_deb.outputs.pkg-src-changes }}
+          lxd-image: ${{ needs.build_native_deb.outputs.ubuntu-image }}
 
 
   build_source_deb_source:
@@ -64,6 +94,7 @@ jobs:
       pkg-name: ${{ env.PKG_NAME }}
       pkg-version: ${{ env.PKG_VERSION }}
       pkg-dsc: ${{ env.PKG_DSC }}
+      pkg-src-changes: ${{ env.PKG_SOURCE_CHANGES }}
       source-pkg: ${{ steps.build-debian-source-package-upload-step.outputs.artifact-url }}
       ubuntu-image: ${{ env.UBUNTU_IMAGE }}
       run-id: ${{ github.run_id }}
@@ -127,6 +158,31 @@ jobs:
             uname -a
             cat /etc/os-release
             echo "::endgroup::"
+
+
+  run_autopkgtest_from_sources:
+    name: Run autopkgtests from source package
+    needs: build_source_deb_source
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ needs.build_source_deb.outputs.run-id }}
+          merge-multiple: true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: .source
+
+      - name: Run autopkgtests
+        uses: ./.source/gh-actions/common/run-autopkgtest
+        with:
+          source-changes: ${{ needs.build_source_deb_source.outputs.pkg-src-changes }}
+          lxd-image: ${{ needs.build_source_deb_source.outputs.image }}
+
 
   lintian-to-md:
     name: Test lintian results parser to markdown
