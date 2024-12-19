@@ -54,14 +54,19 @@ jobs:
         with:
           docker-image: ubuntu:devel
 
-  build_source_deb:
-    name: Test build quilt debian package
+
+  build_source_deb_source:
+    name: Test build quilt debian package source
     runs-on: ubuntu-latest
+    env:
+      UBUNTU_IMAGE: ubuntu:latest
     outputs:
       pkg-name: ${{ env.PKG_NAME }}
       pkg-version: ${{ env.PKG_VERSION }}
+      pkg-dsc: ${{ env.PKG_DSC }}
       source-pkg: ${{ steps.build-debian-source-package-upload-step.outputs.artifact-url }}
-      binaries: ${{ steps.build-debian-binary-packages-upload-step.outputs.artifact-url }}
+      ubuntu-image: ${{ env.UBUNTU_IMAGE }}
+      run-id: ${{ github.run_id }}
 
     steps:
       - name: Install dependencies
@@ -75,17 +80,45 @@ jobs:
 
           pull-lp-source --download-only hello
           dpkg-source -x hello*.dsc hello-src
+          rm -rfv hello_*.{dsc,debian.}*
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           path: .source
 
-      - name: Build package
+      - name: Build source package
         uses: ./.source/gh-actions/common/build-debian
         with:
+          docker-image: ${{ env.UBUNTU_IMAGE }}
+          sources-only: true
           source-dir: ./hello-src
-          docker-image: ubuntu:devel
+
+
+  build_source_deb:
+    name: Test build quilt debian package binaries
+    needs: build_source_deb_source
+    runs-on: ubuntu-latest
+    outputs:
+      binaries: ${{ steps.build-debian-binary-packages-upload-step.outputs.artifact-url }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ needs.build_source_deb.outputs.run-id }}
+          merge-multiple: true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: .source
+
+      - name: Build debian package
+        uses: ./.source/gh-actions/common/build-debian
+        with:
+          from-sources-file: ${{ needs.build_source_deb_source.outputs.pkg-dsc }}
+          docker-image: ${{ needs.build_source_deb_source.outputs.ubuntu-image }}
           lintian: --fail-on error
           extra-source-build-deps: ''
           extra-source-build-script: |
