@@ -106,8 +106,14 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Parsing name and version"
-          echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
-          echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
+          PKG_NAME=$(dpkg-parsechangelog --show-field source)
+          PKG_VERSION=$(dpkg-parsechangelog --show-field version)
+          (
+            echo PKG_NAME="$PKG_NAME"
+            echo PKG_VERSION="$PKG_VERSION"
+            echo PKG_DSC="${PKG_NAME}_${PKG_VERSION}.dsc"
+            echo PKG_SOURCE_CHANGES="${PKG_NAME}_${PKG_VERSION}_source.changes"
+          ) >> "${GITHUB_ENV}"
           echo "::endgroup::"
 
     - name: Parse package source info
@@ -239,7 +245,7 @@ runs:
           out_file=$(mktemp)
           runuser -u tester -- \
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
-              "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes \
+              "${{ env.PKG_SOURCE_CHANGES }}" \
             | tee "${out_file}"
           cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
             >> $GITHUB_STEP_SUMMARY
@@ -264,7 +270,7 @@ runs:
 
         echo "::group::Extract source package"
         cd ${{ env.SOURCE_OUTPUT_DIR }}
-        dpkg-source --extract ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}.dsc "${BUILD_INPUT_DIR}"
+        dpkg-source --extract "${{ env.PKG_DSC }}" "${BUILD_INPUT_DIR}"
         echo "::endgroup::"
 
     - name: Build packages
