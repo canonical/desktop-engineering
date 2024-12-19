@@ -24,6 +24,11 @@ inputs:
       running `dpkg-buildpackage -S`.
     required: false
     default: ''
+  eatmydata:
+    description: Use eatmydata as dpkg replacement to speedup file writes
+    required: false
+    type: boolean
+    default: true
   lintian:
     required: false
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
@@ -66,15 +71,30 @@ runs:
         cd '${{ inputs.source-dir }}'
 
         # Short commit to avoid "package-has-long-file-name"
-        echo VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8) >> $GITHUB_ENV
+        VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8)
+        echo "::endgroup::"
 
-        echo DEBFULLNAME="GitHub actions runner" >> $GITHUB_ENV
-        echo DEBEMAIL="noreply@github.com" >> $GITHUB_ENV
+        echo "::group::Prepare source output directory"
+        src_output_dir="$(mktemp --directory --tmpdir="${PWD}" -t output-XXXXXX)"
+        echo SOURCE_OUTPUT_DIR="${src_output_dir}" >> ${GITHUB_ENV}
+        echo "::endgroup::"
+
+        echo "::group::Set build environment"
+        (
+          echo DEBFULLNAME="GitHub actions runner"
+          echo DEBEMAIL="noreply@github.com"
+          echo VERSION_REF="${VERSION_REF}"
+        ) >> "${GITHUB_ENV}"
 
         if git status --porcelain &>/dev/null; then
-          echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action" >> $GITHUB_ENV
-          echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)" >> $GITHUB_ENV
+          (
+            echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action"
+            echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)"
+          ) >> "${GITHUB_ENV}"
         fi
+
+        echo GITHUB_ACTION_PATH="${GITHUB_ACTION_PATH}" >> "${GITHUB_ENV}"
+        echo "${{ inputs.eatmydata }}" >> "${GITHUB_ACTION_PATH}/.use-eatmydata"
         echo "::endgroup::"
 
     - name: Prepare source package
@@ -82,18 +102,24 @@ runs:
       with:
         image: ${{ inputs.docker-image }}
         environment: |
+          TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
           DEBFULLNAME=${{ env.DEBFULLNAME }}
           DEBEMAIL=${{ env.DEBEMAIL }}
-        volumes: ${{ github.workspace }}:${{ github.workspace }}
+        volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
+          ${{ github.workspace }}:${{ github.workspace }}
         workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
         shell: bash
         run: |
-          echo "::group::Update builder instance and install dependencies"
+          echo "::group::Update source builder instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
+          echo "::endgroup::"
+
+          echo "::group::Install source build dependencies"
           apt install devscripts lsb-release
           echo "::endgroup::"
 
@@ -106,36 +132,34 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Parsing name and version"
-          echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
-          echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
+          PKG_NAME=$(dpkg-parsechangelog --show-field source)
+          PKG_VERSION=$(dpkg-parsechangelog --show-field version)
+          (
+            echo PKG_NAME="$PKG_NAME"
+            echo PKG_VERSION="$PKG_VERSION"
+            echo PKG_DSC="${PKG_NAME}_${PKG_VERSION}.dsc"
+            echo PKG_SOURCE_CHANGES="${PKG_NAME}_${PKG_VERSION}_source.changes"
+          ) >> "${GITHUB_ENV}"
           echo "::endgroup::"
-
-    - name: Parse package source info
-      shell: bash
-      run: |
-        echo "::group::Prepare source build"
-        set -eu
-
-        echo SOURCE_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo ACTION_BIN_PATH="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo "::endgroup::"
 
     - name: Build source package
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         image: ${{ inputs.docker-image }}
         environment: |
+          TERM=dumb
           DEBIAN_FRONTEND=noninteractive
-        volumes: ${{ github.workspace }}:${{ github.workspace }}
+          DEBCONF_NONINTERACTIVE_SEEN=true
+        volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
+          ${{ github.workspace }}:${{ github.workspace }}
         workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
         shell: bash
         run: |
-          echo "::group::Update builder instance"
+          echo "::group::Update source builder instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Install build dependencies"
@@ -143,7 +167,7 @@ runs:
 
           GITHUB_TOKEN="${{ inputs.token }}"
 
-          if [ -n "${{ inputs.extra-source-build-deps }}" ]; then
+          if [ -n "${{ inputs.extra-source-build-deps != '' && 'true' || '' }}" ]; then
             # Install extra packages for build-deps, to allow downloading vendored sources
             deps=(${{ inputs.extra-source-build-deps }})
 
@@ -186,18 +210,6 @@ runs:
         path: ${{ env.SOURCE_OUTPUT_DIR }}/
         if-no-files-found: error
 
-    - name: Install lintian result parser
-      if: inputs.lintian != 'skip'
-      shell: bash
-      run: |
-        echo "::group::Install lintian result parser"
-        set -eu
-
-        cp "${GITHUB_ACTION_PATH}/lintian-to-md.sh" \
-          "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
-        chmod +x "${{ env.ACTION_BIN_PATH }}"/lintian-to-md
-        echo "::endgroup::"
-
     - name: Run lintian on sources
       # We do this in a different step for various reasons:
       # 1. To still be able to upload the source for manual inspection without
@@ -211,19 +223,18 @@ runs:
         environment:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
           SOURCE_OUTPUT_DIR=${{ env.SOURCE_OUTPUT_DIR }}
         volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
-          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.SOURCE_OUTPUT_DIR }}
         shell: bash
         run: |
-          echo "::group::Update tester instance"
+          echo "::group::Update lintian sources tester instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Install lintian"
@@ -239,9 +250,9 @@ runs:
           out_file=$(mktemp)
           runuser -u tester -- \
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
-              "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes \
+              "${{ env.PKG_SOURCE_CHANGES }}" \
             | tee "${out_file}"
-          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+          cat "${out_file}" | "${{ env.GITHUB_ACTION_PATH }}"/lintian-to-md.sh \
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
 
@@ -253,9 +264,11 @@ runs:
 
         # Appending /source because 'dpkg-source --extract' needs the output directory to be non-existent
         BUILD_INPUT_BASEDIR="$( mktemp --directory --tmpdir="${PWD}" )"
-        echo BUILD_INPUT_BASEDIR="${BUILD_INPUT_BASEDIR}" >> $GITHUB_ENV
         BUILD_INPUT_DIR="${BUILD_INPUT_BASEDIR}/source"
-        echo BUILD_INPUT_DIR="${BUILD_INPUT_DIR}" >> $GITHUB_ENV
+        (
+          echo BUILD_INPUT_BASEDIR="${BUILD_INPUT_BASEDIR}"
+          echo BUILD_INPUT_DIR="${BUILD_INPUT_DIR}"
+        ) >> "${GITHUB_ENV}"
         echo "::endgroup::"
 
         echo "::group::Create build output directory"
@@ -264,7 +277,7 @@ runs:
 
         echo "::group::Extract source package"
         cd ${{ env.SOURCE_OUTPUT_DIR }}
-        dpkg-source --extract ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}.dsc "${BUILD_INPUT_DIR}"
+        dpkg-source --extract "${{ env.PKG_DSC }}" "${BUILD_INPUT_DIR}"
         echo "::endgroup::"
 
     - name: Build packages
@@ -273,9 +286,12 @@ runs:
         image: ${{ inputs.docker-image }}
         options: --cap-add=NET_ADMIN
         environment: |
+          TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.BUILD_INPUT_BASEDIR }}:${{ env.BUILD_INPUT_BASEDIR }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
         shell: bash
@@ -283,9 +299,7 @@ runs:
           echo "::group::Update builder instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Create build user"
@@ -359,18 +373,17 @@ runs:
         environment:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
+          DEBCONF_NONINTERACTIVE_SEEN=true
         volumes: |
+          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
-          ${{ env.ACTION_BIN_PATH }}:${{ env.ACTION_BIN_PATH }}
         workdir: ${{ env.BUILD_OUTPUT_DIR }}
         shell: bash
         run: |
-          echo "::group::Update builder instance"
+          echo "::group::Update lintian binary tester instance"
           set -eu
 
-          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
-          apt update
-          apt dist-upgrade
+          ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
           echo "::group::Install lintian"
@@ -388,6 +401,6 @@ runs:
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
               *_"${{ env.PKG_VERSION }}"_*.deb \
             | tee "${out_file}"
-          cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
+          cat "${out_file}" | "${{ env.GITHUB_ACTION_PATH }}"/lintian-to-md.sh \
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"

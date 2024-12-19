@@ -53,6 +53,7 @@ jobs:
         uses: ./.source/gh-actions/common/build-debian
         with:
           docker-image: ubuntu:devel
+          eatmydata: false
 
   build_source_deb:
     name: Test build quilt debian package
