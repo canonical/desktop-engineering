@@ -23,11 +23,11 @@ check_source_file() {
         echo Checking $1 >&2
         if [ $PRE_COMMIT -eq 0 ]; then
             if ! diff "$1" "$1.formatted" >&2; then
-                echo false
+                echo -n false
             fi
         else
             if ! diff "$1" "$1.formatted" > /dev/null; then
-                echo false
+                echo -n false
             fi
         fi
         rm "$1.formatted"
@@ -46,7 +46,7 @@ RESULT=$(find -name '*.c' -or -name '*.h' | while read file; do
     check_source_file "$file"
 done)
 
-if [ ! $RESULT = "" ]; then
+if [ ! "$RESULT" = "" ]; then
     echo Failed to pass clang-format check
     exit 1
 fi
