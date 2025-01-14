@@ -10,7 +10,7 @@ inputs:
   go-tags:
     description: A comma separate list of go tags to consider when linting, building and checking for vulnerabilities.
   tools-directory:
-    description: Directory pointing to go.mod file for checking tool versionning. If none is provided, it will download latest.
+    description: Directory pointing to go.mod file for checking tool versioning. If none is provided, it will download latest.
   golangci-lint-configfile:
     description: Which config file to check for golangci-lint. If not set, it will look for .golangci-lint in your project, or default to desktop team defaults.
   generate-diff-paths-to-ignore:
