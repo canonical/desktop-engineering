@@ -31,6 +31,8 @@ runs:
         echo "::group::Download jq"
         if [ "${{runner.os}}" = "Windows" ]; then
           winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
+        elif [ "${{runner.os}}" = "macOS" ]; then
+          brew install jq
         else
           sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
           DEBIAN_FRONTEND=noninteractive $SUDO apt update
