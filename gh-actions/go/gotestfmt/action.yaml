@@ -32,6 +32,7 @@ runs:
         # The wrapper script expects gotestfmt to be in $GOPATH/bin, where
         # go install puts it.
         DEST=${GITHUB_ACTION_PATH}/bin
-        install -D --mode=755 -t "${DEST}" "${GITHUB_ACTION_PATH}/gotestfmt"
+        mkdir -p "${DEST}"
+        install -m 755 "${GITHUB_ACTION_PATH}/gotestfmt" "${DEST}"
         echo "${DEST}" >> "${GITHUB_PATH}"
       shell: bash
