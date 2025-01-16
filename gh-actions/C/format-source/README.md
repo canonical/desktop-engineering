@@ -8,11 +8,14 @@ a `git push`.
 ## Configuring
 
 Just copy the `format.yaml` file to the `.github/workflows/` folder and
-the `format-source.sh` script to the project root folder, and edit the
-script to configure the folders where to search for source code files
-(both .c and .h).
+the `format-source.sh` script to the project root folder. By default,
+it will search recursively in all the folders for `.c` and `.h` files;
+but it is possible to define an environment variable called SOURCE_PATHS,
+which should contain all the folders containing source files, separated
+by colons. This environment variable will be set from the action input
+`inputs.sourcePaths`.
 
-Also, edit the `.git/hooks/pre-commit` script:
+Also, in your system, you can edit the `.git/hooks/pre-commit` script:
 
     #!/bin/sh
     ./format-source.sh pre-commit
