@@ -12,7 +12,7 @@ the `format-source.sh` script to the project root folder. By default,
 it will search recursively in all the folders for `.c` and `.h` files;
 but it is possible to define an environment variable called SOURCE_PATHS,
 which should contain all the folders containing source files, separated
-by colons. This environment variable will be set from the action input
+by spaces. This environment variable will be set from the action input
 `inputs.sourcePaths`.
 
 Also, in your system, you can edit the `.git/hooks/pre-commit` script:

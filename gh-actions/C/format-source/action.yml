@@ -3,7 +3,7 @@ description: Uses CLANG to format C source and header files
 
 inputs:
   sourcePaths:
-    description: 'Paths with source files, separated by colons'
+    description: 'Paths with source files, separated by spaces'
     required: true
     default: ''
 

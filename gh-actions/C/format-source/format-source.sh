@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # The SOURCE_PATHS environment variable is an optional ENV where a
 # space-separated list of paths can be configured, where the script
@@ -39,10 +39,12 @@ check_source_file() {
     fi
 }
 
+RESULT=""
+
 if [ -n "${SOURCE_PATHS}" ]; then
 # if SOURCE_PATHS is defined, search only in the specified paths
     for source_path in ${SOURCE_PATHS}; do
-        RESULT=$(for file in "${source_path}"/*.c "${source_path}"/*.h; do
+        RESULT=${RESULT}$(find $source_path -name '*.c' -or -name '*.h' | while read file; do
             check_source_file "$file"
         done)
     done
@@ -56,7 +58,7 @@ else
 # STDERR. That's why the check_source_file() function has so many >&2: those
 # are commands whose output we want in the screen. This trick is needed because
 # there seems to not be an easy way of storing STDERR instead of SDTOUT
-    RESULT=$(find -name '*.c' -or -name '*.h' | while read file; do
+    RESULT=${RESULT}$(find -name '*.c' -or -name '*.h' | while read file; do
         check_source_file "$file"
     done)
 fi
