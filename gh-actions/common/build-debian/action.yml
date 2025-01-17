@@ -24,6 +24,18 @@ inputs:
       running `dpkg-buildpackage -S`.
     required: false
     default: ''
+  sources-only:
+    description: Whether to build the package sources only.
+    type: boolean
+    required: false
+    default: false
+  from-sources-file:
+    description: |
+      The path to the source .dsc or .changes file.
+      The the rest of the source files are expected to be in the same directory.
+      If this is provided, then the source package won't be prepared from the repository code.
+    required: false
+    default: ''
   lintian:
     required: false
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
@@ -57,6 +69,13 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Check inputs
+      if: ${{ inputs.sources-only != 'false' && inputs.from-sources-file != '' }}
+      shell: bash
+      run: |
+        echo "Invalid inputs, nothing to"
+        exit 1
+
     - name: Set up source package build
       shell: bash
       run: |
@@ -75,7 +94,28 @@ runs:
           echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action" >> $GITHUB_ENV
           echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)" >> $GITHUB_ENV
         fi
+
+        echo "SOURCE_DIR=${{ github.workspace }}/${{ inputs.source-dir }}" >> "${GITHUB_ENV}"
         echo "::endgroup::"
+
+    - name: Extract source file
+      if: ${{ inputs.from-sources-file != '' }}
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        image: ${{ inputs.docker-image }}
+        volumes: ${{ github.workspace }}:${{ github.workspace }}
+        workdir: ${{ env.SOURCE_DIR }}
+        shell: bash
+        run: |
+          echo "::group::Extract source file"
+          set -eu
+
+          apt update
+          apt install -y dpkg-dev
+          srcdir=$(mktemp --directory --tmpdir="${PWD}" -t srcdir-XXXXXX)/src
+
+          dpkg-source --extract "${{ inputs.from-sources-file }}" "${srcdir}"
+          echo "SOURCE_DIR=${srcdir}" >> "${GITHUB_ENV}"
 
     - name: Prepare source package
       uses: kohlerdominik/docker-run-action@v2.0.0
@@ -86,7 +126,7 @@ runs:
           DEBFULLNAME=${{ env.DEBFULLNAME }}
           DEBEMAIL=${{ env.DEBEMAIL }}
         volumes: ${{ github.workspace }}:${{ github.workspace }}
-        workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
+        workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
           echo "::group::Update builder instance and install dependencies"
@@ -106,8 +146,14 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Parsing name and version"
-          echo PKG_NAME="$( dpkg-parsechangelog --show-field source )" >> $GITHUB_ENV
-          echo PKG_VERSION="$( dpkg-parsechangelog --show-field version )" >> $GITHUB_ENV
+          PKG_NAME=$(dpkg-parsechangelog --show-field source)
+          PKG_VERSION=$(dpkg-parsechangelog --show-field version)
+          (
+            echo PKG_NAME="$PKG_NAME"
+            echo PKG_VERSION="$PKG_VERSION"
+            echo PKG_DSC="${PKG_NAME}_${PKG_VERSION}.dsc"
+            echo PKG_SOURCE_CHANGES="${PKG_NAME}_${PKG_VERSION}_source.changes"
+          ) >> "${GITHUB_ENV}"
           echo "::endgroup::"
 
     - name: Parse package source info
@@ -127,7 +173,7 @@ runs:
         environment: |
           DEBIAN_FRONTEND=noninteractive
         volumes: ${{ github.workspace }}:${{ github.workspace }}
-        workdir: ${{ github.workspace }}/${{ inputs.source-dir }}
+        workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
           echo "::group::Update builder instance"
@@ -179,6 +225,7 @@ runs:
           mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
 
     - name: Uploading source packages
+      if: ${{ inputs.from-sources-file == '' }}
       uses: actions/upload-artifact@v4
       id: build-debian-source-package-upload-step
       with:
@@ -204,7 +251,7 @@ runs:
       #    adding extra complexity to the action logic.
       # 2. To ensure that we don't install extra dependencies during sources
       #    building phase or during lintian phase.
-      if: inputs.lintian != 'skip'
+      if: ${{ inputs.lintian != 'skip' && inputs.from-sources-file == '' }}
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         image: ${{ inputs.docker-image }}
@@ -239,13 +286,14 @@ runs:
           out_file=$(mktemp)
           runuser -u tester -- \
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
-              "${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}_source".changes \
+              "${{ env.PKG_SOURCE_CHANGES }}" \
             | tee "${out_file}"
           cat "${out_file}" | "${{ env.ACTION_BIN_PATH }}"/lintian-to-md \
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
 
     - name: Set up package build
+      if: ${{ inputs.sources-only != 'true' }}
       shell: bash
       run: |
         echo "::group::Create build input directory"
@@ -264,10 +312,11 @@ runs:
 
         echo "::group::Extract source package"
         cd ${{ env.SOURCE_OUTPUT_DIR }}
-        dpkg-source --extract ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}.dsc "${BUILD_INPUT_DIR}"
+        dpkg-source --extract "${{ env.PKG_DSC }}" "${BUILD_INPUT_DIR}"
         echo "::endgroup::"
 
     - name: Build packages
+      if: ${{ inputs.sources-only != 'true' }}
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         image: ${{ inputs.docker-image }}
@@ -344,6 +393,7 @@ runs:
           echo "::endgroup::"
 
     - name: Upload artifacts
+      if: ${{ inputs.sources-only != 'true' }}
       id: build-debian-binary-packages-upload-step
       uses: actions/upload-artifact@v4
       with:
@@ -352,7 +402,7 @@ runs:
         if-no-files-found: error
 
     - name: Run lintian on binaries
-      if: inputs.lintian != 'skip'
+      if: ${{ inputs.lintian != 'skip' && inputs.sources-only != 'true' }}
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         image: ${{ inputs.docker-image }}
