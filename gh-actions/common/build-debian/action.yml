@@ -5,18 +5,22 @@ inputs:
   source-dir:
     required: false
     description: Directory where the source is located
+
   docker-image:
     required: false
     default: ubuntu:rolling
     description: The docker image used to build the package
+
   token:
     required: false
     description: If provided, used for git authentication in the source build
+
   extra-source-build-deps:
     description: A list of extra build dependencies required during source build.
     required: false
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates'
+
   extra-source-build-script:
     description: |
       A script to run to prepare the source build machine.
@@ -24,11 +28,13 @@ inputs:
       running `dpkg-buildpackage -S`.
     required: false
     default: ''
+
   sources-only:
     description: Whether to build the package sources only.
     type: boolean
     required: false
     default: false
+
   from-sources-file:
     description: |
       The path to the source .dsc or .changes file.
@@ -36,11 +42,13 @@ inputs:
       If this is provided, then the source package won't be prepared from the repository code.
     required: false
     default: ''
+
   eatmydata:
     description: Use eatmydata as dpkg replacement to speedup file writes
     required: false
     type: boolean
     default: true
+
   lintian:
     required: false
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
