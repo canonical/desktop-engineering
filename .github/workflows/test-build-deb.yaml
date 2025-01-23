@@ -59,6 +59,7 @@ jobs:
         uses: ./.source/gh-actions/common/build-debian
         with:
           docker-image: ${{ env.UBUNTU_IMAGE }}
+          eatmydata: false
 
 
   run_autopkgtest_from_src_and_binaries:
