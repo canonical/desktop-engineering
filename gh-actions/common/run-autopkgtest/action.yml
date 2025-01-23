@@ -77,7 +77,7 @@ runs:
         echo "::endgroup::"
 
     - name: Setup LXD
-      uses: canonical/setup-lxd@v0.1.2
+      uses: canonical/setup-lxd@main
       with:
         channel: latest/stable
 
