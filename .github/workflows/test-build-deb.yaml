@@ -125,6 +125,7 @@ jobs:
           docker-image: ${{ env.UBUNTU_IMAGE }}
           sources-only: true
           source-dir: ./hello-src
+          lintian: skip
 
 
   build_source_deb:
