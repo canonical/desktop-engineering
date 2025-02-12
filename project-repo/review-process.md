@@ -35,24 +35,17 @@ For this, the PR title should be of the form: `<type>(<scope>): <subject>`. The 
 
 The accepted `types` are:
 
-* `build`: Changes that affect the build system or external dependencies
-* `ci`: Changes to the CI configuration
-* `deps`: Update dependencies
 * `docs`: Documentation only changes
 * `feat`: A new feature
 * `fix`: A bug fix
-* `maint`: Changes that do not affect the meaning of the code (white-spaces, formatting, missing semi-colons, typo fixes, etc). Gardening…
-* `perf`: A code change that improves performance
 * `refactor`: A code change that neither fixes a bug nor adds a feature (nor add bugs)!
-* `tests`: Adding missing tests or correcting existing tests
-
-> TODO: have a document defining what to configure in every new GitHub project (webhook for Jira, merge commit + default commit template, automated merged branch deletion).
+* `misc`: A miscellaneous change that doesn't fit any of the other cases, e.g. build system or CI changes, dependency updates, code formatting changes, or changes to the test suite. Providing a `scope` is mandatory.
 
 ## Process
 
 Don't hesitate to comment and reiterate! When you engage with a pull request, the expectation is that you remain responsive, and not let the pull request go stale.
 
-1. Team members should [sign their commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits). While this may be difficult to enforce for community contributions, we expect team members to _always_ follow this guideline.
+1. Team members should [sign their commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits). If community contributors are unable to sign their commits for any reason, the reviewer should sign their commits before merging.
 1. The pull request should always be opened as a draft, to avoid notifying the reviewers before the tests pass and the pull request is fully ready for review. Ensure the description of changes is readable and understandable by prospective reviewers. The pull request should be linked to a Jira card, using `UDENG-XXX` in its description, so that Jira links against it.
 1. The pull request diff should be examined by the submitter - it may happen that a debug print statement was left in, or a non-related change was accidentally `git add`ed. Please at least do a quick visual scan to help catch such potential issues/typos.
 1. The submitter should wait and check for the CI feedback to indicate a pass (linting, testing, building, automated generation, etc.). Static security check tool (part of linting if possible) is part of that stage. Feel free to ping a team member to ask for help before a formal review, if something doesn’t pass (like tests) and you don’t have any ideas on how to fix it. In such cases, the pull request description should mention that the tests don’t pass.
@@ -77,12 +70,7 @@ Don't hesitate to comment and reiterate! When you engage with a pull request, th
    > It’s always the person opening a comment, **not** the submitter of the pull request, that should resolve the comments, once they are happy with the particular change.
 
 This cycle is repeated if there are further comments or if some are still left open. Once all comments are resolved, the reviewer should approve.
-
-### Final merge
-
-1. The submitter will squash the optional additional commits and force push to the pull request.
-1. The submitter examines one last time the diff, the test results, and the coverage.
-1. The submitter is in charge of merging the changes by clicking the merge button.
+Finally, the submitter should merge the changes by clicking the merge button.
 
 > Note: The final merge steps may be proceeded by the reviewer if we are in a hurry. However, it’s preferable to allow the submitter to do the actual merging, as an additional way of acknowledging their work and enjoying the dopamine boost. :-)
 
