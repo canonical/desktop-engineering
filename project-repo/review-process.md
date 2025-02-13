@@ -46,7 +46,7 @@ The accepted `types` are:
 * `refactor`: A code change that neither fixes a bug nor adds a feature (nor add bugs)!
 * `tests`: Adding missing tests or correcting existing tests
 
-> TODO: have a document defining what to configure in every new GitHub project (webhook for Jira, merge commit + default commit template, automated merged branch deletion).
+> TODO: have a document defining what to configure in every new GitHub project (Jira app configuration, merge commit + default commit template, automated merged branch deletion).
 
 ## Process
 
