@@ -45,7 +45,7 @@ if [ -n "${SOURCE_PATHS}" ]; then
 # if SOURCE_PATHS is defined, search only in the specified paths
     for source_path in ${SOURCE_PATHS}; do
         source_path=$(realpath -- "$source_path")
-        RESULT=${RESULT}$(find $source_path -name '*.c' -or -name '*.h' | while read file; do
+        RESULT=${RESULT}$(find "$source_path" -name '*.c' -or -name '*.h' | while read file; do
             check_source_file "$file"
         done)
     done
