@@ -1,0 +1,50 @@
+name: Test format-source
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - gh-actions/C/format-source/**
+      - .github/workflows/test-c-format-source*
+  pull_request:
+
+env:
+  SOURCE_PATHS: "src_tests1 src_tests2"
+
+jobs:
+  check-invalid-format:
+    name: Test C source code invalid format
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Prepare invalid sourced
+        run: |
+          mkdir -p src_tests1
+          mkdir -p src_tests2
+          cp -a gh-actions/C/format-source/tests_data/test_invalid.c src_tests1/
+      - name: Run check
+        continue-on-error: true
+        id: run-check-error
+        run: |
+          ./gh-actions/C/format-source/format-source.sh check
+      - name: Check error
+        if: steps.run-check-error.outcome == 'success'
+        run: |
+          exit 1
+
+  check-valid-format:
+    name: Test C source code valid format
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Prepare invalid sourced
+        run: |
+          mkdir -p src_tests1
+          mkdir -p src_tests2
+          cp -a gh-actions/C/format-source/tests_data/test_valid.c src_tests1/
+      - name: Run check
+        run: |
+          ./gh-actions/C/format-source/format-source.sh check
