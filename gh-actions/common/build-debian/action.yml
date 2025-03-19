@@ -152,8 +152,8 @@ runs:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
           DEBCONF_NONINTERACTIVE_SEEN=true
-          DEBFULLNAME=${{ env.DEBFULLNAME }}
-          DEBEMAIL=${{ env.DEBEMAIL }}
+          DEBFULLNAME="${{ env.DEBFULLNAME }}"
+          DEBEMAIL="${{ env.DEBEMAIL }}"
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ github.workspace }}:${{ github.workspace }}
