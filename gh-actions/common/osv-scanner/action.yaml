@@ -1,0 +1,20 @@
+name: OSV-Scanner
+description: Run osv-scanner-action recursively in the current directory.
+
+runs:
+  using: composite
+  steps:
+    - name: Scan on push
+      if: ${{ github.event_name == 'push' }}
+      uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@f8115f2f28022984d4e8070d2f0f85abcf6f3458" # v1.9.2
+      with:
+        scan-args: |-
+          -r
+          ./
+    - name: Scan on PR
+      if: ${{ github.event_name == 'pull_request' }}
+      uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@f8115f2f28022984d4e8070d2f0f85abcf6f3458" # v1.9.2
+      with:
+        scan-args: |-
+          -r
+          ./
