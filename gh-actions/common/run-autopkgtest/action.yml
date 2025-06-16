@@ -126,7 +126,7 @@ runs:
         set -eu
 
         sudo apt update
-        sudo apt install -y autopkgtest
+        sudo apt install -y autopkgtest dnsmasq-base
 
         echo "::endgroup::"
 
