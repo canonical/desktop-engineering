@@ -17,7 +17,7 @@ inputs:
     description: Fail the job on any detected diff.
     default: "true"
   token:
-    description: A token to authenticate GH API calls with. It will be passed to setup-protoc for example. Make sure to limit the permissions.
+    description: A token to authenticate GH API calls with. It will be passed to setup-protoc for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
     default: ""
 outputs:
   diff:
