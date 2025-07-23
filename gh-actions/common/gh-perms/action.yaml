@@ -1,0 +1,47 @@
+name: GH Token permission warnings
+description: Checks if the GitHub token provided has too many permissions
+inputs:
+  token:
+    description: The token to check for permissions
+    required: true
+  fail-for-push:
+    description: The token cannot be used to push commits to the repo
+    type: boolean
+    default: true
+  fail-for-pr:
+    descrption: The token cannot create or modify pull requests
+    type: boolean
+    default: true
+runs:
+  using: "composite"
+  steps:
+    - name: Check push permissions
+      id: check_push
+      if: ${{ inputs.fail-for-push != 'false' }}
+      continue-on-error: true
+      run: |
+        git config user.name github-actions[bot]
+        git config user.email github-actions[bot]@users.noreply.github.com
+        git commit --allow-empty -m "DropMe: Pushing this commit should not work"
+        git push origin HEAD:${{ github.ref_name }}
+        if [ $? -eq 0 ]; then
+          echo "::error::GITHUB_TOKEN has 'content:write' permission, but it should be 'none' or 'read'."
+          echo "status=failed" >> $GITHUB_OUTPUT
+        fi
+    - name: Comment on current pull request
+      if: ${{ inputs.fail-for-pr != 'false' }}
+      id: check_pr
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh pr comment -b "You should restrict the github token permissions of your jobs (to none if possible `permissions: {}`)" ${{ github.event.pull_request.number }}
+        if [ $? -eq 0 ]; then
+          echo "::error::GITHUB_TOKEN has 'pull-requests:write' permission, but it should be 'none' or 'read'."
+          echo "status=failed" >> $GITHUB_OUTPUT
+        fi
+    - name: Fail
+      if: steps.check_push.outputs.status == 'failed' || steps.check_pr.outputs.status == 'failed'
+      run: |
+        echo "Consider setting your job's permissions to none (`permissions: {}`)"
+        exit 1
