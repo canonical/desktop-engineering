@@ -36,7 +36,7 @@ runs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         set -eu
-        if [ `gh pr comment -b "You should restrict the github token permissions of your jobs (to none if possible `permissions: {}`)" ${{ github.event.pull_request.number }}`]; then
+        if [ `gh pr comment -b "You should restrict the github token permissions of the ${{ github.job }} job (ideally to none - `permissions: {}`)" ${{ github.event.pull_request.number }}`]; then
           echo "::error::GITHUB_TOKEN has 'pull-requests:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
