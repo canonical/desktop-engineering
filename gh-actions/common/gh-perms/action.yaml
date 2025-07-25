@@ -23,18 +23,20 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
         REPO_PATH: ${{ github.repository }}
+        REF_NAME: "refs/heads/${{ github.head_ref }}"
       run: |
         set -eu
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
+        git pull --rebase origin "$BRANCH"
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
         # By default actions/checkout persists credentials so git would just work if the token used
         # to checkout the repo would allow it. But since users can unset 'persist-credentials:false'
-        # this logic would fall appart. To prevent that let's use the token explicetely.
+        # this logic would fall apart. To prevent that let's use the token explicetely.
         # Construct the new push URL using the REPO_PATH from the github context
         git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO_PATH}.git"
-        if git push origin HEAD:${{ github.ref_name }}; then
-          echo "::error::GITHUB_TOKEN has 'content:write' permission, but it should be 'none' or 'read'."
+        if git push origin HEAD:"$BRANCH"; then
+          echo "::error::'token' has 'contents:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
     - name: Comment on current pull request
@@ -47,12 +49,12 @@ runs:
       run: |
         set -eu
         if gh pr comment -b "You should restrict the github token permissions of the '${{ github.job }}' job (ideally to none - 'permissions: {}')" ${{ github.event.pull_request.number }}; then
-          echo "::error::GITHUB_TOKEN has 'pull-requests:write' permission, but it should be 'none' or 'read'."
+          echo "::error::'token' has 'pull-requests:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
     - name: Fail
       if: steps.check_push.outputs.status == 'failed' || steps.check_pr.outputs.status == 'failed'
       shell: bash
       run: |
-        echo "::warning::Consider setting your job's permissions to none (`permissions: {}`) or to the minimum scope needed."
+        echo "::warning::Consider setting your job's permissions to none ('permissions: {}') or to the minimum scope needed."
         exit 1
