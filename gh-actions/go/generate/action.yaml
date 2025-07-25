@@ -16,6 +16,9 @@ inputs:
   fail-on-diff:
     description: Fail the job on any detected diff.
     default: "true"
+  token:
+    description: A token to authenticate GH API calls with. It will be passed to setup-protoc for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
+    default: ""
 outputs:
   diff:
     description: Returns if there is a local diff.
@@ -43,9 +46,16 @@ runs:
 
         echo "::endgroup::"
       shell: bash
+    - name: Check token permissions
+      if: ${{ inputs.token != '' }}
+      uses: canonical/desktop-engineering/gh-actions/common/gh-perms@main
+      with:
+        token: ${{ inputs.token }}
     - name: Install latest protoc
       uses: arduino/setup-protoc@v3
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
+      with:
+        repo-token: ${{ inputs.token }}
     - name: Regenerate files with go generate
       id: go-generate-run
       working-directory: ${{ inputs.working-directory }}

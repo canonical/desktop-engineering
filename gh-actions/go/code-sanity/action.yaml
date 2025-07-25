@@ -16,7 +16,9 @@ inputs:
   generate-diff-paths-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* docs/**/*.md README.md
-
+  token:
+    description: A token to authenticate GH API calls with. It will be passed to setup-protoc for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -146,7 +148,7 @@ runs:
         tools-directory: ${{ inputs.tools-directory }}
         paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
         working-directory: ${{ inputs.working-directory }}
-
+        token: ${{ inputs.token }}
     - name: Build any binaries
       if: ${{ always() && steps.go-version.outcome == 'success' }}
       id: build-check
