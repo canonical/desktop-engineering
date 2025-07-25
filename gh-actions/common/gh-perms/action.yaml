@@ -19,6 +19,7 @@ runs:
       id: check_push
       if: ${{ inputs.fail-for-push != 'false' }}
       continue-on-error: true
+      shell: bash
       run: |
         set -eu
         git config user.name github-actions[bot]
@@ -32,8 +33,9 @@ runs:
       if: ${{ inputs.fail-for-pr != 'false' }}
       id: check_pr
       continue-on-error: true
+      shell: bash
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ inputs.token }}
       run: |
         set -eu
         if [ `gh pr comment -b "You should restrict the github token permissions of the ${{ github.job }} job (ideally to none - `permissions: {}`)" ${{ github.event.pull_request.number }}`]; then
