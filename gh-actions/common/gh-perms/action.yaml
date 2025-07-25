@@ -9,7 +9,7 @@ inputs:
     type: boolean
     default: true
   fail-for-pr:
-    descrption: The token cannot create or modify pull requests
+    description: The token cannot create or modify pull requests
     type: boolean
     default: true
 runs:
@@ -36,14 +36,14 @@ runs:
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
         # Still fetches less stuff then checking out with fetch-depth: 0.
-        git pull --rebase origin "$BRANCH"
+        git pull --rebase origin "$REF_NAME"
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
         # By default actions/checkout persists credentials so git would just work if the token used
         # to checkout the repo would allow it. But since users can unset 'persist-credentials:false'
         # this logic would fall apart. To prevent that let's use the token explicetely.
         # Construct the new push URL using the REPO_PATH from the github context
         git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO_PATH}.git"
-        if git push origin HEAD:"$BRANCH"; then
+        if git push origin HEAD:"$REF_NAME"; then
           echo "::error::'token' has 'contents:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
