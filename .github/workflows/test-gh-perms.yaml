@@ -1,0 +1,20 @@
+name: Test the gh-perms action happy path
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - gh-actions/common/gh-perms/**
+  pull_request:
+jobs:
+  test-gh-perms:
+    name: Test gh-perms action
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Test gh-perms
+        uses: ./gh-actions/common/gh-perms
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
