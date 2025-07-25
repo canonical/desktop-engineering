@@ -25,7 +25,7 @@ runs:
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
-        if [ `git push origin HEAD:${{ github.ref_name }}` eq 0 ]; then
+        if git push origin HEAD:${{ github.ref_name }}; then
           echo "::error::GITHUB_TOKEN has 'content:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
@@ -38,7 +38,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         set -eu
-        if [ `gh pr comment -b "You should restrict the github token permissions of the ${{ github.job }} job (ideally to none - `permissions: {}`)" ${{ github.event.pull_request.number }}`]; then
+        if gh pr comment -b "You should restrict the github token permissions of the '${{ github.job }}' job (ideally to none - 'permissions: {}')" ${{ github.event.pull_request.number }}; then
           echo "::error::GITHUB_TOKEN has 'pull-requests:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
