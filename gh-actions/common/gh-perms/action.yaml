@@ -44,7 +44,7 @@ runs:
         fi
     - name: Fail
       if: steps.check_push.outputs.status == 'failed' || steps.check_pr.outputs.status == 'failed'
-      run: |
       shell: bash
+      run: |
         echo "::warning::Consider setting your job's permissions to none (`permissions: {}`) or to the minimum scope needed."
         exit 1
