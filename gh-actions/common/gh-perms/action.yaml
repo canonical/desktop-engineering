@@ -15,11 +15,18 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - uses: actions/checkout@v4
+      if: ${{ inputs.fail-for-push != 'false' }}
+      continue-on-error: true
+      with:
+        path: '.source-checkout-${{ github.run_id }}'
+        token: ${{ inputs.token }}
     - name: Check push permissions
       id: check_push
       if: ${{ inputs.fail-for-push != 'false' }}
       continue-on-error: true
       shell: bash
+      working-directory: '.source-checkout-${{ github.run_id }}'
       env:
         GH_TOKEN: ${{ inputs.token }}
         REPO_PATH: ${{ github.repository }}
@@ -28,6 +35,7 @@ runs:
         set -eu
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
+        # Still fetches less stuff then checking out with fetch-depth: 0.
         git pull --rebase origin "$BRANCH"
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
         # By default actions/checkout persists credentials so git would just work if the token used
@@ -39,6 +47,12 @@ runs:
           echo "::error::'token' has 'contents:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
+    - name: Clean up temporary checkout
+      shell: bash
+      if: always()
+      continue-on-error: true
+      run: |
+        rm -rf '.source-checkout-${{ github.run_id }}'
     - name: Comment on current pull request
       if: ${{ inputs.fail-for-pr != 'false' }}
       id: check_pr
