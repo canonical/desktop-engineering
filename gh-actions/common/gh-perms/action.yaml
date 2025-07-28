@@ -31,17 +31,14 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
         REPO_PATH: ${{ github.repository }}
-        REF_NAME: "refs/heads/${{ github.head_ref }}"
+        REF_NAME: ${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref }}
       run: |
         set -eu
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
-        # By default actions/checkout persists credentials so git would just work if the token used
-        # to checkout the repo would allow it. But since users can unset 'persist-credentials:false'
-        # this logic would fall apart. To prevent that let's use the token explicetely.
-        # Construct the new push URL using the REPO_PATH from the github context
-        git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO_PATH}.git"
+        # Push just works because we checkout with `persist-credentials: true` (the default
+        # behaviour).
         if git push origin HEAD:"$REF_NAME"; then
           echo "::error::'token' has 'contents:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
