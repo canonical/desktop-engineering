@@ -54,7 +54,8 @@ runs:
       run: |
         rm -rf '.source-checkout-${{ github.run_id }}'
     - name: Comment on current pull request
-      if: ${{ inputs.fail-for-pr != 'false' }}
+      # Only applicable on pull requests.
+      if: ${{ inputs.fail-for-pr != 'false' && github.event_name == 'pull_request' }}
       id: check_pr
       continue-on-error: true
       shell: bash
