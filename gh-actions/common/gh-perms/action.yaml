@@ -20,6 +20,7 @@ runs:
       continue-on-error: true
       with:
         path: '.source-checkout-${{ github.run_id }}'
+        ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
         token: ${{ inputs.token }}
     - name: Check push permissions
       id: check_push
@@ -35,8 +36,6 @@ runs:
         set -eu
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
-        # Still fetches less stuff then checking out with fetch-depth: 0.
-        git pull --rebase origin "$REF_NAME"
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
         # By default actions/checkout persists credentials so git would just work if the token used
         # to checkout the repo would allow it. But since users can unset 'persist-credentials:false'
