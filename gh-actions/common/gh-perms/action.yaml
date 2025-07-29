@@ -16,6 +16,7 @@ runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v4
+      id: my-checkout
       if: ${{ inputs.fail-for-push != 'false' }}
       continue-on-error: true
       with:
@@ -24,7 +25,7 @@ runs:
         token: ${{ inputs.token }}
     - name: Check push permissions
       id: check_push
-      if: ${{ inputs.fail-for-push != 'false' }}
+      if: ${{ inputs.fail-for-push != 'false' && steps.my-checkout.outputs.ref != '' }}
       continue-on-error: true
       shell: bash
       working-directory: '.source-checkout-${{ github.run_id }}'
