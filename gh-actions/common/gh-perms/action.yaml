@@ -32,18 +32,27 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
         REPO_PATH: ${{ github.repository }}
-        REF_NAME: ${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref }}
+        NEW_BRANCH: ${{ format('check_push-deleteme-{0}', github.run_id) }}
       run: |
         set -eu
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
+        git checkout -b "check-push-${{ github.run_id }}"
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
         # Push just works because we checkout with `persist-credentials: true` (the default
         # behaviour).
-        if git push origin HEAD:"$REF_NAME"; then
+        if git push --set-upstream origin "${NEW_BRANCH}"; then
           echo "::error::'token' has 'contents:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
+    - name: Clean up temporary branch
+      working-directory: '.source-checkout-${{ github.run_id }}'
+      shell: bash
+      if: ${{ steps.check_push.outputs.status == 'failed' }}
+      env:
+        NEW_BRANCH: ${{ format('check_push-deleteme-{0}', github.run_id) }}
+      run: |
+        git push --delete "${NEW_BRANCH}"
     - name: Clean up temporary checkout
       shell: bash
       if: always()
