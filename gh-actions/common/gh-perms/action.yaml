@@ -9,28 +9,60 @@ inputs:
     type: boolean
     default: true
   fail-for-pr:
-    descrption: The token cannot create or modify pull requests
+    description: The token cannot create or modify pull requests
     type: boolean
     default: true
 runs:
   using: "composite"
   steps:
-    - name: Check push permissions
-      id: check_push
+    - uses: actions/checkout@v4
+      id: my-checkout
       if: ${{ inputs.fail-for-push != 'false' }}
       continue-on-error: true
+      with:
+        path: '.source-checkout-${{ github.run_id }}'
+        ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+        token: ${{ inputs.token }}
+    - name: Check push permissions
+      id: check_push
+      if: ${{ inputs.fail-for-push != 'false' && steps.my-checkout.outputs.ref != '' }}
+      continue-on-error: true
       shell: bash
+      working-directory: '.source-checkout-${{ github.run_id }}'
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO_PATH: ${{ github.repository }}
+        NEW_BRANCH: ${{ format('check_push-deleteme-{0}_{1}', github.run_id, github.sha) }}
       run: |
         set -eu
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
+        git checkout -b "${NEW_BRANCH}"
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
-        if [ `git push origin HEAD:${{ github.ref_name }}` eq 0 ]; then
-          echo "::error::GITHUB_TOKEN has 'content:write' permission, but it should be 'none' or 'read'."
+        # Push just works because we checkout with `persist-credentials: true` (the default
+        # behaviour).
+        if git push --set-upstream origin "${NEW_BRANCH}"; then
+          echo "::error::'token' has 'contents:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
+          echo "branch-to-cleanup=$NEW_BRANCH" >> $GITHUB_OUTPUT
         fi
+    - name: Clean up temporary branch
+      working-directory: '.source-checkout-${{ github.run_id }}'
+      shell: bash
+      if: ${{ steps.check_push.outputs.status == 'failed' }}
+      env:
+        NEW_BRANCH: ${{ steps.check_push.outputs.branch-to-cleanup }}
+      run: |
+        git push --delete "${NEW_BRANCH}"
+    - name: Clean up temporary checkout
+      shell: bash
+      if: always()
+      continue-on-error: true
+      run: |
+        rm -rf '.source-checkout-${{ github.run_id }}'
     - name: Comment on current pull request
-      if: ${{ inputs.fail-for-pr != 'false' }}
+      # Only applicable on pull requests.
+      if: ${{ inputs.fail-for-pr != 'false' && github.event_name == 'pull_request' }}
       id: check_pr
       continue-on-error: true
       shell: bash
@@ -38,13 +70,13 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         set -eu
-        if [ `gh pr comment -b "You should restrict the github token permissions of the ${{ github.job }} job (ideally to none - `permissions: {}`)" ${{ github.event.pull_request.number }}`]; then
-          echo "::error::GITHUB_TOKEN has 'pull-requests:write' permission, but it should be 'none' or 'read'."
+        if gh pr comment -b "You should restrict the github token permissions of the '${{ github.job }}' job (ideally to none - 'permissions: {}')" ${{ github.event.pull_request.number }}; then
+          echo "::error::'token' has 'pull-requests:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
     - name: Fail
       if: steps.check_push.outputs.status == 'failed' || steps.check_pr.outputs.status == 'failed'
       shell: bash
       run: |
-        echo "::warning::Consider setting your job's permissions to none (`permissions: {}`) or to the minimum scope needed."
+        echo "::warning::Consider setting your job's permissions to none ('permissions: {}') or to the minimum scope needed."
         exit 1
