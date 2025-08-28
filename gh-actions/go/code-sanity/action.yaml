@@ -4,7 +4,7 @@ description: Checks code against of our desktop Go code quality and process stan
 inputs:
   working-directory:
     description: Directory were to run the action. All other paths are relative to this one.
-    default: '.'
+    default: "."
   go-build-script:
     description: For more complex build steps, pass the script directly to it (executed through bash). go-tags is then ignored for building.
   go-tags:
@@ -33,8 +33,9 @@ runs:
         echo "::group::Download jq"
         if [ "${{runner.os}}" = "Windows" ]; then
           winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
-        elif [ "${{runner.os}}" = "macOS" ]; then
-          brew install jq
+        elif [ "${{ runner.os }}" = "macOS" ]; then
+          # No setup needed for macOS
+          :
         else
           sudo --version &> /dev/null && SUDO="sudo" || SUDO=""
           DEBIAN_FRONTEND=noninteractive $SUDO apt update
