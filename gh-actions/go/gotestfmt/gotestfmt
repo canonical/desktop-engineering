@@ -62,6 +62,17 @@ strip_empty_coverage_lines() {
     jq -c 'select(.Output != null and (.Output | contains("coverage: 0.0%") | not))'
 }
 
+divert_build_output_action_lines() {
+    # This diverts lines with the Action "build-output" from the output of `go test -json`
+    # to stderr in case the lines are useful for debugging reasons.
+    # These lines would otherwise cause gotestfmt to panic as it does not know how to handle them.
+    # This kind of output often occurs with linker warnings from the underlying toolchain when using CGo.
+    # They can be suppressed with `CGO_LDFLAGS="-w"`, but figuring that out in the first place
+    # is not always intuitive. See https://github.com/golang/go/issues/61229 for an example of what causes this.
+    tee >(jq -r 'select(.Action == "build-output") | "WARNING: Build output action filtered out -> \(. | tostring)"' >&2) \
+        | jq -c 'select(.Action != "build-output")'
+}
+
 copy_to_logfile() {
     # This copies the output of `go test -json` to the logfile, and
     # * uses gotestfmt to format the output
@@ -81,6 +92,7 @@ copy_output() {
 copy_output | \
     strip_go_downloading_lines | \
     strip_empty_coverage_lines | \
+    divert_build_output_action_lines | \
     tee "${CLEANED_STDOUT_FILE}" | \
     copy_to_logfile | \
     "${GOTESTFMT}" --hide all <&0 2> "${STDERR_FILE}" || exitcode=$?
