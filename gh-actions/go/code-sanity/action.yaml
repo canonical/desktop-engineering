@@ -42,27 +42,10 @@ runs:
         fi
         echo "::endgroup::"
         jq --version
-    - name: Detect go version to use
-      id: go-version
-      working-directory: ${{ inputs.working-directory }}
-      run: |
-        echo Detect go version to use
-        set -eu
-
-        # First call to go version which may download a newever go toolchain
-        go version
-
-        # The output would be on that form, grab the version itself
-        # go version go1.21.5 linux/amd64
-        ver=$(go version)
-        version=$(echo "${ver}" | sed "s#go version go\(.*\) \(.*\)#\1#")
-
-        echo "version=${version}" >> $GITHUB_OUTPUT
-      shell: bash
     - name: Get tooling version
       shell: bash
       id: tooling-version
-      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      if: ${{ always() }}
       working-directory: ${{ inputs.tools-directory }}
       run: |
         function set-version {
@@ -78,7 +61,7 @@ runs:
           echo "${name}=${version}" >> $GITHUB_OUTPUT
         }
 
-        set-version "golangci-lint" "github.com/golangci/golangci-lint"
+        set-version "golangci-lint" "github.com/golangci/golangci-lint/v2"
         set-version "vulncheck" "golang.org/x/vuln"
     - name: Get arguments and version for golangci-lint
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
@@ -100,9 +83,6 @@ runs:
         fi
         args="--config ${config}"
 
-        # Go version to use
-        args="${args} --go ${{ steps.go-version.outputs.version }}"
-
         # Optional build tag go-tags
         tags='${{ inputs.go-tags }}'
         if [ -n "${tags}" ]; then
@@ -113,14 +93,14 @@ runs:
     - name: Code formatting, vet, static checker Security…
       if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
       id: golangci-lint-check
-      uses: golangci/golangci-lint-action@v6
+      uses: golangci/golangci-lint-action@v8
       with:
         version: ${{ steps.tooling-version.outputs.golangci-lint }}
         args: ${{ steps.golanci-lint.outputs.args }}
         working-directory: ${{ inputs.working-directory }}
 
     - name: Update module files
-      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      if: ${{ always() }}
       id: update-mod-files
       working-directory: ${{ inputs.working-directory }}
       run: |
@@ -140,7 +120,7 @@ runs:
         working-directory: ${{ inputs.working-directory }}
 
     - name: Ensure there is no diff between current and generated files
-      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      if: ${{ always() }}
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
       uses: canonical/desktop-engineering/gh-actions/go/generate@main
@@ -150,7 +130,7 @@ runs:
         working-directory: ${{ inputs.working-directory }}
         token: ${{ inputs.token }}
     - name: Build any binaries
-      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      if: ${{ always() }}
       id: build-check
       working-directory: ${{ inputs.working-directory }}
       run: |
@@ -201,7 +181,7 @@ runs:
       shell: bash
 
     - name: Compute title of summary
-      if: ${{ always() && steps.go-version.outcome == 'success' }}
+      if: ${{ always() }}
       id: compute-summary-title
       working-directory: ${{ inputs.working-directory }}
       run: |
