@@ -13,6 +13,9 @@ inputs:
     description: Directory pointing to go.mod file for checking tool versioning. If none is provided, it will download latest.
   golangci-lint-configfile:
     description: Which config file to check for golangci-lint. If not set, it will look for .golangci-lint in your project, or default to desktop team defaults.
+  govulncheck-patterns:
+    description: A space separated list of patterns to consider when checking for vulnerabilities with govulncheck.
+    default: './...'
   generate-diff-paths-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* docs/**/*.md README.md
@@ -197,7 +200,7 @@ runs:
           tags="-tags=${tags}"
         fi
 
-        govulncheck -test ${tags} ./...
+        govulncheck -test ${tags} ${{ inputs.govulncheck-patterns }}
       shell: bash
 
     - name: Compute title of summary
