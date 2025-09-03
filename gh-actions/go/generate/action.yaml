@@ -17,7 +17,7 @@ inputs:
     description: Fail the job on any detected diff.
     default: "true"
   token:
-    description: A token to authenticate GH API calls with. It will be passed to setup-protoc for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
+    description: A token to authenticate GH API calls with. It will be used to get the latest protoc release, for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
     default: ""
 outputs:
   diff:
@@ -52,10 +52,22 @@ runs:
       with:
         token: ${{ inputs.token }}
     - name: Install latest protoc
-      uses: arduino/setup-protoc@v3
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
       with:
         repo-token: ${{ inputs.token }}
+      shell: bash
+      run: |
+        AUTH_HEADER=""
+        if [ -n "${{ inputs.token }}" ]; then
+          AUTH_HEADER="-H 'Authorization: Bearer ${{ inputs.token }}'"
+        fi
+        PROTOC_VERSION=$(eval curl -s $AUTH_HEADER \
+          https://api.github.com/repos/protocolbuffers/protobuf/releases/latest \
+          | jq -r '.tag_name' | sed 's/^v//')
+        curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
+        unzip -o protoc-${PROTOC_VERSION}-linux-x86_64.zip -d $HOME/.local
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
     - name: Regenerate files with go generate
       id: go-generate-run
       working-directory: ${{ inputs.working-directory }}

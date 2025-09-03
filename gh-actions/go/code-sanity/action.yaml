@@ -17,7 +17,7 @@ inputs:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* docs/**/*.md README.md
   token:
-    description: A token to authenticate GH API calls with. It will be passed to setup-protoc for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
+    description: A token to authenticate GH API calls with. It will be used to get the latest protoc release, for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
     default: ""
 runs:
   using: "composite"
