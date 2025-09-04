@@ -1,0 +1,16 @@
+name: Exclude locales and manpages from dpkg
+description: Configures dpkg to exclude locales and manpages from installed packages, speeding up package installation.
+
+runs:
+  using: "composite"
+  steps:
+    - name: Exclude locales and manpages from dpkg
+      id: exclude-locales-and-manpages
+      shell: bash
+      run: |
+        cat <<EOF | sudo tee /etc/dpkg/dpkg.cfg.d/01-exclude-locales-and-manpages
+        path-exclude=/usr/share/locale/*
+        path-exclude=/usr/share/man/*
+        path-exclude=/usr/share/doc/*
+        path-exclude=/usr/share/info/*
+        EOF
