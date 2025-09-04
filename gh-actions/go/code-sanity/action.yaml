@@ -64,6 +64,17 @@ runs:
 
         set-version "golangci-lint" "github.com/golangci/golangci-lint/v2"
         set-version "vulncheck" "golang.org/x/vuln"
+    - name: Install golangci-lint
+      if: ${{ always() && steps.tooling-version.outcome == 'success' }}
+      id: install-golangci-lint
+      working-directory: ${{ runner.temp }}
+      run: |
+        echo Installing golangci-lint
+        set -eu
+        
+        GOTOOLCHAIN=$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Toolchain') \
+          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${{ steps.tooling-version.outputs.golangci-lint }}"
+      shell: bash
     - name: Get arguments and version for golangci-lint
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: golangci-lint
@@ -94,11 +105,10 @@ runs:
     - name: Code formatting, vet, static checker Security…
       if: ${{ always() && steps.golangci-lint.outcome == 'success' }}
       id: golangci-lint-check
-      uses: golangci/golangci-lint-action@v8
-      with:
-        version: ${{ steps.tooling-version.outputs.golangci-lint }}
-        args: ${{ steps.golangci-lint.outputs.args }}
-        working-directory: ${{ inputs.working-directory }}
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash
+      run: |
+        golangci-lint run ${{ steps.golangci-lint.outputs.args }}
 
     - name: Update module files
       if: ${{ always() }}
