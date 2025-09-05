@@ -6,7 +6,6 @@ runs:
   steps:
     - name: Parse PR title
       id: parse
-      shell: bash
       env:
         # These variables are defined here so that they can be used verbatim,
         # without this bash attempting to perform substitutions or character
@@ -18,9 +17,9 @@ runs:
         #   │        └─Component: inside parentheses, optional.
         #   └─Tag: limited to those pre-approved (see steps.validate.env.valid_tags).
         pr_title: ${{ github.event.pull_request.title }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Parse ${{ github.event.pull_request.title }}
-        set -eu
 
         echo "${pr_title}" | grep -P "${pattern}" > /dev/null || {
             echo "::error::Pull request title does not match regex ${pattern}"
@@ -39,14 +38,13 @@ runs:
         tag=$(perl -pe "s#${pattern}#${output}#" <<< "${pr_title}")
         echo "tag=${tag}" >> $GITHUB_OUTPUT
     - name: Validate tag
-      shell: bash
       id: validate
       env:
         tag: ${{ steps.parse.outputs.tag }}
         valid_tags: build deps ci docs feat fix maint perf refactor tests
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Validate ${{ env.tag }}
-        set -eu
 
         # Convert to list so that we can check each word separatelly
         valid_tags=( ${{ env.valid_tags }} )

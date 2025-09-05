@@ -13,10 +13,9 @@ runs:
   using: "composite"
   steps:
     - name: Print job summary
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo Print job summary
-        set -eu
+        # Print job summary
 
         print_status_line () {
           status=$1
