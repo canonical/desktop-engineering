@@ -34,11 +34,11 @@ runs:
   using: "composite"
   steps:
     - name: Check prerequisites
-      shell: bash
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
+      shell: bash
       run: |
         echo "::group::Check prerequisites"
         set -eux
@@ -116,11 +116,11 @@ runs:
         echo "::endgroup::"
 
     - name: Install autopkgtest
-      shell: bash
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
+      shell: bash
       run: |
         echo "::group::Install autopkgtest"
         set -eu
@@ -131,9 +131,9 @@ runs:
         echo "::endgroup::"
 
     - name: Prepare autopkgtest LXD container
-      shell: bash
       env:
         TERM: dumb
+      shell: bash
       run: |
         echo "::group::Prepare autopkgtest LXD container"
         set -eu
@@ -145,9 +145,9 @@ runs:
         echo "::endgroup::"
 
     - name: Run autopkgtest
-      shell: bash
       env:
         TERM: dumb
+      shell: bash
       run: |
         echo "::group::Run autopkgtest"
         set -eu

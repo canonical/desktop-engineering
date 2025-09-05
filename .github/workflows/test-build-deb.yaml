@@ -206,9 +206,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create test input
-        shell: bash
         env:
           NUMBER_OF_RANDOM_TAGS: 50
+        shell: bash
         run: |
           set -eu
 
