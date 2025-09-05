@@ -40,6 +40,7 @@ runs:
         DEBCONF_NONINTERACTIVE_SEEN: true
       shell: bash
       run: |
+        # Check prerequisites
         echo "::group::Check prerequisites"
         set -eux
 
@@ -84,7 +85,7 @@ runs:
     - name: Map the docker image name to LXD
       shell: bash
       run: |
-        echo "::group::Set image for autopkgtest"
+        # Set image for autopkgtest
         set -eu
 
         case "${{ inputs.lxd-image }}" in
@@ -113,8 +114,6 @@ runs:
 
         echo "AUTOPKGTESTS_BASE_IMAGE=${img}" >> "${GITHUB_ENV}"
 
-        echo "::endgroup::"
-
     - name: Install autopkgtest
       env:
         TERM: dumb
@@ -122,6 +121,7 @@ runs:
         DEBCONF_NONINTERACTIVE_SEEN: true
       shell: bash
       run: |
+        # Install autopkgtest
         echo "::group::Install autopkgtest"
         set -eu
 
@@ -135,6 +135,7 @@ runs:
         TERM: dumb
       shell: bash
       run: |
+        # Prepare autopkgtest LXD container
         echo "::group::Prepare autopkgtest LXD container"
         set -eu
 
@@ -149,7 +150,7 @@ runs:
         TERM: dumb
       shell: bash
       run: |
-        echo "::group::Run autopkgtest"
+        # Run autopkgtest
         set -eu
 
         args=(
@@ -173,5 +174,3 @@ runs:
 
         echo "Running autopkgtest ${args[@]}"
         autopkgtest "${args[@]}"
-
-        echo "::endgroup::"

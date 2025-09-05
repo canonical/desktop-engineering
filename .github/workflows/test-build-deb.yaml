@@ -30,11 +30,14 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
+          # Install dependencies
+          set -eu
           sudo apt update
           sudo apt install ubuntu-dev-tools
 
       - name: Get and prepare package source
         run: |
+          # Get and prepare package source
           set -eu
 
           echo "::group::Get source"
@@ -103,11 +106,14 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
+          # Install dependencies
+          set -eu
           sudo apt update
           sudo apt install ubuntu-dev-tools
 
       - name: Get package source
         run: |
+          # Get package source
           set -eu
 
           pull-lp-source --download-only hello
@@ -197,6 +203,7 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
+          # Install dependencies
           set -eu
 
           apt update -y
@@ -210,6 +217,7 @@ jobs:
           NUMBER_OF_RANDOM_TAGS: 50
         shell: bash
         run: |
+          # Create test input
           set -eu
 
           test_tags=$(mktemp)
@@ -235,6 +243,7 @@ jobs:
       - name: Test lintian markdown parser
         shell: bash
         run: |
+          # Test lintian markdown parser
           set -eu
 
           cat "${{ env.TEST_TAGS }}" | \

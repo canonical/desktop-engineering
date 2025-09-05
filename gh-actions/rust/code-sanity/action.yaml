@@ -28,6 +28,9 @@ runs:
       id: cargo-audit-check
       shell: bash
       run: |
+        # Install cargo-audit
+        echo Install cargo-audit
+        set -eu
         cargo install cargo-audit
         cargo audit
     - name: Compute title of summary
@@ -35,7 +38,7 @@ runs:
       id: compute-summary-title
       shell: bash
       run: |
-        echo Compute title of summary based on current directory
+        # Compute title of summary based on current directory
         set -eu
 
         title="Code sanity summary"

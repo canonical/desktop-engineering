@@ -27,10 +27,13 @@ runs:
         go-version-file: ${{ inputs.working-directory }}/go.mod
         check-latest: true
         cache: false
-    - name: Set up jq
+    - name: Install jq
       shell: bash
       run: |
-        echo "::group::Download jq"
+        # Install jq
+        echo "::group::Install jq"
+        set -eu
+
         if [ "${{runner.os}}" = "Windows" ]; then
           winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
         elif [ "${{ runner.os }}" = "macOS" ]; then
@@ -49,6 +52,9 @@ runs:
       working-directory: ${{ inputs.tools-directory }}
       shell: bash
       run: |
+        # Get tooling version
+        set -eu
+
         function set-version {
           name=$1
           path=$2
@@ -70,7 +76,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       shell: bash
       run: |
-        echo Get arguments and version for golangci-lint
+        # Get arguments and version for golangci-lint
         set -eu
 
         # Detect which config file to use
@@ -106,12 +112,13 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       shell: bash
       run: |
-        echo Update module files
+        # go mod tidy
+        echo "::group::go mod tidy"
         set -eu
 
-        echo "::group::Download dependencies"
         go mod tidy
         echo "::endgroup::"
+
     - name: Ensure there is no diff between current and generated go.mod and go.sum files
       if: ${{ always() && steps.update-mod-files.outcome == 'success' }}
       id: gomod-check
@@ -136,7 +143,8 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       shell: bash
       run: |
-        echo Build any binaries
+        # go build
+        echo "::group::go build"
         set -eu
 
         if [ -n '${{ inputs.go-build-script }}' ]; then
@@ -154,24 +162,27 @@ runs:
         fi
 
         go build ${tags} ./...
+        echo "::endgroup::"
 
-    - name: Installing govulncheck
+    - name: Install govulncheck
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: install-govulncheck
       working-directory: ${{ runner.temp }}
       shell: bash
       run: |
-        echo Installing govulncheck
+        # Install govulncheck
+        echo "::group::Install govulncheck"
         set -eu
-
         go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
+        echo "::endgroup::"
+
     - name: Known vulnerabilities check
       if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
       id: vulnerabilities-check
       working-directory: ${{ inputs.working-directory }}
       shell: bash
       run: |
-        echo Checking known vulnerabilities
+        # govulncheck
         set -eu
 
         tags='${{ inputs.go-tags }}'
@@ -187,7 +198,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       shell: bash
       run: |
-        echo Compute title of summary based on current directory
+        # Compute title of summary based on current directory
         set -eu
 
         title="Code sanity summary"

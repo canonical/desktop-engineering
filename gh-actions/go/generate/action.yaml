@@ -32,6 +32,7 @@ runs:
       working-directory: ${{ inputs.tools-directory }}
       shell: bash
       run: |
+        # Install tools and dependencies"
         echo "::group::Install tools and dependencies"
         set -eu
 
@@ -44,8 +45,8 @@ runs:
           fi
           go install ${tool}
         done
-
         echo "::endgroup::"
+
     - name: Check token permissions
       if: ${{ inputs.token != '' }}
       uses: canonical/desktop-engineering/gh-actions/common/gh-perms@main
@@ -99,11 +100,8 @@ runs:
       id: go-generate-run
       working-directory: ${{ inputs.working-directory }}
       shell: bash
-      run: |
-        echo Regenerate files with go generate
-        set -eu
+      run: go generate ./...
 
-        go generate ./...
     - name: Ensure there is no diff between current and generated files
       if: ${{ always() && steps.go-generate-run.outcome == 'success' }}
       id: go-generate-check
