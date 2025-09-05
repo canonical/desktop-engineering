@@ -10,6 +10,7 @@ runs:
   steps:
     - name: Install gotestfmt
       working-directory: ${{ inputs.tools-directory }}
+      shell: bash
       run: |
         # Install gotestfmt
         set -eu
@@ -21,9 +22,9 @@ runs:
         fi
 
         go install "${TOOL}@${VERSION}"
-      shell: bash
 
     - name: Install gotestfmt wrapper script
+      shell: bash
       run: |
         # Install gotestfmt wrapper script
         set -eu
@@ -35,4 +36,3 @@ runs:
         mkdir -p "${DEST}"
         install -m 755 "${GITHUB_ACTION_PATH}/gotestfmt" "${DEST}"
         echo "${DEST}" >> "${GITHUB_PATH}"
-      shell: bash

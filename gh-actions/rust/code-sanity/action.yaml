@@ -33,6 +33,7 @@ runs:
     - name: Compute title of summary
       if: ${{ always() && steps.toolchain.outcome == 'success' }}
       id: compute-summary-title
+      shell: bash
       run: |
         echo Compute title of summary based on current directory
         set -eu
@@ -46,7 +47,6 @@ runs:
           title="${title} on ${dir}"
         fi
         echo "title=${title}" >> $GITHUB_OUTPUT
-      shell: bash
     - name: Summary
       if: ${{ always() && steps.compute-summary-title.outcome == 'success' }}
       # https://github.com/orgs/community/discussions/25246
