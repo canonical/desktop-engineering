@@ -15,5 +15,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: Verify formatting
         run: |
+          # Verify formatting
+          set -eu
           SOURCE_PATHS="${{ inputs.sourcePaths }}"
           ./format-source.sh check

@@ -21,18 +21,18 @@ jobs:
         uses: actions/checkout@v4
       - name: Prepare invalid sourced
         run: |
+          # Prepare invalid sourced
+          set -eu
           mkdir -p src_tests1
           mkdir -p src_tests2
           cp -a gh-actions/C/format-source/tests_data/test_invalid.c src_tests1/
       - name: Run check
         continue-on-error: true
         id: run-check-error
-        run: |
-          ./gh-actions/C/format-source/format-source.sh check
+        run: ./gh-actions/C/format-source/format-source.sh check
       - name: Check error
         if: steps.run-check-error.outcome == 'success'
-        run: |
-          exit 1
+        run: exit 1
 
   check-valid-format:
     name: Test C source code valid format
@@ -42,9 +42,10 @@ jobs:
         uses: actions/checkout@v4
       - name: Prepare invalid sourced
         run: |
+          # Prepare invalid sourced
+          set -eu
           mkdir -p src_tests1
           mkdir -p src_tests2
           cp -a gh-actions/C/format-source/tests_data/test_valid.c src_tests1/
       - name: Run check
-        run: |
-          ./gh-actions/C/format-source/format-source.sh check
+        run: ./gh-actions/C/format-source/format-source.sh check

@@ -134,6 +134,7 @@ runs:
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
+          # Extract source file
           echo "::group::Extract source file"
           set -eu
 
@@ -143,6 +144,7 @@ runs:
 
           dpkg-source --extract "${{ inputs.from-sources-file }}" "${srcdir}"
           echo "SOURCE_DIR=${srcdir}" >> "${GITHUB_ENV}"
+          echo "::endgroup::"
 
     - name: Prepare source package
       uses: kohlerdominik/docker-run-action@v2.0.0

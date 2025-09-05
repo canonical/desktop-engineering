@@ -25,7 +25,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       shell: bash
       run: |
-        echo Returns if there is a local diff
+        # Returns if there is a local diff
         set -eu
 
         # Ignore requested file for changes

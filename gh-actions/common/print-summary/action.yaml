@@ -15,7 +15,7 @@ runs:
     - name: Print job summary
       shell: bash
       run: |
-        echo Print job summary
+        # Print job summary
         set -eu
 
         print_status_line () {
