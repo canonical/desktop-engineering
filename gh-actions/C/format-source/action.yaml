@@ -1,0 +1,17 @@
+name: Formatting
+description: Uses CLANG to format C source and header files
+
+inputs:
+  sourcePaths:
+    description: 'Paths with source files, separated by spaces'
+    required: true
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Verify formatting
+      shell: bash -eu
+      run: |
+        SOURCE_PATHS="${{ inputs.sourcePaths }}"
+        ./format-source.sh check
