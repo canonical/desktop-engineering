@@ -10,36 +10,34 @@ runs:
   using: "composite"
   steps:
     - name: Install latest Rust version
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: rustup update stable
     - name: Build crate
       id: build-check
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: cargo build --all-features
     - name: Check code format with rustfmt
       id: rustfmt-check
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: cargo fmt --check
     - name: Check code format with clippy
       id: clippy-check
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: cargo clippy --all-features
     - name: Check for vulnerabilities with cargo-audit
       id: cargo-audit-check
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install cargo-audit
         echo Install cargo-audit
-        set -eu
         cargo install cargo-audit
         cargo audit
     - name: Compute title of summary
       if: ${{ always() && steps.toolchain.outcome == 'success' }}
       id: compute-summary-title
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Compute title of summary based on current directory
-        set -eu
 
         title="Code sanity summary"
 

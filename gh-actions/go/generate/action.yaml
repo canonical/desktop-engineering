@@ -30,11 +30,10 @@ runs:
     - name: Install tools and dependencies
       id: proto-deps
       working-directory: ${{ inputs.tools-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install tools and dependencies"
         echo "::group::Install tools and dependencies"
-        set -eu
 
         tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
 
@@ -54,11 +53,10 @@ runs:
         token: ${{ inputs.token }}
     - name: Install latest protoc
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install latest protoc
         echo "::group::Install latest protoc"
-        set -eu
 
         # Use the GitHub token if one was provided, to avoid rate limiting.
         AUTH_HEADER=()
@@ -99,7 +97,7 @@ runs:
     - name: Regenerate files with go generate
       id: go-generate-run
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: go generate ./...
 
     - name: Ensure there is no diff between current and generated files

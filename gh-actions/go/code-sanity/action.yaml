@@ -28,11 +28,10 @@ runs:
         check-latest: true
         cache: false
     - name: Install jq
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install jq
         echo "::group::Install jq"
-        set -eu
 
         if [ "${{runner.os}}" = "Windows" ]; then
           winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
@@ -50,10 +49,9 @@ runs:
       id: tooling-version
       if: ${{ always() }}
       working-directory: ${{ inputs.tools-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Get tooling version
-        set -eu
 
         function set-version {
           name=$1
@@ -74,10 +72,9 @@ runs:
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: golanci-lint
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Get arguments and version for golangci-lint
-        set -eu
 
         # Detect which config file to use
         config='${{ github.action_path }}/.golangci-lint'
@@ -110,11 +107,10 @@ runs:
       if: ${{ always() }}
       id: update-mod-files
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # go mod tidy
         echo "::group::go mod tidy"
-        set -eu
 
         go mod tidy
         echo "::endgroup::"
@@ -141,11 +137,10 @@ runs:
       if: ${{ always() }}
       id: build-check
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # go build
         echo "::group::go build"
-        set -eu
 
         if [ -n '${{ inputs.go-build-script }}' ]; then
           buildTest=$(mktemp)
@@ -168,11 +163,10 @@ runs:
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: install-govulncheck
       working-directory: ${{ runner.temp }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install govulncheck
         echo "::group::Install govulncheck"
-        set -eu
         go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
         echo "::endgroup::"
 
@@ -180,10 +174,9 @@ runs:
       if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
       id: vulnerabilities-check
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # govulncheck
-        set -eu
 
         tags='${{ inputs.go-tags }}'
         if [ -n "${tags}" ]; then
@@ -196,10 +189,9 @@ runs:
       if: ${{ always() }}
       id: compute-summary-title
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Compute title of summary based on current directory
-        set -eu
 
         title="Code sanity summary"
 
