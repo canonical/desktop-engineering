@@ -162,12 +162,12 @@ runs:
     - name: Install govulncheck
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: install-govulncheck
-      working-directory: ${{ runner.temp }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install govulncheck
         echo "::group::Install govulncheck"
-        go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
+        GOTOOLCHAIN=$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Toolchain') \
+          go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
         echo "::endgroup::"
 
     - name: Known vulnerabilities check
