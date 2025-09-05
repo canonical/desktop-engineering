@@ -27,7 +27,7 @@ runs:
       id: check_push
       if: ${{ inputs.fail-for-push != 'false' && steps.my-checkout.outputs.ref != '' }}
       continue-on-error: true
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       working-directory: '.source-checkout-${{ github.run_id }}'
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -35,7 +35,6 @@ runs:
         NEW_BRANCH: ${{ format('check_push-deleteme-{0}_{1}', github.run_id, github.sha) }}
       run: |
         # Check push permissions
-        set -eu
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
         git checkout -b "${NEW_BRANCH}"
@@ -49,13 +48,13 @@ runs:
         fi
     - name: Clean up temporary branch
       working-directory: '.source-checkout-${{ github.run_id }}'
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       if: ${{ steps.check_push.outputs.status == 'failed' }}
       env:
         NEW_BRANCH: ${{ steps.check_push.outputs.branch-to-cleanup }}
       run: git push --delete "${NEW_BRANCH}"
     - name: Clean up temporary checkout
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       if: always()
       continue-on-error: true
       run: rm -rf '.source-checkout-${{ github.run_id }}'
@@ -64,19 +63,18 @@ runs:
       if: ${{ inputs.fail-for-pr != 'false' && github.event_name == 'pull_request' }}
       id: check_pr
       continue-on-error: true
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       env:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         # Comment on current pull request
-        set -eu
         if gh pr comment -b "You should restrict the github token permissions of the '${{ github.job }}' job (ideally to none - 'permissions: {}')" ${{ github.event.pull_request.number }}; then
           echo "::error::'token' has 'pull-requests:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
         fi
     - name: Fail
       if: steps.check_push.outputs.status == 'failed' || steps.check_pr.outputs.status == 'failed'
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         echo "::warning::Consider setting your job's permissions to none ('permissions: {}') or to the minimum scope needed."
         exit 1

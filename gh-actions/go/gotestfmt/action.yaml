@@ -10,11 +10,10 @@ runs:
   steps:
     - name: Install gotestfmt
       working-directory: ${{ inputs.tools-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install gotestfmt
         echo "::group::Install gotestfmt"
-        set -eu
         TOOL=github.com/ubuntu/gotestfmt/v2/cmd/gotestfmt
         VERSION=$(go mod edit --json | jq -r ".Require[] | select(.Path==\"${TOOL}\") | .Version" || true)
 
@@ -26,11 +25,10 @@ runs:
         echo "::endgroup::"
 
     - name: Install gotestfmt wrapper script
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install gotestfmt wrapper script
         echo "::group::Install gotestfmt wrapper script"
-        set -eu
         # We install the wrapper to a different directory to avoid conflicts
         # with the gotestfmt binary. We also add the directory to the PATH.
         # The wrapper script expects gotestfmt to be in $GOPATH/bin, where

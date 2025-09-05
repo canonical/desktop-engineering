@@ -23,10 +23,9 @@ runs:
     - name: Returns if there is a local diff
       id: has-diff
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Returns if there is a local diff
-        set -eu
 
         # Ignore requested file for changes
         if [ -n '${{ inputs.paths-to-ignore }}' ]; then

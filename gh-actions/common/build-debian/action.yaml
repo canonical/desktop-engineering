@@ -84,16 +84,15 @@ runs:
   steps:
     - name: Check inputs
       if: ${{ inputs.sources-only != 'false' && inputs.from-sources-file != '' }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         echo "Invalid inputs, nothing to"
         exit 1
 
     - name: Set up source package build
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         echo "::group::Create local version with commit and docker container"
-        set -eu
 
         cd '${{ inputs.source-dir }}'
 
@@ -308,10 +307,9 @@ runs:
 
     - name: Set up package build
       if: ${{ inputs.sources-only != 'true' }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         echo "::group::Create build input directory"
-        set -eu
 
         # Appending /source because 'dpkg-source --extract' needs the output directory to be non-existent
         BUILD_INPUT_BASEDIR="$( mktemp --directory --tmpdir="${PWD}" )"
@@ -434,7 +432,6 @@ runs:
         shell: bash
         run: |
           echo "::group::Update lintian binary tester instance"
-          set -eu
 
           ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
