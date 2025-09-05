@@ -173,7 +173,8 @@ runs:
         echo Installing govulncheck
         set -eu
 
-        go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
+        GOTOOLCHAIN=$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Toolchain') \
+          go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
       shell: bash
     - name: Known vulnerabilities check
       if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
