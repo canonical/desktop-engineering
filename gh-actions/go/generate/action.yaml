@@ -17,7 +17,7 @@ inputs:
     description: Fail the job on any detected diff.
     default: "true"
   token:
-    description: A token to authenticate GH API calls with. It will be passed to setup-protoc for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
+    description: A token to authenticate GH API calls with. It will be used to get the latest protoc release, for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
     default: ""
 outputs:
   diff:
@@ -52,10 +52,49 @@ runs:
       with:
         token: ${{ inputs.token }}
     - name: Install latest protoc
-      uses: arduino/setup-protoc@v3
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
-      with:
-        repo-token: ${{ inputs.token }}
+      shell: bash
+      run: |
+        # Install latest protoc
+        echo "::group::Install latest protoc"
+        set -eu
+
+        # Use the GitHub token if one was provided, to avoid rate limiting.
+        AUTH_HEADER=()
+        if [ -n "${{ inputs.token }}" ]; then
+          AUTH_HEADER=(-H "Authorization: Bearer ${{ inputs.token }}")
+        fi
+
+        # Get the version of the latest protoc release.
+        PROTOC_HEADERS=$(mktemp)
+        PROTOC_JSON=$(curl -s -D "$PROTOC_HEADERS" "${AUTH_HEADER[@]}" \
+        https://api.github.com/repos/protocolbuffers/protobuf/releases/latest)
+
+        PROTOC_VERSION=$(echo "$PROTOC_JSON" | jq -r '.tag_name // empty' | sed 's/^v//')
+
+        if [ -z "$PROTOC_VERSION" ]; then
+          echo "Failed to get latest protobuf release from GitHub:"
+          echo "$PROTOC_JSON"
+
+          RATE_REMAINING=$(grep -i '^x-ratelimit-remaining:' "$PROTOC_HEADERS" | awk '{print $2}' | tr -d '\r')
+          echo "Rate limit remaining: $RATE_REMAINING"
+          if [ "$RATE_REMAINING" -eq 0 ] && [ -z "${{ inputs.token }}" ]; then
+            echo "::warning file=action.yaml,line=82::GitHub API rate limit may have been hit. Consider providing GITHUB_TOKEN via the token input."
+          fi
+
+          exit 1
+        fi
+
+        # Download and install the latest protoc release.
+        curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
+        unzip -o protoc-${PROTOC_VERSION}-linux-x86_64.zip -d $HOME/.local
+        rm protoc-${PROTOC_VERSION}-linux-x86_64.zip
+
+        # Add protoc to the PATH.
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+        echo "::endgroup::"
+
     - name: Regenerate files with go generate
       id: go-generate-run
       working-directory: ${{ inputs.working-directory }}
