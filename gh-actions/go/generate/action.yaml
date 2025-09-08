@@ -30,6 +30,11 @@ runs:
     - name: Install tools and dependencies
       id: proto-deps
       working-directory: ${{ inputs.tools-directory }}
+      env:
+        # The tools directory is not supposed to be a workspace module.
+        # In case the project uses go workspaces, we need to tell Go to ignore it,
+        # otherwise the go install command fails with "no required module provides package ...".
+        GOWORK: off
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install tools and dependencies"
