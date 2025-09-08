@@ -13,4 +13,6 @@ runs:
     - name: Verify formatting
       shell: bash -eu
       run: |
+        # Verify formatting
+        set -eu
         SOURCE_PATHS="${{ inputs.sourcePaths }}" ./format-source.sh check

@@ -34,12 +34,13 @@ runs:
   using: "composite"
   steps:
     - name: Check prerequisites
-      shell: bash
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        # Check prerequisites
         echo "::group::Check prerequisites"
         set -eux
 
@@ -82,10 +83,9 @@ runs:
         channel: latest/stable
 
     - name: Map the docker image name to LXD
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Set image for autopkgtest"
-        set -eu
+        # Set image for autopkgtest
 
         case "${{ inputs.lxd-image }}" in
           ubuntu:latest)
@@ -113,17 +113,15 @@ runs:
 
         echo "AUTOPKGTESTS_BASE_IMAGE=${img}" >> "${GITHUB_ENV}"
 
-        echo "::endgroup::"
-
     - name: Install autopkgtest
-      shell: bash
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        # Install autopkgtest
         echo "::group::Install autopkgtest"
-        set -eu
 
         sudo apt update
         sudo apt install -y autopkgtest dnsmasq-base
@@ -131,12 +129,12 @@ runs:
         echo "::endgroup::"
 
     - name: Prepare autopkgtest LXD container
-      shell: bash
       env:
         TERM: dumb
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        # Prepare autopkgtest LXD container
         echo "::group::Prepare autopkgtest LXD container"
-        set -eu
 
         autopkgtest-build-lxd ${{ env.AUTOPKGTESTS_BASE_IMAGE }}
         echo "AUTOPKGTEST_IMAGE=$(lxc image list --format=csv -cl autopkgtest)" | \
@@ -145,12 +143,11 @@ runs:
         echo "::endgroup::"
 
     - name: Run autopkgtest
-      shell: bash
       env:
         TERM: dumb
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Run autopkgtest"
-        set -eu
+        # Run autopkgtest
 
         args=(
           -s
@@ -173,5 +170,3 @@ runs:
 
         echo "Running autopkgtest ${args[@]}"
         autopkgtest "${args[@]}"
-
-        echo "::endgroup::"

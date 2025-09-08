@@ -27,10 +27,12 @@ runs:
         go-version-file: ${{ inputs.working-directory }}/go.mod
         check-latest: true
         cache: false
-    - name: Set up jq
-      shell: bash
+    - name: Install jq
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Download jq"
+        # Install jq
+        echo "::group::Install jq"
+
         if [ "${{runner.os}}" = "Windows" ]; then
           winget.exe install jqlang.jq --accept-source-agreements --accept-package-agreements --silent --verbose || true
         elif [ "${{ runner.os }}" = "macOS" ]; then
@@ -44,11 +46,13 @@ runs:
         echo "::endgroup::"
         jq --version
     - name: Get tooling version
-      shell: bash
       id: tooling-version
       if: ${{ always() }}
       working-directory: ${{ inputs.tools-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        # Get tooling version
+
         function set-version {
           name=$1
           path=$2
@@ -68,10 +72,9 @@ runs:
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: golanci-lint
       working-directory: ${{ inputs.working-directory }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo Get arguments and version for golangci-lint
-        set -eu
+        # Get arguments and version for golangci-lint
 
         # Detect which config file to use
         config='${{ github.action_path }}/.golangci-lint'
@@ -104,14 +107,14 @@ runs:
       if: ${{ always() }}
       id: update-mod-files
       working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo Update module files
-        set -eu
+        # go mod tidy
+        echo "::group::go mod tidy"
 
-        echo "::group::Download dependencies"
         go mod tidy
         echo "::endgroup::"
-      shell: bash
+
     - name: Ensure there is no diff between current and generated go.mod and go.sum files
       if: ${{ always() && steps.update-mod-files.outcome == 'success' }}
       id: gomod-check
@@ -134,9 +137,10 @@ runs:
       if: ${{ always() }}
       id: build-check
       working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo Build any binaries
-        set -eu
+        # go build
+        echo "::group::go build"
 
         if [ -n '${{ inputs.go-build-script }}' ]; then
           buildTest=$(mktemp)
@@ -153,41 +157,41 @@ runs:
         fi
 
         go build ${tags} ./...
-      shell: bash
+        echo "::endgroup::"
 
-    - name: Installing govulncheck
+    - name: Install govulncheck
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: install-govulncheck
       working-directory: ${{ runner.temp }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo Installing govulncheck
-        set -eu
-
+        # Install govulncheck
+        echo "::group::Install govulncheck"
         go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
-      shell: bash
+        echo "::endgroup::"
+
     - name: Known vulnerabilities check
       if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
       id: vulnerabilities-check
       working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo Checking known vulnerabilities
-        set -eu
+        # govulncheck
 
         tags='${{ inputs.go-tags }}'
         if [ -n "${tags}" ]; then
           tags="-tags=${tags}"
         fi
 
-        govulncheck -test ${tags} ./...
-      shell: bash
+        govulncheck -test ${tags} ./..
 
     - name: Compute title of summary
       if: ${{ always() }}
       id: compute-summary-title
       working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo Compute title of summary based on current directory
-        set -eu
+        # Compute title of summary based on current directory
 
         title="Code sanity summary"
 
@@ -198,7 +202,6 @@ runs:
           title="${title} on ${dir}"
         fi
         echo "title=${title}" >> $GITHUB_OUTPUT
-      shell: bash
     - name: Summary
       if: ${{ always() && steps.compute-summary-title.outcome == 'success' }}
       # https://github.com/orgs/community/discussions/25246

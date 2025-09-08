@@ -30,9 +30,10 @@ runs:
     - name: Install tools and dependencies
       id: proto-deps
       working-directory: ${{ inputs.tools-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        # Install tools and dependencies"
         echo "::group::Install tools and dependencies"
-        set -eu
 
         tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
 
@@ -43,9 +44,8 @@ runs:
           fi
           go install ${tool}
         done
-
         echo "::endgroup::"
-      shell: bash
+
     - name: Check token permissions
       if: ${{ inputs.token != '' }}
       uses: canonical/desktop-engineering/gh-actions/common/gh-perms@main
@@ -53,11 +53,10 @@ runs:
         token: ${{ inputs.token }}
     - name: Install latest protoc
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Install latest protoc
         echo "::group::Install latest protoc"
-        set -eu
 
         # Use the GitHub token if one was provided, to avoid rate limiting.
         AUTH_HEADER=()
@@ -98,12 +97,9 @@ runs:
     - name: Regenerate files with go generate
       id: go-generate-run
       working-directory: ${{ inputs.working-directory }}
-      run: |
-        echo Regenerate files with go generate
-        set -eu
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: go generate ./...
 
-        go generate ./...
-      shell: bash
     - name: Ensure there is no diff between current and generated files
       if: ${{ always() && steps.go-generate-run.outcome == 'success' }}
       id: go-generate-check
