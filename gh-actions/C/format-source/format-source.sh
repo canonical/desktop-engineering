@@ -42,7 +42,7 @@ check_source_file() {
 RESULT=""
 
 if [ -n "${SOURCE_PATHS}" ]; then
-# if SOURCE_PATHS is defined, search only in the specified paths
+    # if SOURCE_PATHS is defined, search only in the specified paths
     for source_path in ${SOURCE_PATHS}; do
         source_path=$(realpath -- "$source_path")
         RESULT=${RESULT}$(find "$source_path" -name '*.c' -or -name '*.h' | while read file; do
@@ -50,15 +50,14 @@ if [ -n "${SOURCE_PATHS}" ]; then
         done)
     done
 else
-
-# a trick to ensure that names/folders with blank spaces do work as expected
-# also, since find and while read... are executed in a subshell, they can't
-# modify any variable outside. That's why we capture the output in $RESULT
-# and compare it with an empty string.
-# Of course, for this to work, it is mandatory to send any visible message to
-# STDERR. That's why the check_source_file() function has so many >&2: those
-# are commands whose output we want in the screen. This trick is needed because
-# there seems to not be an easy way of storing STDERR instead of SDTOUT
+    # a trick to ensure that names/folders with blank spaces do work as expected
+    # also, since find and while read... are executed in a subshell, they can't
+    # modify any variable outside. That's why we capture the output in $RESULT
+    # and compare it with an empty string.
+    # Of course, for this to work, it is mandatory to send any visible message to
+    # STDERR. That's why the check_source_file() function has so many >&2: those
+    # are commands whose output we want in the screen. This trick is needed because
+    # there seems to not be an easy way of storing STDERR instead of SDTOUT
     RESULT=${RESULT}$(find -name '*.c' -or -name '*.h' | while read file; do
         check_source_file "$file"
     done)
