@@ -1,4 +1,4 @@
-name: Exclude locales and manpages from dpkg
+name: Speed up dpkg package installation
 description: Configures dpkg to exclude locales and manpages from installed packages, speeding up package installation.
 
 runs:
