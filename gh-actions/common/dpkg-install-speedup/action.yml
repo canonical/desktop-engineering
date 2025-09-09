@@ -8,9 +8,13 @@ runs:
       id: exclude-locales-and-manpages
       shell: bash
       run: |
-        cat <<EOF | sudo tee /etc/dpkg/dpkg.cfg.d/01-exclude-locales-and-manpages
-        path-exclude=/usr/share/locale/*
+        DPKG_CFG_PATH=/etc/dpkg/dpkg.cfg.d/01-exclude-locales-and-manpages
+        DPKG_EXCLUDES="path-exclude=/usr/share/locale/*
         path-exclude=/usr/share/man/*
         path-exclude=/usr/share/doc/*
-        path-exclude=/usr/share/info/*
-        EOF
+        path-exclude=/usr/share/info/*"
+        if [ "$(id -u)" -eq 0 ]; then
+          echo "$DPKG_EXCLUDES" > "$DPKG_CFG_PATH"
+        else
+          echo "$DPKG_EXCLUDES" | sudo tee "$DPKG_CFG_PATH"
+        fi
