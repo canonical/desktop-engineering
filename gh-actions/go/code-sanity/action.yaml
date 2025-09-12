@@ -183,7 +183,7 @@ runs:
           tags="-tags=${tags}"
         fi
 
-        govulncheck -test ${tags} ./..
+        govulncheck -test ${tags} ./...
 
     - name: Compute title of summary
       if: ${{ always() }}
