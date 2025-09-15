@@ -162,7 +162,7 @@ jobs:
           docker-image: ${{ needs.build_source_deb_source.outputs.ubuntu-image }}
           lintian: --fail-on error
           extra-source-build-deps: ''
-          extra-source-build-script: |
+          pre-source-build-commands: |
             echo '$HOME' is "${HOME}"
             echo "::group::Get some system information"
             uname -a

@@ -26,11 +26,9 @@ inputs:
       Commands to run before installing the build dependencies.
       This is useful to add additional APT repositories.
 
-  extra-source-build-script:
+  pre-source-build-commands:
     description: |
-      A script to run to prepare the source build machine.
-      This happens after the dependencies have been installed, but before
-      running `dpkg-buildpackage -S`.
+      Commands to run before building the package but after installing the build dependencies.
     required: false
     default: ''
 
@@ -249,11 +247,11 @@ runs:
             git config --system url."https://api:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           fi
 
-          if [ -n "${{ inputs.extra-source-build-script != '' && 'true' || '' }}" ]; then
-            echo "::group::Run source build script"
+          if [ -n "${{ inputs.pre-source-build-commands != '' && 'true' || '' }}" ]; then
+            echo "::group::Run pre-source-build commands"
             (
               set -eux
-              ${{ inputs.extra-source-build-script }}
+              ${{ inputs.pre-source-build-commands }}
             )
             echo "::endgroup::"
           fi
