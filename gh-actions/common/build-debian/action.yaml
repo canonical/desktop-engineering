@@ -21,6 +21,11 @@ inputs:
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates'
 
+  pre-deps-commands:
+    description: |
+      Commands to run before installing the build dependencies.
+      This is useful to add additional APT repositories.
+
   extra-source-build-script:
     description: |
       A script to run to prepare the source build machine.
@@ -210,6 +215,15 @@ runs:
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
+          if [ -n "${{ inputs.pre-deps-commands != '' && 'true' || '' }}" ]; then
+            echo "::group::Run pre-deps commands"
+            (
+              set -eux
+              ${{ inputs.pre-deps-commands }}
+            )
+            echo "::endgroup::"
+          fi
+
           echo "::group::Install build dependencies"
           apt build-dep .
 
@@ -373,6 +387,15 @@ runs:
           echo "::group::Install fakeroot"
           apt install fakeroot
           echo "::endgroup::"
+
+          if [ -n "${{ inputs.pre-deps-commands != '' && 'true' || '' }}" ]; then
+            echo "::group::Run pre-deps commands"
+            (
+              set -eux
+              ${{ inputs.pre-deps-commands }}
+            )
+            echo "::endgroup::"
+          fi
 
           echo "::group::Install build dependencies"
           apt build-dep .
