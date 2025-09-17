@@ -166,7 +166,11 @@ runs:
       run: |
         # Install govulncheck
         echo "::group::Install govulncheck"
-        GOTOOLCHAIN=$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Toolchain') \
+        GOTOOLCHAIN=$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Toolchain')
+        if [ "${GOTOOLCHAIN}" == "null" ]; then
+          GOTOOLCHAIN="go$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Go')"
+        fi
+        GOTOOLCHAIN=${GOTOOLCHAIN} \
           go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
         echo "::endgroup::"
 
