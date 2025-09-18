@@ -21,11 +21,14 @@ inputs:
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates'
 
-  extra-source-build-script:
+  pre-deps-commands:
     description: |
-      A script to run to prepare the source build machine.
-      This happens after the dependencies have been installed, but before
-      running `dpkg-buildpackage -S`.
+      Commands to run before installing the build dependencies.
+      This is useful to add additional APT repositories.
+
+  pre-source-build-commands:
+    description: |
+      Commands to run before building the package but after installing the build dependencies.
     required: false
     default: ''
 
@@ -210,6 +213,15 @@ runs:
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
 
+          if [ -n "${{ inputs.pre-deps-commands != '' && 'true' || '' }}" ]; then
+            echo "::group::Run pre-deps commands"
+            (
+              set -eux
+              ${{ inputs.pre-deps-commands }}
+            )
+            echo "::endgroup::"
+          fi
+
           echo "::group::Install build dependencies"
           apt build-dep .
 
@@ -235,11 +247,11 @@ runs:
             git config --system url."https://api:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           fi
 
-          if [ -n "${{ inputs.extra-source-build-script != '' && 'true' || '' }}" ]; then
-            echo "::group::Run source build script"
+          if [ -n "${{ inputs.pre-source-build-commands != '' && 'true' || '' }}" ]; then
+            echo "::group::Run pre-source-build commands"
             (
               set -eux
-              ${{ inputs.extra-source-build-script }}
+              ${{ inputs.pre-source-build-commands }}
             )
             echo "::endgroup::"
           fi
@@ -373,6 +385,15 @@ runs:
           echo "::group::Install fakeroot"
           apt install fakeroot
           echo "::endgroup::"
+
+          if [ -n "${{ inputs.pre-deps-commands != '' && 'true' || '' }}" ]; then
+            echo "::group::Run pre-deps commands"
+            (
+              set -eux
+              ${{ inputs.pre-deps-commands }}
+            )
+            echo "::endgroup::"
+          fi
 
           echo "::group::Install build dependencies"
           apt build-dep .
