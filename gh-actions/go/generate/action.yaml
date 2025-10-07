@@ -35,7 +35,7 @@ runs:
         # Install tools and dependencies"
         echo "::group::Install tools and dependencies"
 
-        tools=$(grep -o '_ ".*"' *.go | cut -d '"' -f 2)
+        tools=$(grep -os '_ ".*"' *.go | cut -d '"' -f 2 || true)
 
         needsProtoc=false
         for tool in ${tools}; do
