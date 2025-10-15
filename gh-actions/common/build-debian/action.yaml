@@ -21,6 +21,11 @@ inputs:
     # FIXME: this should default to '', but we don't want to break job depending on us for now
     default: 'ca-certificates'
 
+  extra-apt-repositories:
+    description: |
+      A list of extra APT repositories to add.
+      The entries are passed to add-apt-repository, one per line.
+
   extra-source-build-script:
     description: |
       A script to run to prepare the source build machine.
@@ -190,6 +195,24 @@ runs:
           ) >> "${GITHUB_ENV}"
           echo "::endgroup::"
 
+    - name: Install extra APT repositories
+      if: ${{ inputs.extra-apt-repositories != '' }}
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        image: ${{ inputs.docker-image }}
+        # Store the sources list in a volume so that we can reuse it in later steps
+        volumes: apt-sources:/etc/apt/sources.list.d
+        shell: bash
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y software-properties-common
+          echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
+          if [ -n "$repo" ]; then
+           add-apt-repository -y "$repo"
+          fi
+          done
+
     - name: Build source package
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
@@ -201,6 +224,7 @@ runs:
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ github.workspace }}:${{ github.workspace }}
+          apt-sources:/etc/apt/sources.list.d
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
@@ -344,6 +368,7 @@ runs:
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ env.BUILD_INPUT_BASEDIR }}:${{ env.BUILD_INPUT_BASEDIR }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
+          apt-sources:/etc/apt/sources.list.d
         shell: bash
         run: |
           echo "::group::Update builder instance"
