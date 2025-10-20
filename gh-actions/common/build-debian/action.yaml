@@ -201,12 +201,14 @@ runs:
       with:
         image: ${{ inputs.docker-image }}
         # Store the sources list in a volume so that we can reuse it in later steps
-        volumes: apt-sources:/etc/apt/sources.list.d
+        volumes: |
+          apt-sources:/etc/apt/sources.list.d
+          ssl:/etc/ssl
         shell: bash
         run: |
           set -eux
           apt-get update
-          apt-get install -y software-properties-common
+          apt-get install -y software-properties-common ca-certificates
           echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
           if [ -n "$repo" ]; then
            add-apt-repository -y "$repo"
@@ -225,11 +227,16 @@ runs:
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ github.workspace }}:${{ github.workspace }}
           apt-sources:/etc/apt/sources.list.d
+          ssl:/etc/ssl
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
           echo "::group::Update source builder instance"
           set -eu
+
+          # TODO: Remove this
+          echo "XXX: ca-certificates"
+          cat /etc/ssl/certs/ca-certificates.crt
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
@@ -369,6 +376,7 @@ runs:
           ${{ env.BUILD_INPUT_BASEDIR }}:${{ env.BUILD_INPUT_BASEDIR }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
           apt-sources:/etc/apt/sources.list.d
+          ssl:/etc/ssl
         shell: bash
         run: |
           echo "::group::Update builder instance"
