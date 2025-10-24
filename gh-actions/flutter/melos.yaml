@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup
+      - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
       - run: melos generate
@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup
+      - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
       - run: melos generate
@@ -38,7 +38,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup
+      - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
       - run: melos generate
@@ -48,7 +48,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup
+      - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
       - run: sudo apt update && sudo apt install -y lcov

@@ -25,12 +25,12 @@ jobs:
       minimum: ${{ steps.local-flutter.outputs.minimum }}
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/detect-local-flutter
+      - uses: ./gh-actions/flutter/detect-local-flutter
         id: local-flutter
 
   matrix-local:
     name: Local matrix tests
-    uses: ./.github/workflows/flutter.yaml
+    uses: ./gh-actions/flutter/flutter.yaml
     with:
       flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}
@@ -50,14 +50,14 @@ jobs:
       versions: ${{ steps.remote-flutter.outputs.remote-versions }}
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/detect-remote-flutter
+      - uses: ./gh-actions/flutter/detect-remote-flutter
         id: remote-flutter
         with:
           minimum: ${{ needs.prepare-local.outputs.minimum }}
 
   matrix-remote:
     name: Remote matrix tests
-    uses: ./.github/workflows/flutter.yaml
+    uses: ./gh-actions/flutter/flutter.yaml
     with:
       flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}

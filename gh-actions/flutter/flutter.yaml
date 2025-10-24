@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup
+      - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
       - run: fvm dart analyze
@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup
+      - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
       - run: fvm dart format .
@@ -34,7 +34,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup
+      - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
       - run: fvm flutter test
