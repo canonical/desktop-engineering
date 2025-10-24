@@ -1,0 +1,57 @@
+name: Comprehensive Melos actions
+
+on:
+  workflow_call:
+    inputs:
+      flutter-version:
+        description: The Flutter version to use for this workflow (defaults to FVM version)
+        type: string
+      os:
+        description: OS to run on
+        type: string
+        default: ubuntu-latest
+
+jobs:
+  analyze:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/setup
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+      - run: melos generate
+      - run: melos gen-l10n
+      - run: melos analyze --fatal-infos
+
+  format:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/setup
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+      - run: melos generate
+      - run: melos gen-l10n
+      - run: melos format:exclude
+
+  l10n:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/setup
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+      - run: melos generate
+      - run: melos gen-l10n
+
+  test:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/setup
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+      - run: sudo apt update && sudo apt install -y lcov
+      - run: melos generate
+      - run: melos gen-l10n
+      - run: melos coverage

@@ -1,0 +1,74 @@
+name: Flutter setup
+description: Sets up FVM, Flutter, and Melos where possible
+
+outputs:
+  fvm:
+    description: True if the repo is using FVM for Flutter version management
+    value: ${{ steps.detect-files.outputs.fvm }}
+  melos:
+    description: True if the repo is using Melos for monorepo management
+    value: ${{ steps.detect-files.outputs.melos }}
+  flutter-version:
+    description: The Flutter version that was setup
+    value: ${{ steps.fvm-config-action.outputs.FLUTTER_VERSION }}
+
+inputs:
+  flutter-version:
+    description: The Flutter version to force (defaults to version determined by FVM)
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Detect FVM and Melos
+      id: detect-files
+      shell: bash
+      run: |
+        if [[ -f "./.fvmrc" ]]; then
+          echo "FVM detected"
+          echo "fvm=true" >> "$GITHUB_OUTPUT"
+        fi
+        if [[ -f "./melos.yaml" ]]; then
+          echo "Melos detected"
+          echo "melos=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Install FVM Flutter
+      shell: bash
+      run: |
+        curl -fsSL https://fvm.app/install.sh | bash
+        source ~/.bashrc
+        fvm --version
+        echo "~/.fvm_flutter/bin" >> $GITHUB_PATH
+
+        if [[ "${{ inputs.flutter-version }}" ]]; then
+          echo "Forcing use of Flutter v${{ inputs.flutter-version }}"
+          fvm use "${{ inputs.flutter-version }}"
+        fi
+
+        fvm install
+
+    - uses: kuhnroyal/flutter-fvm-config-action@v3
+      id: fvm-config-action
+
+    - name: Install Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ steps.fvm-config-action.outputs.FLUTTER_VERSION }}
+        channel: ${{ steps.fvm-config-action.outputs.FLUTTER_CHANNEL }}
+
+    - name: Install Melos
+      uses: bluefireteam/melos-action@v3
+      if: ${{ steps.detect-files.outputs.melos == 'true' }}
+
+    - name: Flutter Doctor
+      shell: bash
+      run: |
+        flutter doctor --verbose
+
+    - name: FVM Flutter Doctor
+      shell: bash
+      run: |
+        fvm flutter doctor --verbose

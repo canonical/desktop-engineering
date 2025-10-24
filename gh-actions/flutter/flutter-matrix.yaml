@@ -1,0 +1,69 @@
+name: Flutter jobs
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: OS to run on
+        type: string
+        default: ubuntu-latest
+      enable-local:
+        description: Enable the local matrix test suite
+        type: boolean
+        default: true
+      enable-remote:
+        description: Enable the remote matrix test suite
+        type: boolean
+        default: true
+
+jobs:
+  prepare-local:
+    name: Setup local jobs
+    runs-on: ${{ inputs.os }}
+    outputs:
+      versions: ${{ steps.local-flutter.outputs.local-versions }}
+      minimum: ${{ steps.local-flutter.outputs.minimum }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/detect-local-flutter
+        id: local-flutter
+
+  matrix-local:
+    name: Local matrix tests
+    uses: ./.github/workflows/flutter.yaml
+    with:
+      flutter-version: ${{ matrix.versions }}
+      os: ${{ inputs.os }}
+    needs: prepare-local
+    if: ${{ inputs.enable-local }}
+    strategy:
+      fail-fast: false
+      matrix:
+        versions: ${{ fromJson(needs.prepare-local.outputs.versions) }}
+
+  prepare-remote:
+    name: Setup remote jobs
+    needs: prepare-local
+    runs-on: ${{ inputs.os }}
+    if: ${{ inputs.enable-remote }}
+    outputs:
+      versions: ${{ steps.remote-flutter.outputs.remote-versions }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/detect-remote-flutter
+        id: remote-flutter
+        with:
+          minimum: ${{ needs.prepare-local.outputs.minimum }}
+
+  matrix-remote:
+    name: Remote matrix tests
+    uses: ./.github/workflows/flutter.yaml
+    with:
+      flutter-version: ${{ matrix.versions }}
+      os: ${{ inputs.os }}
+    needs: prepare-remote
+    if: ${{ inputs.enable-remote }}
+    strategy:
+      fail-fast: false
+      matrix:
+        versions: ${{ fromJson(needs.prepare-remote.outputs.versions) }}

@@ -1,0 +1,44 @@
+name: Detect Local Flutter Versions
+description: Detects local Flutter versions in use or defined by local configs
+
+outputs:
+  local-versions:
+    description: JSON array containing a unique list of local Flutter versions in ascending order
+    value: ${{ steps.detect-local-versions.outputs.local-versions }}
+  minimum:
+    description: The minimum version found
+    value: ${{ steps.detect-local-versions.outputs.minimum }}
+  maximum:
+    description: The maximum version found
+    value: ${{ steps.detect-local-versions.outputs.maximum }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Detect local Flutter versions in use
+      shell: bash
+      id: detect-local-versions
+      run: |
+        sudo apt update && sudo apt install -y jq yq
+
+        if [[ -f ".fvmrc" ]]; then
+          cat .fvmrc | jq -r .flutter >> versions
+        fi
+        if [[ -f ".tool-versions" ]]; then
+          cat .tool-versions | sed 's/[^0-9.]//g' >> versions
+        fi
+        if [[ -f "melos.yaml" ]]; then
+          cat melos.yaml | yq -r '.command.bootstrap.environment.flutter // empty' | sed 's/[><=^]//g' >> versions
+        fi
+        if [[ -f "pubspec.yaml" ]]; then
+          cat pubspec.yaml | yq -r '.environment.flutter // empty' | sed 's/[><=^]//g' >> versions
+        fi
+
+        JSON=$(cat versions | sort -V | jq -R -s -c 'split("\n") | unique | map(select(length>0))')
+        echo "Found local versions: $JSON"
+
+        echo "local-versions=$JSON" >> "$GITHUB_OUTPUT"
+        echo "minimum=$(echo $JSON | jq '.[0]')" >> "$GITHUB_OUTPUT"
+        echo "maximum=$(echo $JSON | jq '.[-1]')" >> "$GITHUB_OUTPUT"
