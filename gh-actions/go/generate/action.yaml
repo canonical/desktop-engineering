@@ -27,34 +27,20 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Install tools and dependencies
-      id: proto-deps
-      working-directory: ${{ inputs.tools-directory }}
-      shell: bash --noprofile --norc -euo pipefail {0}
-      run: |
-        # Install tools and dependencies"
-        echo "::group::Install tools and dependencies"
-
-        tools=$(grep -os '_ ".*"' *.go | cut -d '"' -f 2 || true)
-
-        needsProtoc=false
-        for tool in ${tools}; do
-          if [[ "${tool}" == *protoc* ]]; then
-            echo "needs-protoc=true" >> $GITHUB_OUTPUT
-          fi
-          go install ${tool}
-        done
-        echo "::endgroup::"
-
     - name: Check token permissions
       if: ${{ inputs.token != '' }}
       uses: canonical/desktop-engineering/gh-actions/common/gh-perms@main
       with:
         token: ${{ inputs.token }}
-    - name: Install latest protoc
-      if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
+    - name: Install protoc if needed
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        # Check if protoc is needed
+        if ! go -C "${{ inputs.tools-directory }}" tool | grep -q protoc-gen-go; then
+          # protoc-gen-go is not added as a tool in tools/go.mod, so protoc should not be needed
+          exit
+        fi
+
         # Install latest protoc
         echo "::group::Install latest protoc"
 
