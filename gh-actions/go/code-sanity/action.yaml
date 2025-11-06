@@ -127,7 +127,7 @@ runs:
       if: ${{ always() }}
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/go/generate@main
+      uses: canonical/desktop-engineering/gh-actions/go/generate@protoc-go-tool
       with:
         tools-directory: ${{ inputs.tools-directory }}
         paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
