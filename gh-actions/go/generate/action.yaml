@@ -39,6 +39,7 @@ runs:
       run: |
         # Install tools and dependencies"
         echo "::group::Install tools and dependencies"
+        set -x
 
         tools=$(grep -os '_ ".*"' *.go | cut -d '"' -f 2 || true)
 
