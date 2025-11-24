@@ -15,6 +15,10 @@ on:
         description: Enable the remote matrix test suite
         type: boolean
         default: true
+      packages-dir:
+        description: Packages directory containing packages to run flutter actions in (by default, only runs in root)
+        type: string
+        default: ""
 
 jobs:
   prepare-local:
@@ -34,6 +38,7 @@ jobs:
     with:
       flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}
+      packages-dir: ${{ inputs.packages-dir }}
     needs: prepare-local
     if: ${{ inputs.enable-local }}
     strategy:
@@ -61,6 +66,7 @@ jobs:
     with:
       flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}
+      packages-dir: ${{ inputs.packages-dir }}
     needs: prepare-remote
     if: ${{ inputs.enable-remote }}
     strategy:

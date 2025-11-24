@@ -10,6 +10,10 @@ on:
         description: OS to run on
         type: string
         default: ubuntu-latest
+      packages-dir:
+        description: Packages directory containing packages to run flutter actions in (by default, only runs in root)
+        type: string
+        default: ""
 
 jobs:
   analyze:
@@ -19,7 +23,18 @@ jobs:
       - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
-      - run: fvm dart analyze
+      - run: |
+          DIRS="."
+          if [[ -d ${{ inputs.packages-dir }} ]]; then
+            DIRS=$(find ${{ inputs.packages-dir }} -maxdepth 1 -mindepth 1 -type d)
+          fi
+          while IFS= read -r DIR; do
+            echo "::group:: $DIR"
+            pushd "$DIR"
+            fvm dart analyze
+            popd
+            echo "::endgroup::"
+          done <<< "$DIRS"
 
   format:
     runs-on: ${{ inputs.os }}
@@ -28,7 +43,18 @@ jobs:
       - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
-      - run: fvm dart format .
+      - run: |
+          DIRS="."
+          if [[ -d ${{ inputs.packages-dir }} ]]; then
+            DIRS=$(find ${{ inputs.packages-dir }} -maxdepth 1 -mindepth 1 -type d)
+          fi
+          while IFS= read -r DIR; do
+            echo "::group:: $DIR"
+            pushd "$DIR"
+            fvm dart format .
+            popd
+            echo "::endgroup::"
+          done <<< "$DIRS"
 
   test:
     runs-on: ${{ inputs.os }}
@@ -37,4 +63,15 @@ jobs:
       - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
-      - run: fvm flutter test
+      - run: |
+          DIRS="."
+          if [[ -d ${{ inputs.packages-dir }} ]]; then
+            DIRS=$(find ${{ inputs.packages-dir }} -maxdepth 1 -mindepth 1 -type d)
+          fi
+          while IFS= read -r DIR; do
+            echo "::group:: $DIR"
+            pushd "$DIR"
+            fvm flutter test
+            popd
+            echo "::endgroup::"
+          done <<< "$DIRS"
