@@ -1,0 +1,77 @@
+name: Comprehensive Flutter actions
+
+on:
+  workflow_call:
+    inputs:
+      flutter-version:
+        description: The Flutter version to use for this workflow (defaults to FVM version)
+        type: string
+      os:
+        description: OS to run on
+        type: string
+        default: ubuntu-latest
+      packages-dir:
+        description: Packages directory containing packages to run flutter actions in (by default, only runs in root)
+        type: string
+        default: ""
+
+jobs:
+  analyze:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./gh-actions/flutter/setup
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+      - run: |
+          DIRS="."
+          if [[ -d ${{ inputs.packages-dir }} ]]; then
+            DIRS=$(find ${{ inputs.packages-dir }} -maxdepth 1 -mindepth 1 -type d)
+          fi
+          while IFS= read -r DIR; do
+            echo "::group:: $DIR"
+            pushd "$DIR"
+            fvm dart analyze
+            popd
+            echo "::endgroup::"
+          done <<< "$DIRS"
+
+  format:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./gh-actions/flutter/setup
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+      - run: |
+          DIRS="."
+          if [[ -d ${{ inputs.packages-dir }} ]]; then
+            DIRS=$(find ${{ inputs.packages-dir }} -maxdepth 1 -mindepth 1 -type d)
+          fi
+          while IFS= read -r DIR; do
+            echo "::group:: $DIR"
+            pushd "$DIR"
+            fvm dart format .
+            popd
+            echo "::endgroup::"
+          done <<< "$DIRS"
+
+  test:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./gh-actions/flutter/setup
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+      - run: |
+          DIRS="."
+          if [[ -d ${{ inputs.packages-dir }} ]]; then
+            DIRS=$(find ${{ inputs.packages-dir }} -maxdepth 1 -mindepth 1 -type d)
+          fi
+          while IFS= read -r DIR; do
+            echo "::group:: $DIR"
+            pushd "$DIR"
+            fvm flutter test
+            popd
+            echo "::endgroup::"
+          done <<< "$DIRS"

@@ -1,0 +1,63 @@
+name: Detect Remote Flutter Versions
+description: Detects remote Flutter versions by minor version (e.g. 3.35.7, 3.32.8, etc.)
+
+outputs:
+  remote-versions:
+    description: JSON array containing a unique list of remote Flutter versions in ascending order
+    value: ${{ steps.detect-remote-versions.outputs.remote-versions }}
+  minimum:
+    description: The minimum version found
+    value: ${{ steps.detect-remote-versions.outputs.minimum }}
+  maximum:
+    description: The maximum version found
+    value: ${{ steps.detect-remote-versions.outputs.maximum }}
+
+inputs:
+  minimum:
+    description: Minimum Flutter version (inclusive)
+    required: false
+    default: "0.0.0"
+  maximum:
+    description: Maximum Flutter version (inclusive)
+    required: false
+    default: "999.999.999"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Detect remote Flutter versions available
+      shell: bash
+      id: detect-remote-versions
+      run: |
+        sudo apt update && sudo apt install -y jq
+        RESPONSE=$(curl https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json)
+        ALL_VERSIONS=$(echo $RESPONSE | jq -r '.releases[] | select(.channel == "stable") | .version')
+
+        function version
+        {
+          echo "$@" | awk -F. '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4); }';
+        }
+
+        MAXIMUM="${{ inputs.maximum }}"
+        MINIMUM="${{ inputs.minimum }}"
+
+        PREV_MINOR=""
+        while IFS= read -r VERSION; do
+            MINOR=${VERSION%.*}
+            if [[ $MINOR != "$PREV_MINOR" ]]; then
+                VERSION_NICE=$(echo "$VERSION" | sed 's/^v//' | sed 's/[-+]hotfix.[0-9]//')
+                if [[ ($(version "$VERSION_NICE") -ge $(version "$MINIMUM")) && ($(version "$VERSION_NICE") -le $(version "$MAXIMUM")) ]]; then
+                    echo "$VERSION" >> versions
+                    PREV_MINOR=$MINOR
+                fi
+            fi
+        done <<< "$ALL_VERSIONS"
+
+        JSON=$(cat versions | sort -V | jq -R -s -c 'split("\n") | map(select(length>0))')
+        echo "Found remote versions: $JSON"
+
+        echo "remote-versions=$JSON" >> "$GITHUB_OUTPUT"
+        echo "minimum=$(echo $JSON | jq '.[0]')" >> "$GITHUB_OUTPUT"
+        echo "maximum=$(echo $JSON | jq '.[-1]')" >> "$GITHUB_OUTPUT"
