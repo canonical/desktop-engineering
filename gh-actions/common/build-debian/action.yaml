@@ -131,8 +131,6 @@ runs:
 
     - name: Extract source file
       if: ${{ inputs.from-sources-file != '' }}
-      uses: docker://${{ inputs.docker-image }}
-      volumes: ${{ github.workspace }}:${{ github.workspace }}
       working-directory: ${{ env.SOURCE_DIR }}
       shell: bash
       run: |
@@ -140,8 +138,8 @@ runs:
         echo "::group::Extract source file"
         set -eu
 
-        apt update
-        apt install -y dpkg-dev
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev
         srcdir=$(mktemp --directory --tmpdir="${PWD}" -t srcdir-XXXXXX)/src
 
         dpkg-source --extract "${{ inputs.from-sources-file }}" "${srcdir}"
@@ -149,25 +147,21 @@ runs:
         echo "::endgroup::"
 
     - name: Prepare source package
-      uses: docker://${{ inputs.docker-image }}
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
-      volumes: |
-        ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
-        ${{ github.workspace }}:${{ github.workspace }}
       working-directory: ${{ env.SOURCE_DIR }}
       shell: bash
       run: |
         echo "::group::Update source builder instance"
         set -eu
 
-        "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
+        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
         echo "::endgroup::"
 
         echo "::group::Install source build dependencies"
-        apt install devscripts lsb-release
+        sudo apt-get install devscripts lsb-release
         echo "::endgroup::"
 
         echo "::group::Update debian package changelog"
@@ -191,44 +185,35 @@ runs:
 
     - name: Install extra APT repositories
       if: ${{ inputs.extra-apt-repositories != '' }}
-      uses: docker://${{ inputs.docker-image }}
-      # Store the sources list in a volume so that we can reuse it in later steps
-      volumes:
-        - apt-sources:/etc/apt/sources.list.d
       shell: bash
       run: |
         echo "::group::Install extra APT repositories"
         set -eux
-        apt-get update
-        apt-get install -y software-properties-common
+        sudo apt-get update
+        sudo apt-get install -y software-properties-common
         echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
         if [ -n "$repo" ]; then
-        add-apt-repository -y "$repo"
+          sudo add-apt-repository -y "$repo"
         fi
         done
         echo "::endgroup::"
 
     - name: Build source package
-      uses: docker://${{ inputs.docker-image }}
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
-      volumes: |
-        ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
-        ${{ github.workspace }}:${{ github.workspace }}
-        apt-sources:/etc/apt/sources.list.d
       working-directory: ${{ env.SOURCE_DIR }}
       shell: bash
       run: |
         echo "::group::Update source builder instance"
         set -eu
 
-        "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
+        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
         echo "::endgroup::"
 
         echo "::group::Install build dependencies"
-        apt build-dep .
+        sudo apt-get build-dep .
 
         GITHUB_TOKEN="${{ inputs.token }}"
 
@@ -240,7 +225,7 @@ runs:
             deps+=(git)
           fi
 
-          apt install ${deps[@]}
+          sudo apt-get install ${deps[@]}
         fi
         echo "::endgroup::"
 
@@ -283,25 +268,21 @@ runs:
       # 2. To ensure that we don't install extra dependencies during sources
       #    building phase or during lintian phase.
       if: ${{ inputs.lintian != 'skip' && inputs.from-sources-file == '' }}
-      uses: docker://${{ inputs.docker-image }}
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
-      volumes: |
-        ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
-        ${{ env.SOURCE_OUTPUT_DIR }}:${{ env.SOURCE_OUTPUT_DIR }}
       working-directory: ${{ env.SOURCE_OUTPUT_DIR }}
       shell: bash
       run: |
         echo "::group::Update lintian sources tester instance"
         set -eu
 
-        "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
+        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
         echo "::endgroup::"
 
         echo "::group::Install lintian"
-        apt install adduser lintian
+        sudo apt-get install adduser lintian
         echo "::endgroup::"
 
         echo "::group::Create test user"
@@ -345,82 +326,73 @@ runs:
 
     - name: Build packages
       if: ${{ inputs.sources-only != 'true' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
-      with:
-        image: ${{ inputs.docker-image }}
-        options: --cap-add=NET_ADMIN
-        environment: |
-          TERM=dumb
-          DEBIAN_FRONTEND=noninteractive
-          DEBCONF_NONINTERACTIVE_SEEN=true
-        workdir: ${{ env.BUILD_INPUT_DIR }}
-        volumes: |
-          ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
-          ${{ env.BUILD_INPUT_BASEDIR }}:${{ env.BUILD_INPUT_BASEDIR }}
-          ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
-          apt-sources:/etc/apt/sources.list.d
-        shell: bash
-        run: |
-          echo "::group::Update builder instance"
-          set -eu
+      env:
+        TERM: dumb
+        DEBIAN_FRONTEND: noninteractive
+        DEBCONF_NONINTERACTIVE_SEEN: true
+      working-directory: ${{ env.BUILD_INPUT_DIR }}
+      shell: bash
+      run: |
+        echo "::group::Update builder instance"
+        set -eu
 
-          "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
-          echo "::endgroup::"
+        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
+        echo "::endgroup::"
 
-          echo "::group::Create build user"
-          apt install adduser
-          apt-mark auto adduser
-          adduser --disabled-password --gecos "" builder
-          chown builder:builder .. -R
-          echo "::endgroup::"
+        echo "::group::Create build user"
+        sudo apt-get install adduser
+        sudo apt-mark auto adduser
+        adduser --disabled-password --gecos "" builder
+        chown builder:builder .. -R
+        echo "::endgroup::"
 
-          echo "::group::Fully disable internet access for user"
-          apt install iptables
-          apt-mark auto iptables
-          iptables -A OUTPUT -m owner --uid-owner $(id -u builder) -d 127.0.0.1 -j ACCEPT
-          iptables -A OUTPUT -m owner --uid-owner $(id -u builder) -j DROP
-          echo "::endgroup::"
+        echo "::group::Fully disable internet access for user"
+        sudo apt-get install iptables
+        sudo apt-mark auto iptables
+        sudo iptables -A OUTPUT -m owner --uid-owner $(id -u builder) -d 127.0.0.1 -j ACCEPT
+        sudo iptables -A OUTPUT -m owner --uid-owner $(id -u builder) -j DROP
+        echo "::endgroup::"
 
-          echo "::group::Cleanup unneeded packages"
-          apt autoremove
-          echo "::endgroup::"
+        echo "::group::Cleanup unneeded packages"
+        sudo apt-get autoremove
+        echo "::endgroup::"
 
-          echo "::group::Install fakeroot"
-          apt install fakeroot
-          echo "::endgroup::"
+        echo "::group::Install fakeroot"
+        sudo apt-get install fakeroot
+        echo "::endgroup::"
 
-          echo "::group::Install build dependencies"
-          apt build-dep .
-          echo "::endgroup::"
+        echo "::group::Install build dependencies"
+        sudo apt-get build-dep .
+        echo "::endgroup::"
 
-          echo "::group::Build debian packages"
-          runuser -u builder -- dpkg-buildpackage -D -b --sanitize-env
-          echo "::endgroup::"
+        echo "::group::Build debian packages"
+        runuser -u builder -- dpkg-buildpackage -D -b --sanitize-env
+        echo "::endgroup::"
 
-          mv -v ../*"_${{ env.PKG_VERSION }}_"*.deb "${{ env.BUILD_OUTPUT_DIR }}"
+        mv -v ../*"_${{ env.PKG_VERSION }}_"*.deb "${{ env.BUILD_OUTPUT_DIR }}"
 
-          echo "::group::Show binaries information"
-          for i in "${{ env.BUILD_OUTPUT_DIR }}"/*.deb; do
-            {
-              pkg_name=$(basename "$i")
-              echo '## Package `'"${pkg_name}"'`'
-              echo
-              echo '```'
-              echo "❯ dpkg --info $pkg_name"
-              dpkg --info "$i" 2>&1
-              echo '```'
-              echo
-              echo "<details>"
-              echo "<summary>Package contents</summary>"
-              echo
-              echo '```'
-              echo "❯ dpkg --contents $pkg_name" 2>&1
-              dpkg --contents "$i"
-              echo '```'
-              echo "<details>"
-            } | tee -a "${GITHUB_STEP_SUMMARY}"
-          done
-          echo "::endgroup::"
+        echo "::group::Show binaries information"
+        for i in "${{ env.BUILD_OUTPUT_DIR }}"/*.deb; do
+          {
+            pkg_name=$(basename "$i")
+            echo '## Package `'"${pkg_name}"'`'
+            echo
+            echo '```'
+            echo "❯ dpkg --info $pkg_name"
+            dpkg --info "$i" 2>&1
+            echo '```'
+            echo
+            echo "<details>"
+            echo "<summary>Package contents</summary>"
+            echo
+            echo '```'
+            echo "❯ dpkg --contents $pkg_name" 2>&1
+            dpkg --contents "$i"
+            echo '```'
+            echo "<details>"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+        done
+        echo "::endgroup::"
 
     - name: Upload artifacts
       if: ${{ inputs.sources-only != 'true' }}
@@ -433,34 +405,30 @@ runs:
 
     - name: Run lintian on binaries
       if: ${{ inputs.lintian != 'skip' && inputs.sources-only != 'true' }}
-      uses: docker://${{ inputs.docker-image }}
       env:
         TERM: dumb
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
-      volumes: |
-        ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
-        ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
       working-directory: ${{ env.BUILD_OUTPUT_DIR }}
       shell: bash
       run: |
         echo "::group::Update lintian binary tester instance"
 
-        ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
+        sudo ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
         echo "::endgroup::"
 
         echo "::group::Install lintian"
-        apt install adduser lintian
+        sudo apt-get install adduser lintian
         echo "::endgroup::"
 
         echo "::group::Create test user"
-        adduser --disabled-password --gecos "" tester
-        chown tester:tester . -R
+        sudo adduser --disabled-password --gecos "" tester
+        sudo chown tester:tester . -R
         echo "::endgroup::"
 
         echo "::group::Run lintian on binaries"
         out_file=$(mktemp)
-        runuser -u tester -- \
+        sudo runuser -u tester -- \
           lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
             *_"${{ env.PKG_VERSION }}"_*.deb \
           | tee "${out_file}"
