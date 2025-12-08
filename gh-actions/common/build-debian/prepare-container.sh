@@ -14,11 +14,6 @@ EOF
 echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90aptyes
 apt update
 
-# Install ca-certificates to ensure that APT can access HTTPS repos
-apt install ca-certificates
-# Update package lists again, to ensure that we also have lists from HTTPS repos
-apt update
-
 locales_required_check=$(dirname "$0")/.locales-required
 if ! [ -e "${locales_required_check}" ] && [ -f ./debian/control ]; then
   apt install dctrl-tools
@@ -42,8 +37,6 @@ if [ "$(cat "${locales_required_check}" || true)" != "true" ]; then
 path-exclude=/usr/share/locale/*
 EOF
 fi
-
-apt dist-upgrade
 
 eatmydata_check=$(dirname "$0")/.use-eatmydata
 if [ "$(cat "${eatmydata_check}" || true)" == "true" ]; then

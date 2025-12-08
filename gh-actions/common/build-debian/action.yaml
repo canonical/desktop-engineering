@@ -94,6 +94,8 @@ runs:
         echo "Invalid inputs, nothing to"
         exit 1
 
+    - uses: canonical/desktop-engineering/gh-actions/common/dpkg-install-speedup@main
+
     - name: Set up source package build
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
@@ -132,13 +134,10 @@ runs:
     - name: Extract source file
       if: ${{ inputs.from-sources-file != '' }}
       working-directory: ${{ env.SOURCE_DIR }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        # Extract source file
         echo "::group::Extract source file"
-        set -eu
 
-        sudo apt-get update
         sudo apt-get install -y dpkg-dev
         srcdir=$(mktemp --directory --tmpdir="${PWD}" -t srcdir-XXXXXX)/src
 
@@ -152,13 +151,9 @@ runs:
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
       working-directory: ${{ env.SOURCE_DIR }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Update source builder instance"
-        set -eu
-
-        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
-        echo "::endgroup::"
+        # Prepare source package
 
         echo "::group::Install source build dependencies"
         sudo apt-get install devscripts lsb-release
@@ -185,11 +180,10 @@ runs:
 
     - name: Install extra APT repositories
       if: ${{ inputs.extra-apt-repositories != '' }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         echo "::group::Install extra APT repositories"
-        set -eux
-        sudo apt-get update
+        set -x
         sudo apt-get install -y software-properties-common
         echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
         if [ -n "$repo" ]; then
@@ -204,13 +198,9 @@ runs:
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
       working-directory: ${{ env.SOURCE_DIR }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Update source builder instance"
-        set -eu
-
-        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
-        echo "::endgroup::"
+        # Build source package
 
         echo "::group::Install build dependencies"
         sudo apt-get build-dep .
@@ -273,13 +263,9 @@ runs:
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
       working-directory: ${{ env.SOURCE_OUTPUT_DIR }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Update lintian sources tester instance"
-        set -eu
-
-        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
-        echo "::endgroup::"
+        # Run lintian on source package
 
         echo "::group::Install lintian"
         sudo apt-get install adduser lintian
@@ -331,13 +317,9 @@ runs:
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
       working-directory: ${{ env.BUILD_INPUT_DIR }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Update builder instance"
-        set -eu
-
-        sudo "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
-        echo "::endgroup::"
+        # Build packages
 
         echo "::group::Create build user"
         sudo apt-get install adduser
@@ -410,12 +392,9 @@ runs:
         DEBIAN_FRONTEND: noninteractive
         DEBCONF_NONINTERACTIVE_SEEN: true
       working-directory: ${{ env.BUILD_OUTPUT_DIR }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "::group::Update lintian binary tester instance"
-
-        sudo ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
-        echo "::endgroup::"
+        # Run lintian on binaries
 
         echo "::group::Install lintian"
         sudo apt-get install adduser lintian
