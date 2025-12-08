@@ -192,7 +192,7 @@ runs:
     - name: Install extra APT repositories
       if: ${{ inputs.extra-apt-repositories != '' }}
       uses: docker://${{ inputs.docker-image }}
-        # Store the sources list in a volume so that we can reuse it in later steps
+      # Store the sources list in a volume so that we can reuse it in later steps
       volumes:
         - apt-sources:/etc/apt/sources.list.d
       shell: bash
@@ -203,7 +203,7 @@ runs:
         apt-get install -y software-properties-common
         echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
         if [ -n "$repo" ]; then
-         add-apt-repository -y "$repo"
+        add-apt-repository -y "$repo"
         fi
         done
         echo "::endgroup::"
