@@ -386,7 +386,8 @@ runs:
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         image: ${{ inputs.docker-image }}
-        options: --cap-add=NET_ADMIN
+        options: |
+          --privileged
         environment: |
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
