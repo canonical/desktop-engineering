@@ -204,6 +204,7 @@ runs:
         volumes: apt-sources:/etc/apt/sources.list.d
         shell: bash
         run: |
+          echo "::group::Install extra apt repositories"
           set -eux
           apt-get update
           apt-get install -y software-properties-common
@@ -212,6 +213,7 @@ runs:
            add-apt-repository -y "$repo"
           fi
           done
+          echo "::endgroup::"
 
     - name: Build source package
       uses: kohlerdominik/docker-run-action@v2.0.0
