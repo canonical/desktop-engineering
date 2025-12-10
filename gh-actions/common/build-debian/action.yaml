@@ -87,6 +87,23 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Check bubblewrap in docker
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        image: ${{ inputs.docker-image }}
+        options: |
+          --privileged
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -x
+          apt-get update
+          apt-get install -y bubblewrap
+          cat /proc/self/uid_map
+          cat /etc/subuid
+          bwrap --ro-bind / / --unshare-user --uid 0 /bin/true
+
+
     - name: Check inputs
       if: ${{ inputs.sources-only != 'false' && inputs.from-sources-file != '' }}
       shell: bash --noprofile --norc -euo pipefail {0}
@@ -383,6 +400,9 @@ runs:
           apt-mark auto adduser
           adduser --disabled-password --gecos "" builder
           chown builder:builder .. -R
+          # Allow the build user to run sudo without a password
+          mkdir -p /etc/sudoers.d
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/builder
           echo "::endgroup::"
 
           echo "::group::Fully disable internet access for user"
@@ -398,6 +418,10 @@ runs:
 
           echo "::group::Install fakeroot"
           apt install fakeroot
+          echo "::endgroup::"
+
+          echo "::group::Install sudo"
+          apt install sudo
           echo "::endgroup::"
 
           echo "::group::Install build dependencies"
