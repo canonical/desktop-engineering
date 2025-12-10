@@ -391,6 +391,7 @@ runs:
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
           DEBCONF_NONINTERACTIVE_SEEN=true
+          CI=true
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
