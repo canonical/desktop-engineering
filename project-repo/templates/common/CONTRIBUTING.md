@@ -6,36 +6,36 @@ Reading and following these guidelines will help us make the contribution proces
 
 These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this document in a pull request.
 
-## Quicklinks
+## Quick links
 
-* [Code of Conduct](#code-of-conduct)
-* [Getting Started](#getting-started)
+* [Code of conduct](#code-of-conduct)
+* [Getting started](#getting-started)
 * [Issues](#issues)
-* [Pull Requests](#pull-requests)
+* [Pull requests](#pull-requests)
 * [Contributing to the code](#contributing-to-the-code)
-* [Contributor License Agreement](#contributor-license-agreement)
-* [Getting Help](#getting-help)
+* [Contributor license agreement](#contributor-license-agreement)
+* [Getting help](#getting-help)
 
-## Code of Conduct
+## Code of conduct
 
 We take our community seriously and hold ourselves and other contributors to high standards of communication. By participating and contributing to this project, you agree to uphold our [Code of Conduct](https://ubuntu.com/community/code-of-conduct).
 
-## Getting Started
+## Getting started
 
-Contributions are made to this project via Issues and Pull Requests (PRs). A few general guidelines that cover both:
+Contributions are made to this project via issues and pull requests (PRs). A few general guidelines that cover both:
 
-* To report security vulnerabilities, please use the advisories page of the repository and not a public bug report. Please use [launchpad private bugs](https://bugs.launchpad.net/ubuntu/+source/PROJECT_TODO/+filebug) which is monitored by our security team. On ubuntu machine, it’s best to use `ubuntu-bug PROJECT_TODO` to collect relevant information. FIXME: snap?
-* Search for existing Issues and PRs on this repository before creating your own.
+* To report security vulnerabilities, please use the advisories page of the repository and not a public bug report. Please use [launchpad private bugs](https://bugs.launchpad.net/ubuntu/+source/PROJECT_TODO/+filebug) which is monitored by our security team. On an Ubuntu machine, it’s best to use `ubuntu-bug PROJECT_TODO` to collect relevant information. FIXME: snap?
+* Search for existing issues and PRs on this repository before creating your own.
 * We work hard to makes sure issues are handled in a timely manner but, depending on the impact, it could take a while to investigate the root cause. A friendly ping in the comment thread to the submitter or a contributor can help draw attention if your issue is blocking.
-* If you've never contributed before, see [this Ubuntu discourse post](https://discourse.ubuntu.com/t/contribute/26) for resources and tips on how to get started.
+* If you've never contributed before, see [this Ubuntu community page](https://ubuntu.com/community/docs/contribute) for resources and tips on how to get started.
 
 ### Issues
 
-Issues should be used to report problems with the software, request a new feature, or to discuss potential changes before a PR is created. When you create a new Issue, a template will be loaded that will guide you through collecting and providing the information we need to investigate.
+Issues should be used to report problems with the software, request a new feature, or to discuss potential changes before a PR is created. When you create a new issue, a template will be loaded that will guide you through collecting and providing the information we need to investigate.
 
-If you find an Issue that addresses the problem you're having, please add your own reproduction information to the existing issue rather than creating a new one. Adding a [reaction](https://github.blog/2016-03-10-add-reactions-to-pull-requests-issues-and-comments/) can also help be indicating to our maintainers that a particular problem is affecting more than just the reporter.
+If you find an issue that addresses the problem you're having, please add your own reproduction information to the existing issue rather than creating a new one. Adding a [reaction](https://github.blog/2016-03-10-add-reactions-to-pull-requests-issues-and-comments/) can also help by indicating to our maintainers that a particular problem is affecting more than just the reporter.
 
-### Pull Requests
+### Pull requests
 
 PRs to our project are always welcome and can be a quick way to get your fix or improvement slated for the next release. In general, PRs should:
 
@@ -43,13 +43,13 @@ PRs to our project are always welcome and can be a quick way to get your fix or 
 * Add unit or integration tests for fixed or changed functionality.
 * Address a single concern in the least number of changed lines as possible.
 * Include documentation in the repo or on our [docs site](https://github.com/canonical/PROJECT_TODO/wiki).
-* Be accompanied by a complete Pull Request template (loaded automatically when a PR is created).
+* Be accompanied by a complete pull request template (loaded automatically when a PR is created).
 
-For changes that address core functionality or would require breaking changes (e.g. a major release), it's best to open an Issue to discuss your proposal first. This is not required but can save time creating and reviewing changes.
+For changes that address core functionality or would require breaking changes (e.g. a major release), it's best to open an issue to discuss your proposal first. This is not required but can save time creating and reviewing changes.
 
 In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr)
 
-1. Fork the repository to your own Github account
+1. Fork the repository to your own GitHub account
 1. Clone the project to your machine
 1. Create a branch locally with a succinct but descriptive name
 1. Commit changes to the branch
@@ -71,9 +71,9 @@ TODO
 
 TODO
 
-### About the testsuite
+### About the test suite
 
-The project includes a comprehensive testsuite made of unit and integration tests. All the tests must pass before the review is considered. If you have troubles with the testsuite, feel free to mention it on your PR description.
+The project includes a comprehensive test suite made of unit and integration tests. All the tests must pass before the review is considered. If you have troubles with the test suite, feel free to mention it on your PR description.
 
 TODO
 
@@ -83,11 +83,11 @@ The test suite must pass before merging the PR to our main branch. Any new featu
 
 This project follow the TODO code-style. For more informative information about the code style in use, please check:
 
-* For go: <https://google.github.io/styleguide/go/>
+* For Go: <https://google.github.io/styleguide/go/>
 * For Flutter: <https://github.com/flutter/flutter/wiki/Style-guide-for-Flutter-repo>
 * For Rust: …
 
-## Contributor License Agreement
+## Contributor license agreement
 
 It is required to sign the [Contributor License Agreement](https://ubuntu.com/legal/contributors) in order to contribute to this project.
 
@@ -95,6 +95,6 @@ An automated test is executed on PRs to check if it has been accepted.
 
 This project is covered by [THIS LICENSE](LICENSE).
 
-## Getting Help
+## Getting help
 
 Join us in the [Ubuntu Community](https://discourse.ubuntu.com/c/desktop/8) and post your question there with a descriptive tag.
