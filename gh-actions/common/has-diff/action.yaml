@@ -65,7 +65,7 @@ runs:
 
         echo ""
         echo "::group::Full unfiltered diff"
-        git diff --ignore-cr-at-eol .
+        git diff --ignore-cr-at-eol --submodule=diff .
         echo "::endgroup::"
 
         if [ "${{ inputs.fail-on-diff }}" == true ]; then
