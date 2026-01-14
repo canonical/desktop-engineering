@@ -42,10 +42,11 @@ jobs:
           set -eu
 
           echo "::group::Get source"
-          pull-lp-source --download-only hello
-          dpkg-source -x hello*.dsc hello-src
-          rm -rf hello_*
-          mv -v hello-src/* .
+          PKG=debianutils
+          pull-lp-source --download-only "$PKG"
+          dpkg-source -x "$PKG"*.dsc pkg-src
+          rm -rf "${PKG}_"*
+          cd pkg-src
           echo "::endgroup::"
 
           echo "::group::Mark package as a native package"
@@ -63,6 +64,7 @@ jobs:
         uses: ./.source/gh-actions/common/build-debian
         with:
           docker-image: ${{ env.UBUNTU_IMAGE }}
+          source-dir: pkg-src
           eatmydata: false
 
 
@@ -118,9 +120,10 @@ jobs:
           # Get package source
           set -eu
 
-          pull-lp-source --download-only hello
-          dpkg-source -x hello*.dsc hello-src
-          rm -rfv hello_*.{dsc,debian.}*
+          PKG=debianutils
+          pull-lp-source --download-only "$PKG"
+          dpkg-source -x "$PKG"*.dsc pkg-src
+          rm -rfv "${PKG}_"*.{dsc,debian.}*
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -132,7 +135,7 @@ jobs:
         with:
           docker-image: ${{ env.UBUNTU_IMAGE }}
           sources-only: true
-          source-dir: ./hello-src
+          source-dir: pkg-src
           lintian: skip
 
 
