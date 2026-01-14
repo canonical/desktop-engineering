@@ -360,11 +360,13 @@ runs:
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         image: ${{ inputs.docker-image }}
-        options: --cap-add=NET_ADMIN
+        options: |
+          --privileged
         environment: |
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
           DEBCONF_NONINTERACTIVE_SEEN=true
+          CI=true
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
@@ -384,6 +386,9 @@ runs:
           apt-mark auto adduser
           adduser --disabled-password --gecos "" builder
           chown builder:builder .. -R
+          # Allow the build user to run sudo without a password
+          mkdir -p /etc/sudoers.d
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/builder
           echo "::endgroup::"
 
           echo "::group::Fully disable internet access for user"
@@ -399,6 +404,10 @@ runs:
 
           echo "::group::Install fakeroot"
           apt install fakeroot
+          echo "::endgroup::"
+
+          echo "::group::Install sudo"
+          apt install sudo
           echo "::endgroup::"
 
           echo "::group::Install build dependencies"
