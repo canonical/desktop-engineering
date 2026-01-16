@@ -74,7 +74,7 @@ TODO
 
 ### About the test suite
 
-The project includes a comprehensive test suite made of unit and integration tests. All the tests must pass before the review is considered. If you have troubles with the test suite, feel free to mention it on your PR description.
+The project includes a comprehensive test suite made of unit and integration tests. All the tests must pass before the review is considered. If you have troubles with the test suite, feel free to mention it in your PR description.
 
 TODO
 
