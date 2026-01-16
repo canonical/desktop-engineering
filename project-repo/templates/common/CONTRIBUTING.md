@@ -47,13 +47,13 @@ PRs to our project are always welcome and can be a quick way to get your fix or 
 
 For changes that address core functionality or would require breaking changes (e.g. a major release), it's best to open an issue to discuss your proposal first. This is not required but it can save time during the PR review process.
 
-In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr):
+In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr). To create a PR using this workflow:
 
 1. Fork the repository to your own GitHub account
 1. Clone the project to your machine
 1. Create a branch locally with a succinct but descriptive name
 1. Commit changes to the branch
-1. Following any formatting and testing guidelines specific to this repo
+1. Follow any formatting and testing guidelines specific to this repo
 1. Push changes to your fork
 1. Open a PR in our repository and follow the PR template so that we can efficiently review the changes.
 
