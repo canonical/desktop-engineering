@@ -24,7 +24,7 @@ We take our community seriously by holding ourselves and other contributors to h
 
 Contributions are made to this project through issues and pull requests (PRs). A few general guidelines that cover both:
 
-* To report security vulnerabilities, please use the advisories page of the repository and not a public bug report. Please use [launchpad private bugs](https://bugs.launchpad.net/ubuntu/+source/PROJECT_TODO/+filebug) which is monitored by our security team. On an Ubuntu machine, it’s best to use `ubuntu-bug PROJECT_TODO` to collect relevant information. FIXME: snap?
+* To report security vulnerabilities, use the advisories page of the repository and not a public bug report. You can use [launchpad private bugs](https://bugs.launchpad.net/ubuntu/+source/PROJECT_TODO/+filebug) which is monitored by our security team. On an Ubuntu machine, it’s best to use `ubuntu-bug PROJECT_TODO` to collect relevant information. FIXME: snap?
 * Search for existing issues and PRs on this repository before creating your own.
 * We work hard to makes sure issues are handled in a timely manner but, depending on the impact, it could take a while to investigate the root cause. A friendly ping in the comment thread to the submitter or a contributor can help draw attention if your issue is blocking.
 * If you've never contributed before, see [this Ubuntu community page](https://ubuntu.com/community/docs/contribute) for resources and tips on how to get started.
@@ -33,7 +33,7 @@ Contributions are made to this project through issues and pull requests (PRs). A
 
 Issues should be used to report problems with the software, request a new feature, or to discuss potential changes before a PR is created. When you create a new issue, a template will be loaded that will guide you through collecting and providing the information we need to investigate.
 
-If you find an issue that addresses the problem you're having, please add your own reproduction information to the existing issue rather than creating a new one. Adding a [reaction](https://github.blog/2016-03-10-add-reactions-to-pull-requests-issues-and-comments/) can also help by indicating to our maintainers that a particular problem is affecting more than just the reporter.
+If you find an issue that addresses the problem you're having, add your own reproduction information to the existing issue rather than creating a new one. Adding a [reaction](https://github.blog/2016-03-10-add-reactions-to-pull-requests-issues-and-comments/) can also help by indicating to our maintainers that a particular problem is affecting more than just the reporter.
 
 ### Pull requests
 
@@ -81,7 +81,7 @@ The test suite must pass before merging the PR to our main branch. Any new featu
 
 ### Code style
 
-This project follow the TODO code-style. For more informative information about the code style in use, please check:
+This project follow the TODO code-style. For more informative information about the code style in use, check:
 
 * For Go: <https://google.github.io/styleguide/go/>
 * For Flutter: <https://github.com/flutter/flutter/wiki/Style-guide-for-Flutter-repo>
