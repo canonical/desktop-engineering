@@ -37,7 +37,7 @@ If you find an issue that addresses the problem you're having, add your own repr
 
 ### Pull requests
 
-PRs to our project are always welcome and can be a quick way to get your fix or improvement slated for the next release. In general, PRs should:
+PRs are always welcome if you want to directly contribute a fix or improvement to the software. In general, PRs should:
 
 * Only fix/add the functionality in question **OR** address wide-spread whitespace/style issues, not both.
 * Add unit or integration tests for fixed or changed functionality.
