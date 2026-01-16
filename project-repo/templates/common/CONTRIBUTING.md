@@ -45,7 +45,7 @@ PRs to our project are always welcome and can be a quick way to get your fix or 
 * Include documentation in the repo or on our [docs site](https://github.com/canonical/PROJECT_TODO/wiki).
 * Be accompanied by a complete pull request template (loaded automatically when a PR is created).
 
-For changes that address core functionality or would require breaking changes (e.g. a major release), it's best to open an issue to discuss your proposal first. This is not required but can save time creating and reviewing changes.
+For changes that address core functionality or would require breaking changes (e.g. a major release), it's best to open an issue to discuss your proposal first. This is not required but it can save time during the PR review process.
 
 In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr)
 
