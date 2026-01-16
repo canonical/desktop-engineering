@@ -60,7 +60,7 @@ In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susa
 > [!NOTE]
 > PRs trigger unit and integration tests with and without race detection, linting and formatting validations, static and security checks, freshness of generated files verification. All the tests must pass before merging in main branch.
 
-Once merged to the main branch, `po` files and any documentation change be automatically updated. Those are thus not necessary in the pull request itself to minimize diff review.
+Once merged to the main branch, `po` files and any documentation changes are automatically updated. To minimize diff review, these are not required in the PR itself.
 
 ## Contributing to the code
 
