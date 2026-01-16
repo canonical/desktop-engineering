@@ -41,7 +41,7 @@ PRs to our project are always welcome and can be a quick way to get your fix or 
 
 * Only fix/add the functionality in question **OR** address wide-spread whitespace/style issues, not both.
 * Add unit or integration tests for fixed or changed functionality.
-* Address a single concern in the least number of changed lines as possible.
+* Address a single concern by changing the fewest lines possible.
 * Include documentation in the repo or on our [docs site](https://github.com/canonical/PROJECT_TODO/wiki).
 * Be accompanied by a complete pull request template (loaded automatically when a PR is created).
 
