@@ -87,7 +87,7 @@ This project follow the TODO code-style. For more informative information about 
 
 * For Go: <https://google.github.io/styleguide/go/>
 * For Flutter: <https://github.com/flutter/flutter/wiki/Style-guide-for-Flutter-repo>
-* For Rust: …
+* For Rust: TODO
 
 ## Contributing to the documentation
 
