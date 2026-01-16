@@ -31,7 +31,7 @@ Contributions are made to this project through issues and pull requests (PRs). A
 
 ### Issues
 
-Issues should be used to report problems with the software, request a new feature, or to discuss potential changes before a PR is created. When you create a new issue, a template will be loaded that will guide you through collecting and providing the information we need to investigate.
+Issues should be used to report problems with the software, request a new feature, or discuss potential changes before a PR is created. When you create a new issue, a template is loaded that guides you through collecting and providing the information we need to investigate.
 
 If you find an issue that addresses the problem you're having, add your own reproduction information to the existing issue rather than creating a new one. Adding a [reaction](https://github.blog/2016-03-10-add-reactions-to-pull-requests-issues-and-comments/) can also help by indicating to our maintainers that a particular problem is affecting more than just the reporter.
 
@@ -57,9 +57,9 @@ In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susa
 1. Push changes to your fork
 1. Open a PR in our repository and follow the PR template so that we can efficiently review the changes.
 
-> PRs will trigger unit and integration tests with and without race detection, linting and formatting validations, static and security checks, freshness of generated files verification. All the tests must pass before merging in main branch.
+> PRs trigger unit and integration tests with and without race detection, linting and formatting validations, static and security checks, freshness of generated files verification. All the tests must pass before merging in main branch.
 
-Once merged to the main branch, `po` files and any documentation change will be automatically updated. Those are thus not necessary in the pull request itself to minimize diff review.
+Once merged to the main branch, `po` files and any documentation change be automatically updated. Those are thus not necessary in the pull request itself to minimize diff review.
 
 ## Contributing to the code
 
