@@ -13,6 +13,7 @@ These are mostly guidelines, not rules. Use your best judgment, and feel free to
 * [Issues](#issues)
 * [Pull requests](#pull-requests)
 * [Contributing to the code](#contributing-to-the-code)
+* [Contributing to the documentation](#contributing-to-the-documentation)
 * [Contributor license agreement](#contributor-license-agreement)
 * [Getting help](#getting-help)
 
@@ -87,6 +88,28 @@ This project follow the TODO code-style. For more informative information about 
 * For Go: <https://google.github.io/styleguide/go/>
 * For Flutter: <https://github.com/flutter/flutter/wiki/Style-guide-for-Flutter-repo>
 * For Rust: …
+
+## Contributing to the documentation
+
+You can contribute to the documentation in various ways.
+
+At the top of each page in the documentation, there is a Give feedback button. If you find an issue in the documentation, clicking this button will open an Issue submission on GitHub for that specific page.
+
+For more significant changes to the content or organization of the
+documentation, you should create your own fork and follow the steps outlined in
+the section on [pull requests](#pull-requests).
+
+### Required dependencies
+
+TODO
+
+### Building the documentation
+
+TODO
+
+### Testing the documentation
+
+TODO
 
 ## Contributor license agreement
 
