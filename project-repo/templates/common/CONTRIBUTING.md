@@ -18,7 +18,7 @@ These are mostly guidelines, not rules. Use your best judgment, and feel free to
 
 ## Code of conduct
 
-We take our community seriously and hold ourselves and other contributors to high standards of communication. By participating and contributing to this project, you agree to uphold our [Code of Conduct](https://ubuntu.com/community/code-of-conduct).
+We take our community seriously by holding ourselves and other contributors to high standards of communication. As a contributor to this project, you agree to uphold our [Code of Conduct](https://ubuntu.com/community/code-of-conduct).
 
 ## Getting started
 
