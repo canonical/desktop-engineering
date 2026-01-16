@@ -22,7 +22,7 @@ We take our community seriously by holding ourselves and other contributors to h
 
 ## Getting started
 
-Contributions are made to this project via issues and pull requests (PRs). A few general guidelines that cover both:
+Contributions are made to this project through issues and pull requests (PRs). A few general guidelines that cover both:
 
 * To report security vulnerabilities, please use the advisories page of the repository and not a public bug report. Please use [launchpad private bugs](https://bugs.launchpad.net/ubuntu/+source/PROJECT_TODO/+filebug) which is monitored by our security team. On an Ubuntu machine, it’s best to use `ubuntu-bug PROJECT_TODO` to collect relevant information. FIXME: snap?
 * Search for existing issues and PRs on this repository before creating your own.
