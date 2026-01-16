@@ -47,7 +47,7 @@ PRs to our project are always welcome and can be a quick way to get your fix or 
 
 For changes that address core functionality or would require breaking changes (e.g. a major release), it's best to open an issue to discuss your proposal first. This is not required but it can save time during the PR review process.
 
-In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr)
+In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr):
 
 1. Fork the repository to your own GitHub account
 1. Clone the project to your machine
