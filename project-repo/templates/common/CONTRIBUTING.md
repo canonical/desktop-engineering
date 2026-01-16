@@ -57,6 +57,7 @@ In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susa
 1. Push changes to your fork
 1. Open a PR in our repository and follow the PR template so that we can efficiently review the changes.
 
+> [!NOTE]
 > PRs trigger unit and integration tests with and without race detection, linting and formatting validations, static and security checks, freshness of generated files verification. All the tests must pass before merging in main branch.
 
 Once merged to the main branch, `po` files and any documentation change be automatically updated. Those are thus not necessary in the pull request itself to minimize diff review.
