@@ -90,9 +90,9 @@ This project follow the TODO code-style. For more informative information about 
 
 ## Contributor license agreement
 
-It is required to sign the [Contributor License Agreement](https://ubuntu.com/legal/contributors) in order to contribute to this project.
+You are required to sign the [Contributor License Agreement](https://ubuntu.com/legal/contributors) (CLA) in order to contribute to this project.
 
-An automated test is executed on PRs to check if it has been accepted.
+An automated test is executed on PRs to check if the CLA has been accepted.
 
 This project is covered by [THIS LICENSE](LICENSE).
 
