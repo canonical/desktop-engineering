@@ -36,9 +36,8 @@ inputs:
 
   sources-only:
     description: Whether to build the package sources only.
-    type: boolean
     required: false
-    default: false
+    default: 'false'
 
   from-sources-file:
     description: |
@@ -51,8 +50,7 @@ inputs:
   eatmydata:
     description: Use eatmydata as dpkg replacement to speedup file writes
     required: false
-    type: boolean
-    default: true
+    default: 'true'
 
   lintian:
     required: false
