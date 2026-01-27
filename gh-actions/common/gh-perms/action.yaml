@@ -6,12 +6,10 @@ inputs:
     required: true
   fail-for-push:
     description: The token cannot be used to push commits to the repo
-    type: boolean
-    default: true
+    default: 'true'
   fail-for-pr:
     description: The token cannot create or modify pull requests
-    type: boolean
-    default: true
+    default: 'true'
 runs:
   using: "composite"
   steps:
