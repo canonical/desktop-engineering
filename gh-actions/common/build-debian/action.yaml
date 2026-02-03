@@ -36,9 +36,8 @@ inputs:
 
   sources-only:
     description: Whether to build the package sources only.
-    type: boolean
     required: false
-    default: false
+    default: 'false'
 
   from-sources-file:
     description: |
@@ -51,8 +50,7 @@ inputs:
   eatmydata:
     description: Use eatmydata as dpkg replacement to speedup file writes
     required: false
-    type: boolean
-    default: true
+    default: 'true'
 
   lintian:
     required: false
@@ -64,6 +62,10 @@ inputs:
     description: Arguments to pass to licenserecon, if any. Set to `skip` to skip the licenserecon check.
     default: ''
 
+  allow-sudo:
+    description: Allow the build to use sudo.
+    required: false
+    default: 'false'
 
 # The process:
 # 1. We build the source package in a docker container. If ca-certificates are
@@ -386,11 +388,13 @@ runs:
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         image: ${{ inputs.docker-image }}
-        options: --cap-add=NET_ADMIN
+        options: |
+          --privileged
         environment: |
           TERM=dumb
           DEBIAN_FRONTEND=noninteractive
           DEBCONF_NONINTERACTIVE_SEEN=true
+          CI=true
         workdir: ${{ env.BUILD_INPUT_DIR }}
         volumes: |
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
@@ -411,6 +415,16 @@ runs:
           adduser --disabled-password --gecos "" builder
           chown builder:builder .. -R
           echo "::endgroup::"
+
+          if [ "${{ inputs.allow-sudo }}" = 'true' ]; then
+            # Allow the build user to run sudo without a password
+            mkdir -p /etc/sudoers.d
+            echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/builder
+
+            echo "::group::Install sudo"
+            apt install sudo
+            echo "::endgroup::"
+          fi
 
           echo "::group::Fully disable internet access for user"
           apt install iptables

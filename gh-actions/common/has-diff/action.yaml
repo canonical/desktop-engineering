@@ -11,7 +11,7 @@ inputs:
     description: Files and paths to ignore when checking if they changed. This is passed to git update-index.
   fail-on-diff:
     description: Fail the job on any detected diff.
-    default: "false"
+    default: 'false'
 outputs:
   diff:
     description: Returns if there is a local diff.
