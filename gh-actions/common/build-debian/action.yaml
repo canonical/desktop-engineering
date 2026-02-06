@@ -157,28 +157,6 @@ runs:
           echo "SOURCE_DIR=${srcdir}" >> "${GITHUB_ENV}"
           echo "::endgroup::"
 
-    - name: Check licenses
-      if: ${{ inputs.lrc != 'skip' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
-      with:
-        # Use ubuntu:devel to have a recent version of licenserecon, because we
-        # found older versions to report false positives (e.g. GPL-2 vs GPL-2+).
-        image: ubuntu:devel
-        volumes: |
-          ${{ github.workspace }}:${{ github.workspace }}
-        workdir: ${{ env.SOURCE_DIR }}
-        shell: bash
-        run: |
-          set -eux
-          echo "::group::Install licenserecon"
-          apt-get update
-          apt-get install -y --no-install-recommends licenserecon
-          echo "::endgroup::"
-
-          echo "::group::Run licenserecon"
-          lrc ${{ inputs.lrc }}
-          echo "::endgroup::"
-
     - name: Prepare source package
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
@@ -383,6 +361,28 @@ runs:
         cd ${{ env.SOURCE_OUTPUT_DIR }}
         dpkg-source --extract "${{ env.PKG_DSC }}" "${BUILD_INPUT_DIR}"
         echo "::endgroup::"
+
+    - name: Check licenses
+      if: ${{ inputs.sources-only != 'true' && inputs.lrc != 'skip' }}
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        # Use ubuntu:devel to have a recent version of licenserecon, because we
+        # found older versions to report false positives (e.g. GPL-2 vs GPL-2+).
+        image: ubuntu:devel
+        volumes: |
+          ${{ github.workspace }}:${{ github.workspace }}
+        workdir: ${{ env.BUILD_INPUT_DIR }}
+        shell: bash
+        run: |
+          set -eux
+          echo "::group::Install licenserecon"
+          apt-get update
+          apt-get install -y --no-install-recommends licenserecon
+          echo "::endgroup::"
+
+          echo "::group::Run licenserecon"
+          lrc ${{ inputs.lrc }}
+          echo "::endgroup::"
 
     - name: Build packages
       if: ${{ inputs.sources-only != 'true' }}
