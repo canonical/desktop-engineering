@@ -164,32 +164,19 @@ runs:
         # Use ubuntu:devel to have a recent version of licenserecon, because we
         # found older versions to report false positives (e.g. GPL-2 vs GPL-2+).
         image: ubuntu:devel
-        options: |
-          --privileged
         volumes: |
-          ${{ github.workspace }}:${{ github.workspace }}:cached
+          ${{ github.workspace }}:${{ github.workspace }}
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
           set -eux
           echo "::group::Install licenserecon"
           apt-get update
-          apt-get install -y --no-install-recommends licenserecon strace
+          apt-get install -y --no-install-recommends licenserecon
           echo "::endgroup::"
 
           echo "::group::Run licenserecon"
-          # Copy the source dir to /tmp to avoid bind mount overhead when running lrc
-          cp -r . /tmp/work
-          cd /tmp/work
-          strace -tt -T -f -e trace=openat,open,stat,read -o /tmp/strace.log lrc ${{ inputs.lrc }}
-          echo "::endgroup::"
-
-          echo "::group::All files opened"
-          grep -E 'openat.*= [0-9]+' /tmp/strace.log | awk -F'"' '{print $2}' | sort -u
-          echo "::endgroup::"
-
-          echo "::group::Operations taking >1 second"
-          grep -E '<[1-9]\.[0-9]+>' /tmp/strace.log || echo "None found"
+          lrc ${{ inputs.lrc }}
           echo "::endgroup::"
 
     - name: Prepare source package
