@@ -169,6 +169,7 @@ runs:
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
+          set -eux
           echo "::group::Install licenserecon"
           apt-get update
           apt-get install -y --no-install-recommends licenserecon
