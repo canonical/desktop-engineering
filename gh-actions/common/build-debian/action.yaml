@@ -98,7 +98,7 @@ runs:
       if: ${{ inputs.sources-only != 'false' && inputs.from-sources-file != '' }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "Invalid inputs, nothing to"
+        echo "Invalid inputs, nothing to do"
         exit 1
 
     - name: Set up source package build
@@ -147,7 +147,7 @@ runs:
         run: |
           # Extract source file
           echo "::group::Extract source file"
-          set -eu
+          set -euo pipefail
 
           apt update
           apt install -y dpkg-dev
@@ -195,7 +195,7 @@ runs:
         shell: bash
         run: |
           echo "::group::Update source builder instance"
-          set -eu
+          set -euo pipefail
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
@@ -233,7 +233,7 @@ runs:
         shell: bash
         run: |
           echo "::group::Install extra apt repositories"
-          set -eux
+          set -euxo pipefail
           apt-get update
           apt-get install -y software-properties-common
           echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
@@ -259,7 +259,7 @@ runs:
         shell: bash
         run: |
           echo "::group::Update source builder instance"
-          set -eu
+          set -euo pipefail
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
@@ -292,7 +292,7 @@ runs:
           if [ -n "${{ inputs.extra-source-build-script != '' && 'true' || '' }}" ]; then
             echo "::group::Run source build script"
             (
-              set -eux
+              set -euxo pipefail
               ${{ inputs.extra-source-build-script }}
             )
             echo "::endgroup::"
@@ -335,7 +335,7 @@ runs:
         shell: bash
         run: |
           echo "::group::Update lintian sources tester instance"
-          set -eu
+          set -euo pipefail
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
@@ -404,7 +404,7 @@ runs:
         shell: bash
         run: |
           echo "::group::Update builder instance"
-          set -eu
+          set -euo pipefail
 
           "${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
@@ -499,6 +499,7 @@ runs:
         shell: bash
         run: |
           echo "::group::Update lintian binary tester instance"
+          set -euo pipefail
 
           ""${{ env.ACTION_BIN_PATH }}"/${{ env.GITHUB_ACTION_PATH }}"/prepare-container.sh
           echo "::endgroup::"
