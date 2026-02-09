@@ -98,7 +98,7 @@ runs:
       if: ${{ inputs.sources-only != 'false' && inputs.from-sources-file != '' }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        echo "Invalid inputs, nothing to"
+        echo "Invalid inputs, nothing to do"
         exit 1
 
     - name: Set up source package build
