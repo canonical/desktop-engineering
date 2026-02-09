@@ -42,7 +42,7 @@ jobs:
           set -eu
 
           echo "::group::Get source"
-          PKG=debianutils
+          PKG=hello
           pull-lp-source --download-only "$PKG"
           dpkg-source -x "$PKG"*.dsc pkg-src
           rm -rf "${PKG}_"*
@@ -120,7 +120,7 @@ jobs:
           # Get package source
           set -eu
 
-          PKG=debianutils
+          PKG=hello
           pull-lp-source --download-only "$PKG"
           dpkg-source -x "$PKG"*.dsc pkg-src
           rm -rfv "${PKG}_"*.{dsc,debian.}*

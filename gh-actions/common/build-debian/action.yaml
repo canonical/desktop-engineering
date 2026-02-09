@@ -57,11 +57,6 @@ inputs:
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
     default: ''
 
-  lrc:
-    required: false
-    description: Arguments to pass to licenserecon, if any. Set to `skip` to skip the licenserecon check.
-    default: ''
-
   allow-sudo:
     description: Allow the build to use sudo.
     required: false
@@ -155,27 +150,6 @@ runs:
 
           dpkg-source --extract "${{ inputs.from-sources-file }}" "${srcdir}"
           echo "SOURCE_DIR=${srcdir}" >> "${GITHUB_ENV}"
-          echo "::endgroup::"
-
-    - name: Check licenses
-      if: ${{ inputs.lrc != 'skip' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
-      with:
-        # Use ubuntu:devel to have a recent version of licenserecon, because we
-        # found older versions to report false positives (e.g. GPL-2 vs GPL-2+).
-        image: ubuntu:devel
-        volumes: |
-          ${{ github.workspace }}:${{ github.workspace }}
-        workdir: ${{ env.SOURCE_DIR }}
-        shell: bash
-        run: |
-          echo "::group::Install licenserecon"
-          apt-get update
-          apt-get install -y --no-install-recommends licenserecon
-          echo "::endgroup::"
-
-          echo "::group::Run licenserecon"
-          lrc ${{ inputs.lrc }}
           echo "::endgroup::"
 
     - name: Prepare source package
