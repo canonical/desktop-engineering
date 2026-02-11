@@ -57,9 +57,14 @@ inputs:
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
     default: ''
 
-  lrc:
+  run-lrc:
     required: false
-    description: Arguments to pass to licenserecon, if any. Set to `skip` to skip the licenserecon check.
+    description: Whether to run licenserecon on the source package to check licenses.
+    default: 'false'
+
+  lrc-args:
+    required: false
+    description: Arguments to pass to licenserecon.
     default: ''
 
   allow-sudo:
@@ -363,7 +368,7 @@ runs:
         echo "::endgroup::"
 
     - name: Check licenses
-      if: ${{ inputs.sources-only != 'true' && inputs.lrc != 'skip' }}
+      if: ${{ inputs.sources-only != 'true' && inputs.run-lrc != 'false' }}
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         # Use ubuntu:devel to have a recent version of licenserecon, because we
@@ -381,7 +386,7 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Run licenserecon"
-          lrc ${{ inputs.lrc }}
+          lrc ${{ inputs.lrc-args }}
           echo "::endgroup::"
 
     - name: Build packages
