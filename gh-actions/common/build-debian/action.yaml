@@ -57,9 +57,14 @@ inputs:
     description: Arguments to pass to lintian, if any. Set to `skip` to skip the lintian check.
     default: ''
 
-  lrc:
+  run-lrc:
     required: false
-    description: Arguments to pass to licenserecon, if any. Set to `skip` to skip the licenserecon check.
+    description: Whether to run licenserecon on the source package to check licenses.
+    default: 'false'
+
+  lrc-args:
+    required: false
+    description: Arguments to pass to licenserecon.
     default: ''
 
   allow-sudo:
@@ -155,27 +160,6 @@ runs:
 
           dpkg-source --extract "${{ inputs.from-sources-file }}" "${srcdir}"
           echo "SOURCE_DIR=${srcdir}" >> "${GITHUB_ENV}"
-          echo "::endgroup::"
-
-    - name: Check licenses
-      if: ${{ inputs.lrc != 'skip' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
-      with:
-        # Use ubuntu:devel to have a recent version of licenserecon, because we
-        # found older versions to report false positives (e.g. GPL-2 vs GPL-2+).
-        image: ubuntu:devel
-        volumes: |
-          ${{ github.workspace }}:${{ github.workspace }}
-        workdir: ${{ env.SOURCE_DIR }}
-        shell: bash
-        run: |
-          echo "::group::Install licenserecon"
-          apt-get update
-          apt-get install -y --no-install-recommends licenserecon
-          echo "::endgroup::"
-
-          echo "::group::Run licenserecon"
-          lrc ${{ inputs.lrc }}
           echo "::endgroup::"
 
     - name: Prepare source package
@@ -359,8 +343,8 @@ runs:
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
 
-    - name: Set up package build
-      if: ${{ inputs.sources-only != 'true' }}
+    - name: Extract source package
+      if: ${{ inputs.sources-only != 'true' || inputs.run-lrc != 'false' }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         echo "::group::Create build input directory"
@@ -374,13 +358,39 @@ runs:
         ) >> "${GITHUB_ENV}"
         echo "::endgroup::"
 
-        echo "::group::Create build output directory"
-        echo BUILD_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo "::endgroup::"
-
         echo "::group::Extract source package"
         cd ${{ env.SOURCE_OUTPUT_DIR }}
         dpkg-source --extract "${{ env.PKG_DSC }}" "${BUILD_INPUT_DIR}"
+        echo "::endgroup::"
+
+    - name: Check licenses
+      if: ${{ inputs.run-lrc != 'false' }}
+      uses: kohlerdominik/docker-run-action@v2.0.0
+      with:
+        # Use ubuntu:devel to have a recent version of licenserecon, because we
+        # found older versions to report false positives (e.g. GPL-2 vs GPL-2+).
+        image: ubuntu:devel
+        volumes: |
+          ${{ github.workspace }}:${{ github.workspace }}
+        workdir: ${{ env.BUILD_INPUT_DIR }}
+        shell: bash
+        run: |
+          set -eux
+          echo "::group::Install licenserecon"
+          apt-get update
+          apt-get install -y --no-install-recommends licenserecon
+          echo "::endgroup::"
+
+          echo "::group::Run licenserecon"
+          lrc ${{ inputs.lrc-args }}
+          echo "::endgroup::"
+
+    - name: Create build output directory
+      if: ${{ inputs.sources-only != 'true' }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        echo "::group::Create build output directory"
+        echo BUILD_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
         echo "::endgroup::"
 
     - name: Build packages
