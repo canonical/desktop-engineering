@@ -343,8 +343,8 @@ runs:
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
 
-    - name: Set up package build
-      if: ${{ inputs.sources-only != 'true' }}
+    - name: Extract source package
+      if: ${{ inputs.sources-only != 'true' || inputs.run-lrc != 'false' }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         echo "::group::Create build input directory"
@@ -358,17 +358,13 @@ runs:
         ) >> "${GITHUB_ENV}"
         echo "::endgroup::"
 
-        echo "::group::Create build output directory"
-        echo BUILD_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
-        echo "::endgroup::"
-
         echo "::group::Extract source package"
         cd ${{ env.SOURCE_OUTPUT_DIR }}
         dpkg-source --extract "${{ env.PKG_DSC }}" "${BUILD_INPUT_DIR}"
         echo "::endgroup::"
 
     - name: Check licenses
-      if: ${{ inputs.sources-only != 'true' && inputs.run-lrc != 'false' }}
+      if: ${{ inputs.run-lrc != 'false' }}
       uses: kohlerdominik/docker-run-action@v2.0.0
       with:
         # Use ubuntu:devel to have a recent version of licenserecon, because we
@@ -388,6 +384,14 @@ runs:
           echo "::group::Run licenserecon"
           lrc ${{ inputs.lrc-args }}
           echo "::endgroup::"
+
+    - name: Create build output directory
+      if: ${{ inputs.sources-only != 'true' }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        echo "::group::Create build output directory"
+        echo BUILD_OUTPUT_DIR="$( mktemp --directory --tmpdir="${PWD}" )" >> $GITHUB_ENV
+        echo "::endgroup::"
 
     - name: Build packages
       if: ${{ inputs.sources-only != 'true' }}
