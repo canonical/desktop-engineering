@@ -48,7 +48,7 @@ runs:
 
     - name: Check token permissions
       if: ${{ inputs.token != '' }}
-      uses: canonical/desktop-engineering/gh-actions/common/gh-perms@main
+      uses: canonical/desktop-engineering/gh-actions/common/gh-perms@tmp
       with:
         token: ${{ inputs.token }}
     - name: Install latest protoc
@@ -104,7 +104,7 @@ runs:
       if: ${{ always() && steps.go-generate-run.outcome == 'success' }}
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/common/has-diff@main
+      uses: canonical/desktop-engineering/gh-actions/common/has-diff@tmp
       with:
         working-directory: ${{ inputs.working-directory }}
         paths-to-ignore: ${{ inputs.paths-to-ignore }}

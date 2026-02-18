@@ -119,7 +119,7 @@ runs:
       if: ${{ always() && steps.update-mod-files.outcome == 'success' }}
       id: gomod-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/common/has-diff@main
+      uses: canonical/desktop-engineering/gh-actions/common/has-diff@tmp
       with:
         working-directory: ${{ inputs.working-directory }}
         fail-on-diff: true
@@ -128,7 +128,7 @@ runs:
       if: ${{ always() }}
       id: go-generate-check
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/go/generate@main
+      uses: canonical/desktop-engineering/gh-actions/go/generate@tmp
       with:
         tools-directory: ${{ inputs.tools-directory }}
         paths-to-ignore: ${{ inputs.generate-diff-paths-to-ignore }}
@@ -210,7 +210,7 @@ runs:
     - name: Summary
       if: ${{ always() && steps.compute-summary-title.outcome == 'success' }}
       # https://github.com/orgs/community/discussions/25246
-      uses: canonical/desktop-engineering/gh-actions/common/print-summary@main
+      uses: canonical/desktop-engineering/gh-actions/common/print-summary@tmp
       with:
         title: ${{ steps.compute-summary-title.outputs.title }}
         step-results: |
