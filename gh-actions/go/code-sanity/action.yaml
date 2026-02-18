@@ -97,7 +97,7 @@ runs:
     - name: Code formatting, vet, static checker Security…
       if: ${{ always() && steps.golangci-lint-args.outcome == 'success' }}
       id: golangci-lint-check
-      uses: golangci/golangci-lint-action@v8
+      uses: golangci/golangci-lint-action@v9
       with:
         version: ${{ steps.tooling-version.outputs.golangci-lint }}
         args: ${{ steps.golangci-lint-args.outputs.args }}
