@@ -68,13 +68,13 @@ runs:
 
         set-version "golangci-lint" "github.com/golangci/golangci-lint/v2"
         set-version "vulncheck" "golang.org/x/vuln"
-    - name: Get arguments and version for golangci-lint
+    - name: Get arguments for golangci-lint
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
       id: golangci-lint
       working-directory: ${{ inputs.working-directory }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        # Get arguments and version for golangci-lint
+        # Get arguments for golangci-lint
 
         # Detect which config file to use
         config='${{ github.action_path }}/.golangci-lint'
