@@ -21,7 +21,7 @@ runs:
         path: '.source-checkout-${{ github.run_id }}'
         ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
         token: ${{ inputs.token }}
-    - name: Check push permissions
+    - name: Check token has no contents:write permission
       id: check_push
       if: ${{ inputs.fail-for-push != 'false' && steps.my-checkout.outputs.ref != '' }}
       continue-on-error: true
@@ -32,7 +32,7 @@ runs:
         REPO_PATH: ${{ github.repository }}
         NEW_BRANCH: ${{ format('check_push-deleteme-{0}_{1}', github.run_id, github.sha) }}
       run: |
-        # Check push permissions
+        # Check token has no contents:write permission
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
         git checkout -b "${NEW_BRANCH}"
@@ -55,8 +55,10 @@ runs:
       shell: bash --noprofile --norc -euo pipefail {0}
       if: always()
       continue-on-error: true
-      run: rm -rf '.source-checkout-${{ github.run_id }}'
-    - name: Comment on current pull request
+      run: |
+        # Clean up temporary checkout
+        rm -rf '.source-checkout-${{ github.run_id }}'
+    - name: Check token has no pull-requests:write permission
       # Only applicable on pull requests.
       if: ${{ inputs.fail-for-pr != 'false' && github.event_name == 'pull_request' }}
       id: check_pr
@@ -65,7 +67,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
       run: |
-        # Comment on current pull request
+        # Check token has no pull-requests:write permission
         if gh pr comment -b "You should restrict the github token permissions of the '${{ github.job }}' job (ideally to none - 'permissions: {}')" ${{ github.event.pull_request.number }}; then
           echo "::error::'token' has 'pull-requests:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
