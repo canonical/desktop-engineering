@@ -36,9 +36,6 @@ runs:
         echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
         echo "| --- | :---:  |" >> $GITHUB_STEP_SUMMARY
 
-        # Print the summary to the logs
-        cat "$GITHUB_STEP_SUMMARY"
-
         while IFS= read -r jobResult; do
             # Trim leading and trailing whitespaces
             shopt -s extglob
@@ -54,3 +51,6 @@ runs:
             name=${jobResult#*" "}
             print_status_line "${res}" "${name}"
         done <<< '${{ inputs.step-results }}'
+
+        # Print the summary to the logs
+        cat "$GITHUB_STEP_SUMMARY"
