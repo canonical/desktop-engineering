@@ -70,7 +70,7 @@ runs:
         set-version "vulncheck" "golang.org/x/vuln"
     - name: Get arguments and version for golangci-lint
       if: ${{ always() && steps.tooling-version.outcome == 'success' }}
-      id: golanci-lint
+      id: golangci-lint
       working-directory: ${{ inputs.working-directory }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
@@ -95,12 +95,12 @@ runs:
         echo "args=${args}" >> $GITHUB_OUTPUT
 
     - name: Code formatting, vet, static checker Security…
-      if: ${{ always() && steps.golanci-lint.outcome == 'success' }}
+      if: ${{ always() && steps.golangci-lint.outcome == 'success' }}
       id: golangci-lint-check
       uses: golangci/golangci-lint-action@v8
       with:
         version: ${{ steps.tooling-version.outputs.golangci-lint }}
-        args: ${{ steps.golanci-lint.outputs.args }}
+        args: ${{ steps.golangci-lint.outputs.args }}
         working-directory: ${{ inputs.working-directory }}
 
     - name: Update module files
