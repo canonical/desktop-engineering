@@ -33,16 +33,20 @@ runs:
         NEW_BRANCH: ${{ format('check_push-deleteme-{0}_{1}', github.run_id, github.sha) }}
       run: |
         # Check token has no contents:write permission
+        echo "::group::Check token has no contents:write permission"
         git config user.name github-actions[bot]
         git config user.email github-actions[bot]@users.noreply.github.com
         git checkout -b "${NEW_BRANCH}"
         git commit --allow-empty -m "DropMe: Pushing this commit should not work"
         # Push just works because we checkout with `persist-credentials: true` (the default
         # behaviour).
-        if git push --set-upstream origin "${NEW_BRANCH}"; then
+        git push --set-upstream origin "${NEW_BRANCH}" || success=false
+        echo "::endgroup::" # Close the group first so that the error message is visible.
+        if [ "${success:-}" != false ]; then
           echo "::error::'token' has 'contents:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
           echo "branch-to-cleanup=$NEW_BRANCH" >> $GITHUB_OUTPUT
+          exit 1
         fi
     - name: Clean up temporary branch
       working-directory: '.source-checkout-${{ github.run_id }}'
@@ -68,9 +72,14 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         # Check token has no pull-requests:write permission
-        if gh pr comment -b "You should restrict the github token permissions of the '${{ github.job }}' job (ideally to none - 'permissions: {}')" ${{ github.event.pull_request.number }}; then
+        echo "::group::Check token has no pull-requests:write permission"
+        gh pr comment -b "You should restrict the github token permissions of the '${{ github.job }}' job (ideally to none - 'permissions: {}')" ${{ github.event.pull_request.number }} \
+         || success=false
+        echo "::endgroup::" # Close the group first so that the error message is visible.
+        if [ "${success:-}" != false ]; then
           echo "::error::'token' has 'pull-requests:write' permission, but it should be 'none' or 'read'."
           echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
         fi
     - name: Fail
       if: steps.check_push.outputs.status == 'failed' || steps.check_pr.outputs.status == 'failed'
