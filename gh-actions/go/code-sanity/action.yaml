@@ -13,6 +13,9 @@ inputs:
     description: Directory pointing to go.mod file for checking tool versioning. If none is provided, it will download latest.
   golangci-lint-configfile:
     description: Which config file to check for golangci-lint. If not set, it will look for .golangci-lint in your project, or default to desktop team defaults.
+  golangci-lint-output-path:
+    description: Path to write golangci-lint output to.
+    default: /tmp/golangci-lint.txt
   generate-diff-paths-to-ignore:
     description: Files and paths to ignore when checking if generated files changed. This is passed to git update-index.
     default: po/* docs/**/*.md README.md
@@ -76,6 +79,14 @@ runs:
       run: |
         # Get arguments for golangci-lint
 
+        # By default, the golangci-lint-action prints the output of the linter
+        # to the console, but hidden in a "run golangci-lint" group. We want the
+        # output to be visible without having to search for that group and click
+        # on it, so we write it to a file first and then log the content of that
+        # file in a subsequent step.
+        args="--output.text.path ${{ inputs.golangci-lint-output-path }}"
+        args="${args} --color=always"
+
         # Detect which config file to use
         config='${{ github.action_path }}/.golangci-lint'
         if [ -f ".golangci-lint" ]; then
@@ -85,7 +96,7 @@ runs:
           echo "Using project local config file"
           config='${{ inputs.golangci-lint-configfile }}'
         fi
-        args="--config ${config}"
+        args="${args} --config ${config}"
 
         # Optional build tag go-tags
         tags='${{ inputs.go-tags }}'
@@ -94,7 +105,7 @@ runs:
         fi
         echo "args=${args}" >> $GITHUB_OUTPUT
 
-    - name: Code formatting, vet, static checker Security…
+    - name: Run golangci-lint
       if: ${{ always() && steps.golangci-lint-args.outcome == 'success' }}
       id: golangci-lint-check
       uses: golangci/golangci-lint-action@v9
@@ -102,6 +113,14 @@ runs:
         version: ${{ steps.tooling-version.outputs.golangci-lint }}
         args: ${{ steps.golangci-lint-args.outputs.args }}
         working-directory: ${{ inputs.working-directory }}
+
+    - name: Report golangci-lint issues
+      if: ${{ always() && steps.golangci-lint-check.outcome == 'failure' }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        # Report golangci-lint issues
+        echo "::error::golangci-lint found issues"
+        cat ${{ inputs.golangci-lint-output-path }}
 
     - name: Update module files
       if: ${{ always() }}
