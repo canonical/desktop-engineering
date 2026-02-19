@@ -46,11 +46,6 @@ runs:
         done
         echo "::endgroup::"
 
-    - name: Check token permissions
-      if: ${{ inputs.token != '' }}
-      uses: canonical/desktop-engineering/gh-actions/common/gh-perms@tmp
-      with:
-        token: ${{ inputs.token }}
     - name: Install latest protoc
       if: ${{ steps.proto-deps.outputs.needs-protoc == 'true' }}
       shell: bash --noprofile --norc -euo pipefail {0}
