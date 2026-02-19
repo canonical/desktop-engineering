@@ -122,6 +122,7 @@ runs:
       uses: canonical/desktop-engineering/gh-actions/common/has-diff@main
       with:
         working-directory: ${{ inputs.working-directory }}
+        fail-on-diff: true
 
     - name: Ensure there is no diff between current and generated files
       if: ${{ always() }}
