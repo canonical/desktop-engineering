@@ -142,6 +142,9 @@ runs:
 
         echo "::endgroup::"
 
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
+
     - name: Run autopkgtest
       env:
         TERM: dumb
