@@ -15,7 +15,7 @@ jobs:
   analyze:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
@@ -26,7 +26,7 @@ jobs:
   format:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
@@ -37,7 +37,7 @@ jobs:
   l10n:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}
@@ -47,7 +47,7 @@ jobs:
   test:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
         with:
           flutter-version: ${{ inputs.flutter-version }}

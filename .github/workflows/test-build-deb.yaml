@@ -56,7 +56,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: .source
 
@@ -75,13 +75,13 @@ jobs:
 
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           run-id: ${{ needs.build_native_deb.outputs.run-id }}
           merge-multiple: true
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: .source
 
@@ -126,7 +126,7 @@ jobs:
           rm -rfv "${PKG}_"*.{dsc,debian.}*
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: .source
 
@@ -148,13 +148,13 @@ jobs:
 
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           run-id: ${{ needs.build_source_deb.outputs.run-id }}
           merge-multiple: true
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: .source
 
@@ -180,13 +180,13 @@ jobs:
 
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           run-id: ${{ needs.build_source_deb.outputs.run-id }}
           merge-multiple: true
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: .source
 
@@ -216,7 +216,7 @@ jobs:
           apt install -y lintian
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Create test input
         env:
