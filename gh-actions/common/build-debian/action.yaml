@@ -143,7 +143,7 @@ runs:
 
     - name: Extract source file
       if: ${{ inputs.from-sources-file != '' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         image: ${{ inputs.docker-image }}
         volumes: ${{ github.workspace }}:${{ github.workspace }}
@@ -163,7 +163,7 @@ runs:
           echo "::endgroup::"
 
     - name: Prepare source package
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         image: ${{ inputs.docker-image }}
         environment: |
@@ -209,7 +209,7 @@ runs:
 
     - name: Install extra APT repositories
       if: ${{ inputs.extra-apt-repositories != '' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         image: ${{ inputs.docker-image }}
         # Store the sources list in a volume so that we can reuse it in later steps
@@ -228,7 +228,7 @@ runs:
           echo "::endgroup::"
 
     - name: Build source package
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         image: ${{ inputs.docker-image }}
         environment: |
@@ -290,7 +290,7 @@ runs:
 
     - name: Uploading source packages
       if: ${{ inputs.from-sources-file == '' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       id: build-debian-source-package-upload-step
       with:
         name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-source
@@ -304,7 +304,7 @@ runs:
       # 2. To ensure that we don't install extra dependencies during sources
       #    building phase or during lintian phase.
       if: ${{ inputs.lintian != 'skip' && inputs.from-sources-file == '' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         image: ${{ inputs.docker-image }}
         environment:
@@ -367,7 +367,7 @@ runs:
 
     - name: Check licenses
       if: ${{ inputs.run-lrc != 'false' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         # Use ubuntu:devel to have a recent version of licenserecon, because we
         # found older versions to report false positives (e.g. GPL-2 vs GPL-2+).
@@ -397,7 +397,7 @@ runs:
 
     - name: Build packages
       if: ${{ inputs.sources-only != 'true' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         image: ${{ inputs.docker-image }}
         options: |
@@ -489,7 +489,7 @@ runs:
     - name: Upload artifacts
       if: ${{ inputs.sources-only != 'true' }}
       id: build-debian-binary-packages-upload-step
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.PKG_NAME }}_${{ env.PKG_VERSION }}-debian-packages
         path: ${{ env.BUILD_OUTPUT_DIR }}/
@@ -497,7 +497,7 @@ runs:
 
     - name: Run lintian on binaries
       if: ${{ inputs.lintian != 'skip' && inputs.sources-only != 'true' }}
-      uses: kohlerdominik/docker-run-action@v2.0.0
+      uses: kohlerdominik/docker-run-action@v2.1.0
       with:
         image: ${{ inputs.docker-image }}
         environment:
