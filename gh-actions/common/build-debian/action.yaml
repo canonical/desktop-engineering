@@ -338,10 +338,12 @@ runs:
           runuser -u tester -- \
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
               "${{ env.PKG_SOURCE_CHANGES }}" \
-            | tee "${out_file}"
+            | tee "${out_file}" \
+            || exit_code=$?
           cat "${out_file}" | "${{ env.GITHUB_ACTION_PATH }}"/lintian-to-md.sh \
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
+          exit ${exit_code:-0}
 
     - name: Extract source package
       if: ${{ inputs.sources-only != 'true' || inputs.run-lrc != 'false' }}
@@ -528,7 +530,9 @@ runs:
           runuser -u tester -- \
             lintian --pedantic --fail-on error ${{ inputs.lintian }} -- \
               *_"${{ env.PKG_VERSION }}"_*.deb \
-            | tee "${out_file}"
+            | tee "${out_file}" \
+            || exit_code=$?
           cat "${out_file}" | "${{ env.GITHUB_ACTION_PATH }}"/lintian-to-md.sh \
             >> $GITHUB_STEP_SUMMARY
           echo "::endgroup::"
+          exit ${exit_code:-0}
