@@ -3,53 +3,21 @@
 
 version: 2
 updates:
-  ## We need to list each subdirectories in a separate section:
-  ## https://github.com/dependabot/dependabot-core/issues/6704
   - package-ecosystem: "github-actions"
-    directory: "/gh-actions/common/build-debian"
+    # Reference for the directories option:
+    # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#directories-or-directory--
+    directories:
+      # Makes Dependabot search /.github/workflows, see reference above
+      - /
+      # Makes Dependabot search all of our gh-actions directories (assuming we
+      # don't nest them further than 3 levels deep).
+      - gh-actions/*
+      - gh-actions/*/*
+      - gh-actions/*/*/*
+    groups:
+      gh-actions:
+        patterns: [ "*" ]
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "deps(common-ci)"
-
-  - package-ecosystem: "github-actions"
-    directory: "/gh-actions/common/has-diff"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps(common-ci)"
-
-  - package-ecosystem: "github-actions"
-    directory: "/gh-actions/common/print-summary"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps(common-ci)"
-
-  - package-ecosystem: "github-actions"
-    directory: "/gh-actions/common/validate-pr-title"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps(common-ci)"
-
-  - package-ecosystem: "github-actions"
-    directory: "/gh-actions/go/code-sanity"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps(go-ci)"
-
-  - package-ecosystem: "github-actions"
-    directory: "/gh-actions/go/generate"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps(go-ci)"
-
-  - package-ecosystem: "github-actions"
-    directory: "/gh-actions/rust/code-sanity"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps(rust-ci)"
+      prefix: "deps(actions)"
