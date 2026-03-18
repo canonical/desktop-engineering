@@ -132,9 +132,15 @@ runs:
         ) >> "${GITHUB_ENV}"
 
         if git status --porcelain &>/dev/null; then
+          DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action"
+          DEBEMAIL="$(git log -1 --format='%ae' HEAD)"
+          # Strip any string in square brackets, e.g. [bot], because those
+          # cause lintian to complain with "malformed-contact Changed-By".
+          DEBFULLNAME=$(echo "${DEBFULLNAME}" | sed 's/\[[^]]*\]//g')
+          DEBEMAIL=$(echo "${DEBEMAIL}" | sed 's/\[[^]]*\]//g')
           (
-            echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action"
-            echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)"
+            echo "DEBFULLNAME=${DEBFULLNAME}"
+            echo "DEBEMAIL=${DEBEMAIL}"
           ) >> "${GITHUB_ENV}"
         fi
 
