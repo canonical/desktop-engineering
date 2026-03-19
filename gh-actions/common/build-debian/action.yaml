@@ -132,9 +132,20 @@ runs:
         ) >> "${GITHUB_ENV}"
 
         if git status --porcelain &>/dev/null; then
+          _author_name="$(git log -1 --format='%an' HEAD)"
+          _author_email="$(git log -1 --format='%ae' HEAD)"
+
+          # Dependabot commits use the name dependabot[bot]
+          # and email "49699333+dependabot[bot]@users.noreply.github.com".
+          # These cause lintian errors.
+          if [[ "${_author_name}" == "dependabot[bot]" && "${_author_email}" == "49699333+dependabot[bot]@users.noreply.github.com" ]]; then
+            _author_name="dependabot"
+            _author_email="support@github.com"
+          fi
+
           (
-            echo DEBFULLNAME="$(git log -1 --format='%an' HEAD) - GH Action"
-            echo DEBEMAIL="$(git log -1 --format='%ae' HEAD)"
+            echo DEBFULLNAME="${_author_name} - GH Action"
+            echo DEBEMAIL="${_author_email}"
           ) >> "${GITHUB_ENV}"
         fi
 
