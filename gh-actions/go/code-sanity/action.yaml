@@ -19,6 +19,9 @@ inputs:
   token:
     description: A token to authenticate GH API calls with. It will be used to get the latest protoc release, for example. Make sure to limit the permissions, e.g. a zero-permissions token is acceptable.
     default: ""
+  govulncheck:
+    description: If set to false, skip the govulncheck vulnerability scanning step.
+    default: "true"
 runs:
   using: "composite"
   steps:
@@ -178,7 +181,7 @@ runs:
         echo "::endgroup::"
 
     - name: Install govulncheck
-      if: ${{ always() && steps.tooling-version.outcome == 'success' }}
+      if: ${{ always() && steps.tooling-version.outcome == 'success' && inputs.govulncheck == 'true' }}
       id: install-govulncheck
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
@@ -193,7 +196,7 @@ runs:
         echo "::endgroup::"
 
     - name: Known vulnerabilities check
-      if: ${{ always() && steps.install-govulncheck.outcome == 'success' }}
+      if: ${{ always() && steps.install-govulncheck.outcome == 'success' && inputs.govulncheck == 'true' }}
       id: vulnerabilities-check
       working-directory: ${{ inputs.working-directory }}
       shell: bash --noprofile --norc -euo pipefail {0}
