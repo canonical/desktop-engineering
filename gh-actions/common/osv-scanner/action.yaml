@@ -6,14 +6,14 @@ runs:
   steps:
     - name: Scan on push
       if: ${{ github.event_name == 'push' }}
-      uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a30b4c310bacb7c0635e316e0720e23f0b791cf8" # v1.9.2
+      uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@eb5b619bb565d10623076caba5263750fde3c790" # v1.9.2
       with:
         scan-args: |-
           -r
           ./
     - name: Scan on PR
       if: ${{ github.event_name == 'pull_request' }}
-      uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@a30b4c310bacb7c0635e316e0720e23f0b791cf8" # v1.9.2
+      uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@eb5b619bb565d10623076caba5263750fde3c790" # v1.9.2
       with:
         scan-args: |-
           -r
