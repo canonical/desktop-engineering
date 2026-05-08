@@ -26,6 +26,9 @@ inputs:
       A list of extra APT repositories to add.
       The entries are passed to add-apt-repository, one per line.
 
+  extra-apt-repositories-pin:
+    description: APT pin preferences for extra repositories, written verbatim to /etc/apt/preferences.d/
+
   extra-source-build-script:
     description: |
       A script to run to prepare the source build machine.
@@ -219,7 +222,9 @@ runs:
       with:
         image: ${{ inputs.docker-image }}
         # Store the sources list in a volume so that we can reuse it in later steps
-        volumes: apt-sources:/etc/apt/sources.list.d
+        volumes: |
+          apt-sources:/etc/apt/sources.list.d
+          apt-preferences:/etc/apt/preferences.d
         shell: bash
         run: |
           echo "::group::Install extra apt repositories"
@@ -227,10 +232,20 @@ runs:
           apt-get update
           apt-get install -y software-properties-common
           echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
-          if [ -n "$repo" ]; then
-           add-apt-repository -y "$repo"
-          fi
+            if [ -n "$repo" ]; then
+              if [[ "$repo" == deb* ]]; then
+                # 'deb ...' lines would be written to /etc/apt/sources.list by
+                # add-apt-repository, which is not shared with later steps.
+                # Write them directly to sources.list.d instead.
+                echo "$repo" >> /etc/apt/sources.list.d/extra-repositories.list
+              else
+                add-apt-repository -y "$repo"
+              fi
+            fi
           done
+          if [ -n "${{ inputs.extra-apt-repositories-pin }}" ]; then
+            echo "${{ inputs.extra-apt-repositories-pin }}" > /etc/apt/preferences.d/extra-repositories-pin
+          fi
           echo "::endgroup::"
 
     - name: Build source package
@@ -245,6 +260,7 @@ runs:
           ${{ env.GITHUB_ACTION_PATH }}:${{ env.GITHUB_ACTION_PATH }}
           ${{ github.workspace }}:${{ github.workspace }}
           apt-sources:/etc/apt/sources.list.d
+          apt-preferences:/etc/apt/preferences.d
         workdir: ${{ env.SOURCE_DIR }}
         shell: bash
         run: |
@@ -419,6 +435,7 @@ runs:
           ${{ env.BUILD_INPUT_BASEDIR }}:${{ env.BUILD_INPUT_BASEDIR }}
           ${{ env.BUILD_OUTPUT_DIR }}:${{ env.BUILD_OUTPUT_DIR }}
           apt-sources:/etc/apt/sources.list.d
+          apt-preferences:/etc/apt/preferences.d
         shell: bash
         run: |
           echo "::group::Update builder instance"
