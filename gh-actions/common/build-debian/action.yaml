@@ -227,9 +227,16 @@ runs:
           apt-get update
           apt-get install -y software-properties-common
           echo "${{ inputs.extra-apt-repositories }}" | while read -r repo; do
-          if [ -n "$repo" ]; then
-           add-apt-repository -y "$repo"
-          fi
+            if [ -n "$repo" ]; then
+              if [[ "$repo" == deb* ]]; then
+                # 'deb ...' lines would be written to /etc/apt/sources.list by
+                # add-apt-repository, which is not shared with later steps.
+                # Write them directly to sources.list.d instead.
+                echo "$repo" >> /etc/apt/sources.list.d/extra-repositories.list
+              else
+                add-apt-repository -y "$repo"
+              fi
+            fi
           done
           echo "::endgroup::"
 
