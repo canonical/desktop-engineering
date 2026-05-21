@@ -8,6 +8,7 @@
 # token: "<a valid Jira API token>"
 # board_id: <integer board id>
 # sprint_prefix: "<string prefix for you Jira pulse names>"  # e.g. "(Apps)"
+# team_id: <team UUID>  # optional, sets the Team field on new issues
 # ```
 #
 # See here for details of how to obtain a Jira API token:
@@ -22,6 +23,7 @@ USER="$(sed -n 's/^user:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 TOKEN="$(sed -n 's/^token:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 PREFIX="$(sed -n 's/^sprint_prefix:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 BOARD_ID="$(sed -n 's/^board_id:\s*\(.\+\)/\1/p' ~/.jira_credentials)"
+TEAM_ID="$(sed -n 's/^team_id:\s*\(.\+\)/\1/p' ~/.jira_credentials)"
 PROJECT="UDENG"
 
 declare -A C=(
@@ -170,6 +172,7 @@ function create_issue_in_current_sprint {
     --arg issue_type "$issue_type" \
     --arg component "$component" \
     --arg project "$PROJECT" \
+    --arg team_id "$TEAM_ID" \
     '{
       "fields": {
         "project": {"key": $project},
@@ -178,7 +181,7 @@ function create_issue_in_current_sprint {
         "issuetype": {"name": $issue_type},
         "components": [{"name": $component}]
       }
-    }'
+    } | if $team_id != "" then .fields.customfield_10001 = $team_id else . end'
   )
 
   response=$(
