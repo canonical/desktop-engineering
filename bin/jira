@@ -8,7 +8,12 @@
 # token: "<a valid Jira API token>"
 # board_id: <integer board id>
 # sprint_prefix: "<string prefix for you Jira pulse names>"  # e.g. "(Apps)"
+# team_id: <team UUID>  # optional, sets the Team field on new issues
 # ```
+#
+# To find your team_id, run:
+#   jira get-team-id <ISSUE-KEY>
+# where <ISSUE-KEY> is any existing issue that already has the Team field set.
 #
 # See here for details of how to obtain a Jira API token:
 #   https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/
@@ -22,6 +27,7 @@ USER="$(sed -n 's/^user:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 TOKEN="$(sed -n 's/^token:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 PREFIX="$(sed -n 's/^sprint_prefix:\s*"\([^"]\+\)"/\1/p' ~/.jira_credentials)"
 BOARD_ID="$(sed -n 's/^board_id:\s*\(.\+\)/\1/p' ~/.jira_credentials)"
+TEAM_ID="$(sed -n 's/^team_id:\s*\(.\+\)/\1/p' ~/.jira_credentials)"
 PROJECT="UDENG"
 
 declare -A C=(
@@ -86,6 +92,7 @@ usage:
        current-sprint                                 pretty print the details of the current sprint
        summarise <tickets...>                         pretty print ticket titles and status
        list-epics --project=\$project [--components]  list open epics within the given project (and optional components)
+       get-team-id <ticket>                           print the team ID of a given ticket (useful for setting team_id in ~/.jira_credentials)
        pulse new --path=\$filepath                     create a new pulse from a YAML file (see jira-tools.py)
        pulse add --path=\$filepath                     add to an existing pulse from a YAML file (see jira-tools.py)
 
@@ -170,6 +177,7 @@ function create_issue_in_current_sprint {
     --arg issue_type "$issue_type" \
     --arg component "$component" \
     --arg project "$PROJECT" \
+    --arg team_id "$TEAM_ID" \
     '{
       "fields": {
         "project": {"key": $project},
@@ -178,7 +186,7 @@ function create_issue_in_current_sprint {
         "issuetype": {"name": $issue_type},
         "components": [{"name": $component}]
       }
-    }'
+    } | if $team_id != "" then .fields.customfield_10001 = $team_id else . end'
   )
 
   response=$(
@@ -360,6 +368,16 @@ function run_jira_tools {
   python3 "$script_dir/jira-tools.py" "$cmd" $@
 }
 
+function get_team_id {
+  local raw team_id
+  raw=$(jira_issue_fields "$1" 'customfield_10001')
+  team_id=$(echo "$raw" | jq -r '.fields.customfield_10001 // empty')
+  if [ -z "$team_id" ]; then
+    error_and_exit "No team set on $1"
+  fi
+  echo "$team_id"
+}
+
 # [ main ]
 require_external curl jq column
 
@@ -379,6 +397,7 @@ case $action in
               new) create_issue_in_current_sprint "$@";;
              noot) cecho blue "   _   < noot! >\n  (o< /\n  //\\ \n  V_/_";;
            assign) assign_issue_to_self "$1" ;;
+      get-team-id) get_team_id "$1" ;;
        list-epics) run_jira_tools list-epics "$*" ;;
             pulse)
               subcmd=$1
