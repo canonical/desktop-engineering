@@ -187,12 +187,17 @@ runs:
       run: |
         # Install govulncheck
         echo "::group::Install govulncheck"
-        GOTOOLCHAIN=$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Toolchain')
-        if [ "${GOTOOLCHAIN}" == "null" ]; then
-          GOTOOLCHAIN="go$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Go')"
-        fi
-        GOTOOLCHAIN=${GOTOOLCHAIN} \
+        if [ -n "${GOTOOLCHAIN}" ]; then
+          echo "Using predefined Go toolchain version ${GOTOOLCHAIN} to install govulncheck"
           go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
+        else
+          TOOLCHAIN=$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Toolchain')
+          if [ "${TOOLCHAIN}" == "null" ]; then
+            TOOLCHAIN="go$(go mod edit -json "${{ inputs.tools-directory }}/go.mod" | jq -r '.Go')"
+          fi
+          GOTOOLCHAIN=${TOOLCHAIN} \
+            go install golang.org/x/vuln/cmd/govulncheck@${{ steps.tooling-version.outputs.vulncheck }}
+        fi
         echo "::endgroup::"
 
     - name: Known vulnerabilities check
