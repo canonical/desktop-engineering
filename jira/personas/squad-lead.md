@@ -11,7 +11,7 @@ persona is pre-populated for all current Foundations squad leads.
 | ----- | ---- | ----- |
 | GNOME | Daniel Van Vugt | GNOME Shell ecosystem |
 | Integration | Jean-Baptiste Lallement | Lower level desktop components such as multimedia, webbrowsers, printing, accessibility |
-| Apps | Didier Roche-Tolomelly | In-house applications such as installer, app center, security center, TPMFDE, permission prompting |
+| Apps | Didier Roche Tolomelli | In-house applications such as installer, app center, security center, TPMFDE, permission prompting |
 | Enterprise | Adrian Dombeck | Enterprise application such as GPO client (adsys),  cloud authentication (authd) |
 | WSL | Carlos Nihelton Santana De Oliveira | Everything WSL and container based |
 | Design | Ana Sereijo | UX and Design for the Desktop |
