@@ -9,7 +9,7 @@ persona is pre-populated for all current Foundations squad leads.
 
 | Squad | Lead | Scope |
 | ----- | ---- | ----- |
-| GNOME | Deniel Van Vugt | GNOME Shell ecosystem |
+| GNOME | Daniel Van Vugt | GNOME Shell ecosystem |
 | Integration | Jean-Baptiste Lallement | Lower level desktop components such as multimedia, webbrowsers, printing, accessibility |
 | Apps | Didier Roche-Tolomelly | In-house applications such as installer, app center, security center, TPMFDE, permission prompting |
 | Enterprise | Adrian Dombeck | Enterprise application such as GPO client (adsys),  cloud authentication (authd) |
