@@ -114,7 +114,9 @@ runs:
       run: |
         echo "::group::Create local version with commit and docker container"
 
-        cd '${{ inputs.source-dir }}'
+        if [ -n "${{ inputs.source-dir }}" ]; then
+          cd '${{ inputs.source-dir }}'
+        fi
 
         # Short commit to avoid "package-has-long-file-name"
         VERSION_REF=$(date +'%y%m%d')+${{ github.run_number }}+$(echo ${{ github.sha }} | cut -c1-8)
