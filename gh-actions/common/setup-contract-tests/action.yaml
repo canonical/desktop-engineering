@@ -1,0 +1,55 @@
+name: Setup contract tests
+description: Setup Workshop and LXD for contract tests
+
+inputs:
+  container-name:
+    description: Name of the workshop container
+    required: false
+    default: dev
+  create-vm-command:
+    description: Name prefix for companion VM creation command
+    required: false
+    default: companion-vm-create
+  lxd-preseed:
+    description: Full LXD preseed configuration
+    required: false
+    default: |
+      storage_pools:
+        - name: workshop
+          driver: zfs
+          config:
+            size: 16GiB
+runs:
+  using: composite
+  steps:
+    - name: Speed up dpkg
+      uses: canonical/desktop-engineering/gh-actions/common/dpkg-install-speedup@main
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ github.token }}
+    - name: Setup LXD
+      uses: canonical/setup-lxd@da2ac84e727dc534215fd14cd088b9209d65893b
+      with:
+        channel: latest/stable
+        group: lxd
+        preseed: ${{ inputs.lxd-preseed }}
+    - name: Enable LXD container networking
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        sudo sysctl -w net.ipv4.ip_forward=1
+        sudo sysctl -w net.ipv6.conf.all.forwarding=1
+        sudo iptables -P FORWARD ACCEPT
+        sudo ip6tables -P FORWARD ACCEPT
+    - name: Install Workshop
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: sudo snap install workshop --classic
+    - name: Launch Workshop container
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: workshop launch ${{ inputs.container-name }}
+    - name: Connect LXD tunnel
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: workshop connect ${{ inputs.container-name }}/lxd-tunnel:lxd ${{ inputs.container-name }}/system:lxd
+    - name: Create companion VM
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: workshop run ${{ inputs.container-name }} ${{ inputs.create-vm-command }}
