@@ -1,0 +1,166 @@
+name: Notify Mattermost on failure
+description: Notify a Mattermost channel of a workflow failure using a bot account
+
+inputs:
+  server-url:
+    description: The base URL of the Mattermost server.
+    required: true
+  channel-id:
+    description: The ID of the Mattermost channel to notify.
+    required: true
+  bot-token:
+    description: The access token for the Mattermost bot account.
+    required: true
+  ping-users:
+    description: A comma-separated list of Mattermost usernames to mention.
+    required: false
+    default: ""
+  additional-info:
+    description: Markdown-formatted additional information to include in the notification.
+    required: false
+    default: ""
+  color:
+    description: The color of the notification attachment.
+    required: false
+    default: "#FF0000"
+  author-icon:
+    description: >-
+      The URL of the notification attachment author icon. Use repo-owner to use
+      the calling repository owner's GitHub icon, or an empty string to omit it.
+    required: false
+    default: repo-owner
+  request-ack:
+    description: Whether users must acknowledge the notification.
+    required: false
+    default: "true"
+  silent:
+    description: Whether to deliver the notification without user notifications or unread counts.
+    required: false
+    default: "false"
+  priority:
+    description: The Mattermost post priority. Leave empty to infer it from request-ack.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Notify Mattermost
+      shell: bash --noprofile --norc -euo pipefail {0}
+      env:
+        MM_SERVER_URL: ${{ inputs.server-url }}
+        MM_CHANNEL_ID: ${{ inputs.channel-id }}
+        MM_BOT_TOKEN: ${{ inputs.bot-token }}
+        MM_PING_USERS: ${{ inputs.ping-users }}
+        MM_ADDITIONAL_INFO: ${{ inputs.additional-info }}
+        MM_COLOR: ${{ inputs.color }}
+        MM_AUTHOR_ICON: ${{ inputs.author-icon }}
+        MM_REQUEST_ACK: ${{ inputs.request-ack }}
+        MM_SILENT: ${{ inputs.silent }}
+        MM_PRIORITY: ${{ inputs.priority }}
+      run: |
+        echo "::add-mask::${MM_BOT_TOKEN}"
+
+        case "${MM_REQUEST_ACK}" in
+          true) request_ack=true ;;
+          false) request_ack=false ;;
+          *)
+            echo "request-ack must be either 'true' or 'false'" >&2
+            exit 1
+            ;;
+        esac
+
+        case "${MM_SILENT}" in
+          true) silent=true ;;
+          false) silent=false ;;
+          *)
+            echo "silent must be either 'true' or 'false'" >&2
+            exit 1
+            ;;
+        esac
+
+        ping_list=''
+        IFS=',' read -ra users <<< "${MM_PING_USERS}"
+        for user in "${users[@]}"; do
+          user="${user#"${user%%[![:space:]]*}"}"
+          user="${user%"${user##*[![:space:]]}"}"
+          if [ -n "${user}" ]; then
+            ping_list="${ping_list} @${user}"
+          fi
+        done
+        ping_list="${ping_list# }"
+
+        author_icon="${MM_AUTHOR_ICON}"
+        if [ "${author_icon}" = "repo-owner" ]; then
+          author_icon="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY_OWNER}.png?size=16"
+        fi
+
+        # Prepare the JSON payload for the Mattermost post
+        payload=$(jq --null-input \
+          --arg channel_id "${MM_CHANNEL_ID}" \
+          --arg color "${MM_COLOR}" \
+          --arg author_name "${GITHUB_REPOSITORY} Action Failure" \
+          --arg author_link "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+          --arg author_icon "${author_icon}" \
+          --arg title "Workflow '${GITHUB_WORKFLOW}' failed" \
+          --arg title_link "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          --arg additional_info "${MM_ADDITIONAL_INFO}" \
+          --arg event_name "${GITHUB_EVENT_NAME}" \
+          --arg ref "${GITHUB_REF}" \
+          --arg ref_link "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/tree/${GITHUB_REF}" \
+          --arg run_id "${GITHUB_RUN_ID}" \
+          --arg actor "${GITHUB_ACTOR}" \
+          --arg ping_list "${ping_list}" \
+          --arg priority "${MM_PRIORITY}" \
+          --argjson request_ack "${request_ack}" \
+          '{
+            channel_id: $channel_id,
+            props: {
+              attachments: [{
+                color: $color,
+                author_name: $author_name,
+                author_link: $author_link,
+                title: $title,
+                title_link: $title_link,
+                text: $additional_info,
+                fields: [
+                  {short: true, title: "Event", value: $event_name},
+                  {short: true, title: "Ref", value: "[\($ref)](\($ref_link))"},
+                  {short: true, title: "Run ID", value: "[\($run_id)](\($title_link))"},
+                  {short: true, title: "Actor", value: $actor},
+                  {short: false, title: ":warning: Notified Users", value: $ping_list}
+                ]
+              }]
+            }
+          }
+          | if $author_icon != "" then
+              .props.attachments[0].author_icon = $author_icon
+            else
+              .
+            end
+          | if $priority != "" or $request_ack then
+              .metadata.priority = {
+                priority: (if $priority != "" then $priority else "important" end),
+                requested_ack: $request_ack
+              }
+            else
+              .
+            end')
+
+        # Send the notification to Mattermost
+        response=$(curl --fail-with-body --silent --show-error --location \
+          --request POST \
+          --header "Authorization: Bearer ${MM_BOT_TOKEN}" \
+          --header 'Content-Type: application/json' \
+          --header 'Accept: application/json' \
+          --data-binary "${payload}" \
+          "${MM_SERVER_URL%/}/api/v4/posts?silent=${silent}")
+
+        # Check the response for a valid post ID
+        if ! post_id=$(jq --exit-status --raw-output \
+          'if (.id | type) == "string" and .id != "" then .id else empty end' \
+          <<< "${response}" 2>/dev/null); then
+          echo "::error::Mattermost returned an invalid response. Check that server-url is the Mattermost base URL and is accessible without an interactive login."
+          exit 1
+        fi
+        echo "Mattermost notification posted with ID ${post_id}"
