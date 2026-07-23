@@ -27,6 +27,22 @@ inputs:
     description: Duration passed to Juju's --wait option, e.g. 30m or 6h
     required: false
     default: 6h
+  credential-usernames:
+    description: Comma-separated database usernames whose credentials should be backed up
+    required: false
+    default: ""
+  credentials-secret-path:
+    description: Vault KV path under the secret mount for database credentials
+    required: false
+    default: ""
+  vault-addr:
+    description: Vault server address, required when credential-usernames is set
+    required: false
+    default: ""
+  vault-token:
+    description: Vault token, required when credential-usernames is set
+    required: false
+    default: ""
   dry-run:
     description: Validate model access and unit selection without running the action
     required: false
@@ -35,6 +51,39 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install Vault
+      if: ${{ inputs.credential-usernames != '' }}
+      shell: bash
+      run: |
+        set -eo pipefail
+        sudo snap install vault
+        vault version
+
+    - name: Prepare credential path
+      id: prepare
+      if: ${{ inputs.credential-usernames != '' }}
+      shell: bash
+      env:
+        APPLICATION: ${{ inputs.application }}
+        CREDENTIALS_SECRET_PATH: ${{ inputs.credentials-secret-path }}
+        MODEL: ${{ inputs.model }}
+      run: |
+        set -eo pipefail
+        credentials_path="${CREDENTIALS_SECRET_PATH:-services/${MODEL}/${APPLICATION}-credentials}"
+        echo "credentials-path=${credentials_path}" >> "${GITHUB_OUTPUT}"
+
+    - name: Fetch current cluster credentials
+      id: cluster-credentials
+      if: ${{ inputs.credential-usernames != '' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ inputs.vault-addr }}
+        method: token
+        token: ${{ inputs.vault-token }}
+        exportEnv: false
+        ignoreNotFound: true
+        secrets: secret/data/${{ steps.prepare.outputs.credentials-path }} ** | CURRENT_
+
     - name: Run database backup
       id: database-backup
       shell: bash
@@ -49,18 +98,37 @@ runs:
         DRY_RUN: ${{ inputs.dry-run }}
       run: python3 "${{ github.action_path }}/backup.py"
 
+    - name: Back up database credentials
+      id: database-credentials
+      if: ${{ always() && inputs.credential-usernames != '' }}
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        MODEL_OWNER: ${{ inputs.model-owner }}
+        APPLICATION: ${{ inputs.application }}
+        TIMEOUT: ${{ inputs.timeout }}
+        CREDENTIAL_USERNAMES: ${{ inputs.credential-usernames }}
+        CREDENTIALS_SECRET_PATH: ${{ steps.prepare.outputs.credentials-path }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        VAULT_ADDR: ${{ inputs.vault-addr }}
+        VAULT_TOKEN: ${{ inputs.vault-token }}
+        VAULT_CREDENTIAL_OUTPUTS_JSON: ${{ toJSON(steps.cluster-credentials.outputs) }}
+      run: python3 "${{ github.action_path }}/backup_credentials.py"
+
     - name: Write job summary
       if: always()
       shell: bash
       env:
         BACKUP_RESULT: ${{ steps.database-backup.outputs.result }}
+        CREDENTIAL_RESULT: ${{ steps.database-credentials.outputs.result }}
       run: |
         set -eo pipefail
-        [[ -n "${BACKUP_RESULT}" ]] || exit 0
+        [[ -n "${BACKUP_RESULT}${CREDENTIAL_RESULT}" ]] || exit 0
         {
           echo "## Database backup"
           echo
           echo "| Operation | Target | Unit | Result | Notes |"
           echo "| --------- | ------ | ---- | ------ | ----- |"
-          jq -Rr 'select(length > 0) | fromjson | [.operation, "`\(.target)`", (.unit // "—" | "`\(.)`"), .result, (.notes // "—")] | "| " + join(" | ") + " |"' <<< "${BACKUP_RESULT}"
+          printf '%s\n%s\n' "${BACKUP_RESULT}" "${CREDENTIAL_RESULT}" |
+            jq -Rr 'select(length > 0) | fromjson | [.operation, "`\(.target)`", (.unit // "—" | "`\(.)`"), .result, (.notes // "—")] | "| " + join(" | ") + " |"'
         } >> "${GITHUB_STEP_SUMMARY}"

@@ -34,13 +34,13 @@ Excluded units and degraded fallbacks are noted in the job summary.
 
 For charms that support the `get-cluster-status` action (currently `mysql` and
 `mysql-k8s`), unit selection uses the live cluster topology instead of the
-possibly stale `juju status` primary marker. The action queries the first
-eligible unit and selects from members whose status is `ONLINE` and whose
-`memberRole` matches the requested role — `PRIMARY` for `primary`, `SECONDARY`
-for `secondary` (falling back to the `PRIMARY` member with a degraded
-warning), or any `ONLINE` member for `any`. If the `get-cluster-status`
-action fails or no member matches, the run fails rather than guessing from
-stale status.
+possibly stale `juju status` primary marker. The action queries the leader
+unit (falling back to the first eligible unit when the leader is unhealthy)
+and selects from members whose status is `ONLINE` and whose `memberRole`
+matches the requested role — `PRIMARY` for `primary`, `SECONDARY` for
+`non-primary` (falling back to the `PRIMARY` member with a degraded warning),
+or any `ONLINE` member for `any`. If the `get-cluster-status` action fails or
+no member matches, the run fails rather than guessing from stale status.
 
 ## Usage
 
