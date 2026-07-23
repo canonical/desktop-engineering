@@ -1,0 +1,16 @@
+{
+  "applications": {
+    "database": {
+      "units": {
+        "database/0": {
+          "workload-status": {"current": "active", "message": "Primary"},
+          "juju-status": {"current": "idle"}
+        },
+        "database/1": {
+          "workload-status": {"current": "active", "message": "Primary"},
+          "juju-status": {"current": "idle"}
+        }
+      }
+    }
+  }
+}

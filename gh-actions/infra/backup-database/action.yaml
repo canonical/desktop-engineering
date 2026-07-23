@@ -1,0 +1,66 @@
+name: Database backup
+description: Select a healthy Juju unit and run a database backup action
+
+inputs:
+  model:
+    description: Juju model name
+    required: true
+  model-owner:
+    description: Juju model owner; only needed for models owned by another user
+    required: false
+  application:
+    description: Juju application to back up
+    required: true
+  action:
+    description: Juju backup action
+    required: false
+    default: create-backup
+  parameters:
+    description: JSON object containing Juju action parameters
+    required: false
+    default: "{}"
+  unit-role:
+    description: Unit role to select (non-primary, primary, or any)
+    required: false
+    default: non-primary
+  timeout:
+    description: Duration passed to Juju's --wait option, e.g. 30m or 6h
+    required: false
+    default: 6h
+  dry-run:
+    description: Validate model access and unit selection without running the action
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Run database backup
+      id: database-backup
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        MODEL_OWNER: ${{ inputs.model-owner }}
+        APPLICATION: ${{ inputs.application }}
+        ACTION: ${{ inputs.action }}
+        PARAMETERS_JSON: ${{ inputs.parameters }}
+        UNIT_ROLE: ${{ inputs.unit-role }}
+        TIMEOUT: ${{ inputs.timeout }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: python3 "${{ github.action_path }}/backup.py"
+
+    - name: Write job summary
+      if: always()
+      shell: bash
+      env:
+        BACKUP_RESULT: ${{ steps.database-backup.outputs.result }}
+      run: |
+        set -eo pipefail
+        [[ -n "${BACKUP_RESULT}" ]] || exit 0
+        {
+          echo "## Database backup"
+          echo
+          echo "| Operation | Target | Unit | Result | Notes |"
+          echo "| --------- | ------ | ---- | ------ | ----- |"
+          jq -Rr 'select(length > 0) | fromjson | [.operation, "`\(.target)`", (.unit // "—" | "`\(.)`"), .result, (.notes // "—")] | "| " + join(" | ") + " |"' <<< "${BACKUP_RESULT}"
+        } >> "${GITHUB_STEP_SUMMARY}"

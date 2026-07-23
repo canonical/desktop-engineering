@@ -1,0 +1,38 @@
+name: Test backup-database
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - gh-actions/infra/backup-database/**
+      - .github/workflows/test-backup-database.yaml
+  pull_request:
+    paths:
+      - gh-actions/infra/backup-database/**
+      - .github/workflows/test-backup-database.yaml
+
+jobs:
+  check-python-syntax:
+    name: py_compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Syntax check all Python files
+        run: |
+          while IFS= read -r file; do
+            echo "Checking $file"
+            python3 -m py_compile "$file"
+          done < <(find gh-actions/infra/backup-database -type f -name '*.py' -print0 | sort -z | tr '\0' '\n')
+
+  unit-tests:
+    name: Python unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s gh-actions/infra/backup-database/tests -p 'test_*.py' -v
