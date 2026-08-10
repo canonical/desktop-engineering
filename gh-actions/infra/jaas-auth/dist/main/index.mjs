@@ -11,8 +11,6 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { clearCaCert } from "../clear_ca_cert.mjs";
-
 function run(command, args, options = {}) {
   execFileSync(command, args, { stdio: "inherit", ...options });
 }
@@ -71,15 +69,9 @@ try {
       "-c",
       controller,
       controllerHost,
-      "--trust",
-      "--no-prompt",
     ],
     { env, stdio: ["inherit", "ignore", "inherit"] },
   );
-
-  if (input("clear-ca-cert", "true") === "true") {
-    clearCaCert(path.join(jujuData, "controllers.yaml"));
-  }
 
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `juju-data=${jujuData}\n`);
   // Persist for the post (cleanup) entrypoint.
