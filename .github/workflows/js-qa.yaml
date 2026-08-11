@@ -1,0 +1,30 @@
+name: JavaScript QA
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.js"
+      - "**/*.mjs"
+      - .github/workflows/js-qa.yaml
+  pull_request:
+    paths:
+      - "**/*.js"
+      - "**/*.mjs"
+      - .github/workflows/js-qa.yaml
+
+jobs:
+  check-js-syntax:
+    name: node --check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Syntax check all JS files
+        run: |
+          while IFS= read -r file; do
+            echo "Checking $file"
+            node --check "$file"
+          done < <(find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './.git/*' -print0 | sort -z | tr '\0' '\n')

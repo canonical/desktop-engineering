@@ -1,0 +1,39 @@
+name: JAAS auth
+description: >-
+  Authenticate to a JAAS controller as a service account using Juju client
+  credentials, then automatically clean up (juju logout and remove client
+  state) afterwards, even when the job fails. Cleanup can be disabled with the
+  `cleanup` input.
+
+inputs:
+  jaas-controller:
+    description: Name used to register the JAAS controller in the local Juju client
+    required: true
+  jaas-controller-host:
+    description: JAAS controller host name or alias
+    required: true
+  juju-client-id:
+    description: Juju client ID for the service account
+    required: true
+  juju-client-secret:
+    description: Juju client secret for the service account
+    required: true
+  cleanup:
+    description: >-
+      Run the post-job cleanup step (juju logout and removal of the Juju
+      client state). Set to "false" to skip cleanup, e.g. when the runner
+      itself is ephemeral or you want to reuse the client state.
+    required: false
+    default: "true"
+
+outputs:
+  juju-data:
+    description: >-
+      Directory containing the Juju client state (JUJU_DATA), set by the
+      main entrypoint via GITHUB_OUTPUT.
+
+runs:
+  using: node24
+  main: dist/main/index.mjs
+  post: dist/post/index.mjs
+  post-if: always()
