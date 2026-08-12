@@ -125,9 +125,7 @@ def juju_run(
         "--quiet",
         *arguments,
     ]
-    succeeded = capture.run(runner, command) == 0 and juju_run_succeeded(
-        capture.stdout
-    )
+    succeeded = capture.run(runner, command) == 0 and juju_run_succeeded(capture.stdout)
     if not succeeded:
         stderr = capture.stderr.read_text().strip()
         if stderr:

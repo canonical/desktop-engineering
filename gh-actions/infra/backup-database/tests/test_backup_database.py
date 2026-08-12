@@ -163,9 +163,7 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertEqual(records[0]["unit"], "mysql/0")
         self.assertEqual(records[0]["result"], "⏭️ Dry run")
         cluster_command = next(
-            command
-            for command in runner.commands
-            if "get-cluster-status" in command
+            command for command in runner.commands if "get-cluster-status" in command
         )
         self.assertEqual(FakeRunner._unit(cluster_command), "mysql/0")
         self.assertIn("--quiet", cluster_command)
@@ -356,7 +354,6 @@ class DatabaseBackupTests(unittest.TestCase):
                 command_runner=runner,
                 temporary_root=root,
             )
-            records = read_records(root / "github-output")
 
         self.assertEqual(result, 0)
         cluster_command = next(
@@ -366,9 +363,7 @@ class DatabaseBackupTests(unittest.TestCase):
 
     def test_cluster_status_offline_member_excluded(self):
         cluster_status = self.fixture("mysql-cluster-status.json")
-        cluster_status["defaultReplicaSet"]["topology"]["mysql-0"]["status"] = (
-            "OFFLINE"
-        )
+        cluster_status["defaultReplicaSet"]["topology"]["mysql-0"]["status"] = "OFFLINE"
         runner = FakeRunner(
             self.fixture("mysql-cluster.json"), cluster_status=cluster_status
         )
@@ -884,9 +879,10 @@ class DatabaseBackupTests(unittest.TestCase):
         stdout = io.StringIO()
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            with redirect_stdout(stdout), self.assertLogs(
-                "backup_helpers", level="WARNING"
-            ) as logs:
+            with (
+                redirect_stdout(stdout),
+                self.assertLogs("backup_helpers", level="WARNING") as logs,
+            ):
                 result = backup.run_target(
                     target,
                     dry_run=True,

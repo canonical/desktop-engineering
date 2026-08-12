@@ -20,11 +20,17 @@ from backup_helpers import (
     join_notes,
     juju_operations,
     juju_run,
-    juju_run_succeeded,
     parameter_value,
     read_json_object,
     run_command,
     set_result_output,
+)
+from constants import (
+    SUMMARY_DEGRADED_DRY_RUN,
+    SUMMARY_DEGRADED_SUCCESS,
+    SUMMARY_DRY_RUN,
+    SUMMARY_FAILURE,
+    SUMMARY_SUCCESS,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,6 +93,210 @@ class Selection:
     workload: str
     agent: str
     excluded: tuple[Exclusion, ...]
+
+
+@dataclass
+class _UnitHealth:
+    """One unit's normalized Juju status and health-based exclusion reasons."""
+
+    name: str
+    workload: str
+    agent: str
+    is_primary: bool
+    reasons: list[str]
+
+    @property
+    def eligible(self) -> bool:
+        """Return whether the unit is healthy enough to be selected."""
+
+        return not self.reasons
+
+
+def target_from_action_inputs(values: Mapping[str, str]) -> BackupTarget:
+    """Build a normalized backup target from action environment values."""
+
+    parameters = json.loads(values.get("PARAMETERS_JSON", "{}"))
+    if not isinstance(parameters, dict):
+        raise TypeError("parameters must be a JSON object")
+    application = values.get("APPLICATION", "").strip()
+    if not application:
+        raise ValueError("application is required")
+    model = values.get("MODEL", "").strip()
+    if not model:
+        raise ValueError("model is required")
+    model_owner = values.get("MODEL_OWNER", "").strip()
+    return BackupTarget(
+        application=application,
+        model=model,
+        model_owner=model_owner,
+        action=values["ACTION"],
+        parameters=parameters,
+        unit_role=values["UNIT_ROLE"],
+        timeout=values["TIMEOUT"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unit status parsing
+# ---------------------------------------------------------------------------
+
+
+def _unit_number(name: str) -> int:
+    """Return the integer suffix used to order Juju unit names."""
+
+    match = _UNIT_PATTERN.search(name)
+    if match is None:
+        raise SelectionError(f"invalid unit name: {name}")
+    return int(match.group("number"))
+
+
+def _parse_unit(name: Any, value: Any) -> _UnitHealth:
+    """Normalize one Juju unit and record health-based exclusion reasons."""
+
+    if not isinstance(name, str) or not _UNIT_PATTERN.search(name):
+        raise SelectionError(f"invalid unit name: {name}")
+    if not isinstance(value, dict):
+        raise SelectionError(f"unit {name} has malformed status")
+    workload_status = value.get("workload-status")
+    agent_status = value.get("juju-status")
+    if not isinstance(workload_status, dict) or not isinstance(agent_status, dict):
+        raise SelectionError(f"unit {name} has malformed workload or agent status")
+    workload = workload_status.get("current")
+    agent = agent_status.get("current")
+    message = workload_status.get("message", "")
+    if (
+        not isinstance(workload, str)
+        or not isinstance(agent, str)
+        or not isinstance(message, str)
+    ):
+        raise SelectionError(f"unit {name} has malformed workload or agent status")
+
+    reasons = []
+    if workload in {"blocked", "error"}:
+        reasons.append(f"workload is {workload}")
+    if agent in {"error", "lost"}:
+        reasons.append(f"agent is {agent}")
+    return _UnitHealth(
+        name=name,
+        workload=workload,
+        agent=agent,
+        is_primary=message == "Primary",
+        reasons=reasons,
+    )
+
+
+def _parse_units(status: Mapping[str, Any], application: str) -> list[_UnitHealth]:
+    """Extract and validate the application's units from Juju status."""
+
+    applications = status.get("applications")
+    if not isinstance(applications, dict):
+        raise SelectionError("status does not contain an applications object")
+    application_status = applications.get(application)
+    if not isinstance(application_status, dict):
+        raise SelectionError(f"application {application} is not present in status")
+    units = application_status.get("units")
+    if not isinstance(units, dict):
+        raise SelectionError(
+            f"application {application} does not contain a units object"
+        )
+    if not units:
+        raise SelectionError(f"application {application} has no units")
+    return sorted(
+        (_parse_unit(name, value) for name, value in units.items()),
+        key=lambda unit: _unit_number(unit.name),
+    )
+
+
+def _exclusions(parsed_units: Sequence[_UnitHealth]) -> tuple[Exclusion, ...]:
+    """Summarize every unit excluded from selection, with reasons."""
+
+    return tuple(
+        Exclusion(unit.name, tuple(unit.reasons))
+        for unit in parsed_units
+        if unit.reasons
+    )
+
+
+# ---------------------------------------------------------------------------
+# Selection policies
+# ---------------------------------------------------------------------------
+
+
+class _Selector:
+    """Select one backup unit from parsed unit health."""
+
+    def __init__(self, parsed_units: Sequence[_UnitHealth], application: str) -> None:
+        self.units = list(parsed_units)
+        self.application = application
+
+    def eligible(self) -> list[_UnitHealth]:
+        """Return healthy units, raising when none are eligible."""
+
+        eligible = [unit for unit in self.units if unit.eligible]
+        if not eligible:
+            raise SelectionError(
+                f"application {self.application} has no eligible units"
+            )
+        return eligible
+
+    def exclusions(self) -> tuple[Exclusion, ...]:
+        """Return every unit excluded from selection, with reasons."""
+
+        return _exclusions(self.units)
+
+
+class _JujuStatusSelector(_Selector):
+    """Select a unit using Juju workload status and the Primary message."""
+
+    VALID_ROLES = frozenset({"non-primary", "primary", "any"})
+
+    def select(self, unit_role: str) -> Selection:
+        """Select an eligible unit using workload health and role."""
+
+        if unit_role not in self.VALID_ROLES:
+            raise SelectionError(f"invalid unit role: {unit_role}")
+        eligible = self.eligible()
+        primaries = [unit for unit in self.units if unit.is_primary]
+        warning = None
+        if unit_role == "any":
+            selected = eligible[0]
+        else:
+            if len(primaries) != 1:
+                raise SelectionError(
+                    f"application {self.application} must have exactly one unit"
+                    " with status message Primary"
+                )
+            eligible_primaries = [unit for unit in eligible if unit.is_primary]
+            eligible_replicas = [unit for unit in eligible if not unit.is_primary]
+            if unit_role == "primary":
+                if not eligible_primaries:
+                    raise SelectionError("the primary unit is not eligible")
+                selected = eligible_primaries[0]
+            elif eligible_replicas:
+                selected = eligible_replicas[0]
+            else:
+                selected = eligible_primaries[0]
+                warning = "no eligible non-primary unit; selected the primary"
+
+        return Selection(
+            unit=selected.name,
+            requested_role=unit_role,
+            selected_role="primary" if selected.is_primary else "non-primary",
+            warning=warning,
+            workload=selected.workload,
+            agent=selected.agent,
+            excluded=self.exclusions(),
+        )
+
+
+def select_backup_unit(
+    status: Mapping[str, Any], application: str, unit_role: str
+) -> Selection:
+    """Select an eligible application unit using workload health and role."""
+
+    return _JujuStatusSelector(_parse_units(status, application), application).select(
+        unit_role
+    )
 
 
 @dataclass(frozen=True)
@@ -240,160 +450,6 @@ class _RunContext:
         return capture, succeeded
 
 
-UNIT_PATTERN = re.compile(r"/(?P<number>[0-9]+)$")
-SUMMARY_FAILURE = "❌ Failure"
-SUMMARY_SUCCESS = "✅ Success"
-SUMMARY_DEGRADED_SUCCESS = "⚠️ Success (degraded)"
-SUMMARY_DRY_RUN = "⏭️ Dry run"
-SUMMARY_DEGRADED_DRY_RUN = "⏭️ Dry run (degraded)"
-
-# Charms whose Juju status primary marker lags behind reality; for these, the
-# get-cluster-status action provides the authoritative member roles.
-CLUSTER_STATUS_ACTION = "get-cluster-status"
-CLUSTER_STATUS_CHARMS = frozenset({"mysql", "mysql-k8s"})
-ONLINE_MEMBER = "ONLINE"
-
-
-def target_from_action_inputs(values: Mapping[str, str]) -> BackupTarget:
-    """Build a normalized backup target from action environment values."""
-
-    parameters = json.loads(values.get("PARAMETERS_JSON", "{}"))
-    if not isinstance(parameters, dict):
-        raise TypeError("parameters must be a JSON object")
-    application = values.get("APPLICATION", "").strip()
-    if not application:
-        raise ValueError("application is required")
-    model = values.get("MODEL", "").strip()
-    if not model:
-        raise ValueError("model is required")
-    model_owner = values.get("MODEL_OWNER", "").strip()
-    return BackupTarget(
-        application=application,
-        model=model,
-        model_owner=model_owner,
-        action=values["ACTION"],
-        parameters=parameters,
-        unit_role=values["UNIT_ROLE"],
-        timeout=values["TIMEOUT"],
-    )
-
-
-def _model_arguments(target: BackupTarget) -> list[str]:
-    """Return the --model arguments for Juju commands."""
-
-    return ["--model", target.qualified_model]
-
-
-def select_backup_unit(
-    status: Mapping[str, Any], application: str, unit_role: str
-) -> Selection:
-    """Select an eligible application unit using workload health and role."""
-
-    if unit_role not in {"non-primary", "primary", "any"}:
-        raise SelectionError(f"invalid unit role: {unit_role}")
-    applications = status.get("applications")
-    if not isinstance(applications, dict):
-        raise SelectionError("status does not contain an applications object")
-    application_status = applications.get(application)
-    if not isinstance(application_status, dict):
-        raise SelectionError(f"application {application} is not present in status")
-    units = application_status.get("units")
-    if not isinstance(units, dict):
-        raise SelectionError(
-            f"application {application} does not contain a units object"
-        )
-    if not units:
-        raise SelectionError(f"application {application} has no units")
-
-    parsed_units = sorted(
-        (_parse_unit(name, value) for name, value in units.items()),
-        key=lambda unit: _unit_number(unit["unit"]),
-    )
-    eligible = [unit for unit in parsed_units if not unit["reasons"]]
-    if not eligible:
-        raise SelectionError(f"application {application} has no eligible units")
-
-    primaries = [unit for unit in parsed_units if unit["primary"]]
-    warning = None
-    if unit_role == "any":
-        selected = eligible[0]
-    else:
-        if len(primaries) != 1:
-            raise SelectionError(
-                f"application {application} must have exactly one unit with status message Primary"
-            )
-        eligible_primaries = [unit for unit in eligible if unit["primary"]]
-        eligible_replicas = [unit for unit in eligible if not unit["primary"]]
-        if unit_role == "primary":
-            if not eligible_primaries:
-                raise SelectionError("the primary unit is not eligible")
-            selected = eligible_primaries[0]
-        elif eligible_replicas:
-            selected = eligible_replicas[0]
-        else:
-            selected = eligible_primaries[0]
-            warning = "no eligible non-primary unit; selected the primary"
-
-    excluded = tuple(
-        Exclusion(unit["unit"], tuple(unit["reasons"]))
-        for unit in parsed_units
-        if unit["reasons"]
-    )
-    return Selection(
-        unit=selected["unit"],
-        requested_role=unit_role,
-        selected_role="primary" if selected["primary"] else "non-primary",
-        warning=warning,
-        workload=selected["workload"],
-        agent=selected["agent"],
-        excluded=excluded,
-    )
-
-
-def _parse_unit(name: Any, value: Any) -> dict[str, Any]:
-    """Normalize one Juju unit and record health-based exclusion reasons."""
-
-    if not isinstance(name, str) or not UNIT_PATTERN.search(name):
-        raise SelectionError(f"invalid unit name: {name}")
-    if not isinstance(value, dict):
-        raise SelectionError(f"unit {name} has malformed status")
-    workload_status = value.get("workload-status")
-    agent_status = value.get("juju-status")
-    if not isinstance(workload_status, dict) or not isinstance(agent_status, dict):
-        raise SelectionError(f"unit {name} has malformed workload or agent status")
-    workload = workload_status.get("current")
-    agent = agent_status.get("current")
-    message = workload_status.get("message", "")
-    if (
-        not isinstance(workload, str)
-        or not isinstance(agent, str)
-        or not isinstance(message, str)
-    ):
-        raise SelectionError(f"unit {name} has malformed workload or agent status")
-
-    reasons = []
-    if workload in {"blocked", "error"}:
-        reasons.append(f"workload is {workload}")
-    if agent in {"error", "lost"}:
-        reasons.append(f"agent is {agent}")
-    return {
-        "unit": name,
-        "workload": workload,
-        "agent": agent,
-        "primary": message == "Primary",
-        "reasons": reasons,
-    }
-
-
-def _unit_number(name: str) -> int:
-    """Return the integer suffix used to order Juju unit names."""
-
-    match = UNIT_PATTERN.search(name)
-    if match is None:
-        raise SelectionError(f"invalid unit name: {name}")
-    return int(match.group("number"))
-
-
 def run_target(
     target: BackupTarget,
     *,
@@ -407,7 +463,7 @@ def run_target(
     mode = "dry run" if dry_run else "live backup"
     logger.info("Starting %s for %s/%s", mode, target.model, target.application)
     with tempfile.TemporaryDirectory(dir=temporary_root) as temporary_directory:
-        context = RunContext(
+        context = _RunContext(
             target=target,
             dry_run=dry_run,
             output_path=output_path,
@@ -430,7 +486,8 @@ def run_target(
             )
         if selection.excluded:
             logger.info(
-                "Excluded %d unhealthy unit(s) from selection", len(selection.excluded)
+                "Excluded %d unhealthy unit(s) from selection",
+                len(selection.excluded),
             )
 
         notes = _selection_notes(selection)
@@ -456,101 +513,7 @@ def run_target(
         return 0
 
 
-def requires_cluster_status(status: Mapping[str, Any], application: str) -> bool:
-    """Return whether the application runs a charm with cluster-status support."""
-
-    charm = status.get("applications", {}).get(application, {}).get("charm")
-    return isinstance(charm, str) and charm.split(":")[-1] in CLUSTER_STATUS_CHARMS
-
-
-def parse_cluster_members(
-    document: Mapping[str, Any], application: str
-) -> dict[str, dict[str, str]]:
-    """Map topology member names to units, capturing memberRole and status."""
-
-    try:
-        topology = document["defaultReplicaSet"]["topology"]
-        if not topology:
-            raise KeyError("topology")
-        prefix = f"{application.removeprefix('cs:')}-"
-        members: dict[str, dict[str, str]] = {}
-        for name, member in topology.items():
-            if not name.startswith(prefix):
-                raise KeyError(name)
-            number = name.removeprefix(prefix)
-            if not number.isdigit():
-                raise KeyError(name)
-            members[f"{application}/{number}"] = {
-                "role": member["memberRole"],
-                "status": member["status"],
-            }
-        return members
-    except (KeyError, TypeError) as error:
-        raise SelectionError(f"malformed cluster status document: {error}") from error
-
-
-def select_cluster_status_unit(
-    parsed_units: Sequence[dict[str, Any]],
-    members: Mapping[str, Mapping[str, str]],
-    application: str,
-    unit_role: str,
-) -> Selection:
-    """Select a unit using get-cluster-status topology roles and member health."""
-
-    eligible = [unit for unit in parsed_units if not unit["reasons"]]
-    if not eligible:
-        raise SelectionError(f"application {application} has no eligible units")
-    for unit in parsed_units:
-        if unit["unit"] not in members:
-            unit["reasons"].append("missing from cluster topology")
-    online = {
-        unit["unit"]: member
-        for unit in eligible
-        if (member := members.get(unit["unit"])) is not None
-        and member["status"] == ONLINE_MEMBER
-    }
-    if not online:
-        raise SelectionError(
-            f"application {application} has no online eligible cluster members"
-        )
-
-    warning = None
-    if unit_role == "ANY":
-        selected_name = min(online, key=_unit_number)
-    else:
-        matches = [
-            name for name, member in online.items() if member["role"] == unit_role
-        ]
-        if not matches and unit_role == "SECONDARY":
-            matches = [
-                name for name, member in online.items() if member["role"] == "PRIMARY"
-            ]
-            if matches:
-                warning = "no online secondary unit; selected the primary"
-        if not matches:
-            raise SelectionError(
-                f"application {application} has no online eligible {unit_role.lower()} member"
-            )
-        selected_name = min(matches, key=_unit_number)
-    selected_member = online[selected_name]
-
-    excluded = tuple(
-        Exclusion(unit["unit"], tuple(unit["reasons"]))
-        for unit in parsed_units
-        if unit["reasons"]
-    )
-    return Selection(
-        unit=selected_name,
-        requested_role=unit_role,
-        selected_role="primary" if selected_member["role"] == "PRIMARY" else "secondary",
-        warning=warning,
-        workload="online",
-        agent="online",
-        excluded=excluded,
-    )
-
-
-def _select_target_unit(context: RunContext) -> Selection | None:
+def _select_target_unit(context: _RunContext) -> Selection | None:
     """Read Juju status and select a unit, reporting failures to the summary."""
 
     target = context.target
@@ -559,7 +522,8 @@ def _select_target_unit(context: RunContext) -> Selection | None:
     command = [
         "juju",
         "status",
-        *_model_arguments(target),
+        "--model",
+        target.qualified_model,
         target.application,
         "--format=json",
     ]
@@ -574,9 +538,11 @@ def _select_target_unit(context: RunContext) -> Selection | None:
         return None
     try:
         status = read_json_object(capture.stdout)
-        if requires_cluster_status(status, target.application):
+        if _requires_cluster_status(status, target.application):
             return _select_cluster_status_unit(context, status)
-        return select_backup_unit(status, target.application, target.unit_role)
+        return _JujuStatusSelector(
+            _parse_units(status, target.application), target.application
+        ).select(target.unit_role)
     except (json.JSONDecodeError, OSError, TypeError, ValueError) as error:
         logger.error(
             "Unable to select a backup unit for %s: %s", context.target_name, error
@@ -589,56 +555,43 @@ def _select_target_unit(context: RunContext) -> Selection | None:
         return None
 
 
+def _requires_cluster_status(status: Mapping[str, Any], application: str) -> bool:
+    """Return whether the application runs a cluster-status-aware charm."""
+
+    charm = status.get("applications", {}).get(application, {}).get("charm")
+    return isinstance(charm, str) and charm.split(":")[-1] in _CLUSTER_STATUS_CHARMS
+
+
 def _select_cluster_status_unit(
-    context: RunContext, status: Mapping[str, Any]
-) -> Selection | None:
+    context: _RunContext, status: Mapping[str, Any]
+) -> Selection:
     """Select a unit using the charm's get-cluster-status action output."""
 
-    target = context.target
-    # Translate the user-facing role to memberRole naming (PRIMARY/SECONDARY)
-    unit_role = {"non-primary": "SECONDARY", "primary": "PRIMARY"}.get(
-        target.unit_role, "ANY"
-    )
-    applications = status["applications"]
-    application_status = applications[target.application]
-    units = application_status.get("units")
-    if not isinstance(units, dict) or not units:
-        raise SelectionError(
-            f"application {target.application} has no units in status"
-        )
-    parsed_units = sorted(
-        (_parse_unit(name, value) for name, value in units.items()),
-        key=lambda unit: _unit_number(unit["unit"]),
-    )
-    eligible = [unit for unit in parsed_units if not unit["reasons"]]
-    if not eligible:
-        raise SelectionError(f"application {target.application} has no eligible units")
-    query_unit = eligible[0]
+    application = context.target.application
+    member_role = _MEMBER_ROLES.get(context.target.unit_role, "ANY")
+    selector = _ClusterStatusSelector(_parse_units(status, application), application)
+    query_unit = selector.eligible()[0]
 
-    logger.info("Reading cluster status from %s", query_unit["unit"])
+    logger.info("Reading cluster status from %s", query_unit.name)
     capture, succeeded = context.juju_run(
-        "cluster-status", query_unit["unit"], CLUSTER_STATUS_ACTION
+        "cluster-status", query_unit.name, _CLUSTER_STATUS_ACTION
     )
     if not succeeded:
-        raise SelectionError(
-            f"{CLUSTER_STATUS_ACTION} failed on {query_unit['unit']}"
-        )
+        raise SelectionError(f"{_CLUSTER_STATUS_ACTION} failed on {query_unit.name}")
     operations = juju_operations(capture.stdout)
     cluster_status = operations[0].get("results", {}).get("status")
     if not isinstance(cluster_status, str):
         raise SelectionError(
-            f"{CLUSTER_STATUS_ACTION} did not return a status document"
+            f"{_CLUSTER_STATUS_ACTION} did not return a status document"
         )
     document = json.loads(cluster_status)
     if not isinstance(document, dict):
         raise SelectionError("cluster status document is not an object")
-    members = parse_cluster_members(document, target.application)
-    return select_cluster_status_unit(
-        parsed_units, members, target.application, unit_role
-    )
+    members = _parse_cluster_members(document, application)
+    return selector.select(members, member_role)
 
 
-def _run_backup_action(context: RunContext, selection: Selection, notes: str) -> bool:
+def _run_backup_action(context: _RunContext, selection: Selection, notes: str) -> bool:
     """Run the configured backup action, withholding its captured stdout."""
 
     target = context.target
@@ -669,7 +622,7 @@ def _run_backup_action(context: RunContext, selection: Selection, notes: str) ->
     return False
 
 
-def _list_backups(context: RunContext, selection: Selection, notes: str) -> bool:
+def _list_backups(context: _RunContext, selection: Selection, notes: str) -> bool:
     """List backups, forwarding its output and reporting verification failures."""
 
     target = context.target
