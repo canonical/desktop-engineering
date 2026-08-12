@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 CommandRunner = Callable[[Sequence[str], Path, Path], int]
 
@@ -32,10 +35,24 @@ class CommandCapture:
         return runner(command, self.stdout, self.stderr)
 
     def print(self) -> None:
-        """Print both captured streams; use only for non-sensitive output."""
+        """Print both captured streams; use only for non-sensitive output.
 
-        sys.stdout.write(self.stdout.read_text())
+        Stdout is pretty-printed when it contains a JSON document and is
+        otherwise printed verbatim.
+        """
+
+        sys.stdout.write(_formatted(self.stdout.read_text()))
         sys.stderr.write(self.stderr.read_text())
+
+
+def _formatted(text: str) -> str:
+    """Return pretty-printed JSON, or the original text when it is not JSON."""
+
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    return json.dumps(document, indent=2, sort_keys=True) + "\n"
 
 
 def run_command(command: Sequence[str], stdout_path: Path, stderr_path: Path) -> int:
@@ -77,9 +94,45 @@ def juju_run_succeeded(stdout_path: Path) -> bool:
 
     try:
         operations = juju_operations(stdout_path)
-    except (json.JSONDecodeError, OSError, ValueError):
+    except (json.JSONDecodeError, OSError, TypeError, ValueError):
         return False
     return all(operation.get("status") == "completed" for operation in operations)
+
+
+def juju_run(
+    runner: CommandRunner,
+    capture: CommandCapture,
+    model: str,
+    unit: str,
+    action: str,
+    *arguments: str,
+) -> bool:
+    """Run a Juju action and return whether the operation envelope succeeded.
+
+    The command runs with --format=json --quiet so stdout is only ever the
+    JSON envelope. On failure the captured stderr is logged; the captured
+    stdout is never logged or printed by this helper.
+    """
+
+    command = [
+        "juju",
+        "run",
+        "--model",
+        model,
+        unit,
+        action,
+        "--format=json",
+        "--quiet",
+        *arguments,
+    ]
+    succeeded = capture.run(runner, command) == 0 and juju_run_succeeded(
+        capture.stdout
+    )
+    if not succeeded:
+        stderr = capture.stderr.read_text().strip()
+        if stderr:
+            logger.warning("%s stderr on %s: %s", action, unit, stderr)
+    return succeeded
 
 
 def parameter_value(value: Any) -> str:

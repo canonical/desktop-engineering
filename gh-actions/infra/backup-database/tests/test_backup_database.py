@@ -41,11 +41,15 @@ class FakeRunner:
         fail_model: str | None = None,
         fail_status: bool = False,
         failed_action: str | None = None,
+        empty_action: str | None = None,
+        cluster_status: dict[str, Any] | None = None,
     ):
         self.fixture = fixture
         self.fail_model = fail_model
         self.fail_status = fail_status
         self.failed_action = failed_action
+        self.empty_action = empty_action
+        self.cluster_status = cluster_status
         self.commands: list[list[str]] = []
 
     @staticmethod
@@ -81,7 +85,30 @@ class FakeRunner:
             return 1
         action = self._action(command)
         unit = self._unit(command)
+        if action == self.empty_action:
+            return 0
         status = "failed" if action == self.failed_action else "completed"
+        if action == "get-cluster-status":
+            # Mirror the real juju run envelope: results.status holds the
+            # action's output as a JSON-encoded string, not a nested object.
+            stdout.write_text(
+                json.dumps(
+                    {
+                        unit: {
+                            "id": "146",
+                            "results": {
+                                "return-code": 0,
+                                "status": json.dumps(self.cluster_status),
+                                "success": "True",
+                            },
+                            "status": status,
+                            "timing": {},
+                            "unit": unit,
+                        }
+                    }
+                )
+            )
+            return 0
         if action == "list-backups":
             stdout.write_text(
                 json.dumps(
@@ -111,12 +138,264 @@ class DatabaseBackupTests(unittest.TestCase):
     def fixture(self, name: str) -> dict[str, Any]:
         return json.loads((self.fixtures / name).read_text())
 
+    def test_cluster_status_selection_overrides_stale_primary(self):
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"),
+            cluster_status=self.fixture("mysql-cluster-status.json"),
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(records[0]["unit"], "mysql/0")
+        self.assertEqual(records[0]["result"], "⏭️ Dry run")
+        cluster_command = next(
+            command
+            for command in runner.commands
+            if "get-cluster-status" in command
+        )
+        self.assertEqual(FakeRunner._unit(cluster_command), "mysql/0")
+        self.assertIn("--quiet", cluster_command)
+
+    def test_cluster_status_parses_real_envelope(self):
+        # juju run --format=json double-encodes action results: results.status
+        # is a string containing the JSON document, not a nested object.
+        envelope = self.fixture("mysql-get-cluster-status.json")
+        status_value = envelope["mysql/0"]["results"]["status"]
+        self.assertIsInstance(status_value, str)
+
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"),
+            cluster_status=json.loads(status_value),
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(records[0]["unit"], "mysql/0")
+
+    def test_cluster_status_primary_selection(self):
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"),
+            cluster_status=self.fixture("mysql-cluster-status.json"),
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+            unit_role="primary",
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(records[0]["unit"], "mysql/2")
+
+    def test_cluster_status_any_selects_first_online(self):
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"),
+            cluster_status=self.fixture("mysql-cluster-status.json"),
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+            unit_role="any",
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(records[0]["unit"], "mysql/0")
+
+    def test_cluster_status_degraded_falls_back_to_primary(self):
+        cluster_status = self.fixture("mysql-cluster-status.json")
+        topology = cluster_status["defaultReplicaSet"]["topology"]
+        topology["mysql-0"]["memberRole"] = "SECONDARY"
+        topology["mysql-0"]["status"] = "OFFLINE"
+        topology["mysql-1"]["memberRole"] = "SECONDARY"
+        topology["mysql-1"]["status"] = "OFFLINE"
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"), cluster_status=cluster_status
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(records[0]["unit"], "mysql/2")
+        self.assertEqual(records[0]["result"], "⏭️ Dry run (degraded)")
+        self.assertIn("no online secondary unit", records[0]["notes"])
+
+    def test_cluster_status_failure_records_failure(self):
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"),
+            cluster_status=self.fixture("mysql-cluster-status.json"),
+            failed_action="get-cluster-status",
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 1)
+        self.assertEqual(records[0]["result"], "❌ Failure")
+        self.assertIn("get-cluster-status failed", records[0]["notes"])
+
+    def test_cluster_status_empty_output_records_failure(self):
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"),
+            cluster_status=self.fixture("mysql-cluster-status.json"),
+            empty_action="get-cluster-status",
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 1)
+        self.assertEqual(records[0]["result"], "❌ Failure")
+
+    def test_cluster_status_unhealthy_first_unit_falls_back_to_next(self):
+        fixture = self.fixture("mysql-cluster.json")
+        fixture["applications"]["mysql"]["units"]["mysql/0"]["workload-status"] = {
+            "current": "blocked"
+        }
+        runner = FakeRunner(
+            fixture,
+            cluster_status=self.fixture("mysql-cluster-status.json"),
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 0)
+        cluster_command = next(
+            command for command in runner.commands if "get-cluster-status" in command
+        )
+        self.assertEqual(FakeRunner._unit(cluster_command), "mysql/1")
+
+    def test_cluster_status_offline_member_excluded(self):
+        cluster_status = self.fixture("mysql-cluster-status.json")
+        cluster_status["defaultReplicaSet"]["topology"]["mysql-0"]["status"] = (
+            "OFFLINE"
+        )
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"), cluster_status=cluster_status
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(records[0]["unit"], "mysql/1")
+
     def test_selects_first_healthy_replica(self):
         selection = backup.select_backup_unit(
             self.fixture("healthy-three.json"), "database", "non-primary"
         )
         self.assertEqual(selection.unit, "database/1")
-        self.assertFalse(selection.degraded)
+        self.assertIsNone(selection.warning)
 
     def test_selects_primary_when_requested(self):
         selection = backup.select_backup_unit(
@@ -135,7 +414,7 @@ class DatabaseBackupTests(unittest.TestCase):
             self.fixture("unhealthy-replicas.json"), "database", "non-primary"
         )
         self.assertEqual(selection.unit, "database/0")
-        self.assertTrue(selection.degraded)
+        self.assertIsNotNone(selection.warning)
         self.assertEqual(len(selection.excluded), 2)
 
     def test_excludes_lost_agent(self):
@@ -153,7 +432,7 @@ class DatabaseBackupTests(unittest.TestCase):
             self.fixture("single-unit.json"), "database", "non-primary"
         )
         self.assertEqual(selection.unit, "database/0")
-        self.assertTrue(selection.degraded)
+        self.assertIsNotNone(selection.warning)
         self.assertEqual(
             selection.warning, "no eligible non-primary unit; selected the primary"
         )
@@ -309,10 +588,9 @@ class DatabaseBackupTests(unittest.TestCase):
             application="database",
             model_owner=TEST_MODEL_OWNER,
         )
-        stderr = io.StringIO()
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            with redirect_stderr(stderr):
+            with self.assertLogs("backup", level="ERROR") as logs:
                 result = backup.run_target(
                     target,
                     dry_run=False,
@@ -323,8 +601,8 @@ class DatabaseBackupTests(unittest.TestCase):
             records = read_records(root / "github-output")
 
         self.assertEqual(result, 1)
-        self.assertIn("command output was withheld", stderr.getvalue())
-        self.assertNotIn("simulated status failure", stderr.getvalue())
+        self.assertIn("command output was withheld", "\n".join(logs.output))
+        self.assertNotIn("simulated status failure", "\n".join(logs.output))
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["target"], "unavailable-model/database")
         self.assertEqual(records[0]["result"], "❌ Failure")
@@ -388,6 +666,7 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertIn("label=nightly backup", action_command)
         self.assertIn('nested={"enabled":true}', action_command)
         self.assertIn("--wait=42m", action_command)
+        self.assertIn("--quiet", action_command)
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["target"], "successful-model/database")
         self.assertEqual(records[0]["result"], "✅ Success")
@@ -419,8 +698,69 @@ class DatabaseBackupTests(unittest.TestCase):
             ["create-backup", "list-backups"],
         )
         self.assertEqual(FakeRunner._unit(run_commands[1]), "database/1")
+        self.assertTrue(all("--quiet" in command for command in run_commands))
         self.assertIn("backup-2026-07-22", stdout.getvalue())
         self.assertIn("list warning", stderr.getvalue())
+
+    def test_list_backups_output_is_pretty_printed(self):
+        runner = FakeRunner(self.fixture("healthy-three.json"))
+        target = backup.BackupTarget(
+            model="successful-model",
+            application="database",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        stdout = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            with redirect_stdout(stdout):
+                result = backup.run_target(
+                    target,
+                    dry_run=True,
+                    output_path=root / "github-output",
+                    command_runner=runner,
+                    temporary_root=root,
+                )
+
+        self.assertEqual(result, 0)
+        self.assertIn('\n    "message": "backup-2026-07-22"', stdout.getvalue())
+
+    def test_capture_print_falls_back_to_raw_text(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            capture = backup_helpers.CommandCapture(root / "out.json", root / "out.err")
+            capture.stdout.write_text("not json\n")
+            capture.stderr.write_text("some warning\n")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                capture.print()
+
+        self.assertEqual(stdout.getvalue(), "not json\n")
+        self.assertEqual(stderr.getvalue(), "some warning\n")
+
+    def test_empty_action_output_returns_failure_when_cli_succeeds(self):
+        runner = FakeRunner(
+            self.fixture("healthy-three.json"), empty_action="create-backup"
+        )
+        target = backup.BackupTarget(
+            model="empty-model",
+            application="database",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=False,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 1)
+        self.assertEqual(records[0]["result"], "❌ Failure")
+        self.assertIn("Backup action failed", records[0]["notes"])
 
     def test_degraded_success_uses_warning_result(self):
         runner = FakeRunner(self.fixture("unhealthy-replicas.json"))
@@ -456,13 +796,14 @@ class DatabaseBackupTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            result = backup.run_target(
-                target,
-                dry_run=False,
-                output_path=root / "github-output",
-                command_runner=runner,
-                temporary_root=root,
-            )
+            with self.assertLogs("backup_helpers", level="WARNING") as logs:
+                result = backup.run_target(
+                    target,
+                    dry_run=False,
+                    output_path=root / "github-output",
+                    command_runner=runner,
+                    temporary_root=root,
+                )
             records = read_records(root / "github-output")
 
         self.assertEqual(result, 1)
@@ -470,6 +811,7 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertEqual(records[0]["unit"], "database/0")
         self.assertEqual(records[0]["result"], "❌ Failure")
         self.assertIn("Backup action failed", records[0]["notes"])
+        self.assertIn("simulated failure", "\n".join(logs.output))
 
     def test_failed_action_status_returns_failure_when_cli_succeeds(self):
         runner = FakeRunner(
@@ -510,20 +852,26 @@ class DatabaseBackupTests(unittest.TestCase):
             application="database",
             model_owner=TEST_MODEL_OWNER,
         )
+        stdout = io.StringIO()
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            result = backup.run_target(
-                target,
-                dry_run=True,
-                output_path=root / "github-output",
-                command_runner=runner,
-                temporary_root=root,
-            )
+            with redirect_stdout(stdout), self.assertLogs(
+                "backup_helpers", level="WARNING"
+            ) as logs:
+                result = backup.run_target(
+                    target,
+                    dry_run=True,
+                    output_path=root / "github-output",
+                    command_runner=runner,
+                    temporary_root=root,
+                )
             records = read_records(root / "github-output")
 
         self.assertEqual(result, 1)
         self.assertEqual(records[0]["result"], "❌ Failure")
         self.assertIn("list-backups failed during dry run", records[0]["notes"])
+        self.assertNotIn("backup-2026-07-22", stdout.getvalue())
+        self.assertIn("list warning", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

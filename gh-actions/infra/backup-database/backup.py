@@ -360,7 +360,7 @@ def _select_target_unit(context: RunContext) -> Selection | None:
 
 
 def _run_backup_action(context: RunContext, selection: Selection, notes: str) -> bool:
-    """Run the configured backup action, withholding its captured output."""
+    """Run the configured backup action, withholding its captured stdout."""
 
     target = context.target
     logger.info("Running the configured backup action on %s", selection.unit)
@@ -373,6 +373,7 @@ def _run_backup_action(context: RunContext, selection: Selection, notes: str) ->
         target.action,
         f"--wait={target.timeout}",
         "--format=json",
+        "--quiet",
         *(
             f"{name}={parameter_value(value)}"
             for name, value in target.parameters.items()
@@ -382,6 +383,9 @@ def _run_backup_action(context: RunContext, selection: Selection, notes: str) ->
     if result == 0 and juju_run_succeeded(capture.stdout):
         logger.info("Backup action completed successfully on %s", selection.unit)
         return True
+    stderr = capture.stderr.read_text().strip()
+    if stderr:
+        logger.warning("Backup action stderr: %s", stderr)
     logger.error(
         "Backup action failed for %s on %s; action output was withheld",
         context.target_name,
@@ -409,14 +413,21 @@ def _list_backups(context: RunContext, selection: Selection, notes: str) -> bool
         "list-backups",
         f"--wait={target.timeout}",
         "--format=json",
+        "--quiet",
     ]
     result = capture.run(context.runner, command)
-    capture.print()
-    if result == 0 and juju_run_succeeded(capture.stdout):
+    succeeded = result == 0 and juju_run_succeeded(capture.stdout)
+    if succeeded:
+        capture.print()
         logger.info("Backup listing completed successfully on %s", selection.unit)
         return True
+    stderr = capture.stderr.read_text().strip()
+    if stderr:
+        logger.warning("list-backups stderr: %s", stderr)
     logger.error(
-        "Unable to list backups for %s on %s", context.target_name, selection.unit
+        "Unable to list backups for %s on %s; command output was withheld",
+        context.target_name,
+        selection.unit,
     )
     failure = (
         "list-backups failed during dry run"
