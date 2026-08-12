@@ -250,16 +250,17 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(records[0]["unit"], "mysql/0")
 
-    def test_cluster_status_degraded_falls_back_to_primary(self):
+    def test_cluster_status_single_member_falls_back_to_primary(self):
+        # Fallback to the primary only applies to a single-member cluster.
         cluster_status = self.fixture("mysql-cluster-status.json")
         topology = cluster_status["defaultReplicaSet"]["topology"]
-        topology["mysql-0"]["memberRole"] = "SECONDARY"
-        topology["mysql-0"]["status"] = "OFFLINE"
-        topology["mysql-1"]["memberRole"] = "SECONDARY"
-        topology["mysql-1"]["status"] = "OFFLINE"
-        runner = FakeRunner(
-            self.fixture("mysql-cluster.json"), cluster_status=cluster_status
-        )
+        for member in ("mysql-0", "mysql-1"):
+            del topology[member]
+        status = self.fixture("mysql-cluster.json")
+        units = status["applications"]["mysql"]["units"]
+        for unit in ("mysql/0", "mysql/1"):
+            del units[unit]
+        runner = FakeRunner(status, cluster_status=cluster_status)
         target = backup.BackupTarget(
             model="mysql-model",
             application="mysql",
@@ -389,6 +390,34 @@ class DatabaseBackupTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(records[0]["unit"], "mysql/1")
+
+    def test_cluster_status_unhealthy_cluster_fails(self):
+        cluster_status = self.fixture("mysql-cluster-status.json")
+        cluster_status["defaultReplicaSet"]["status"] = "NO_QUORUM"
+        runner = FakeRunner(
+            self.fixture("mysql-cluster.json"), cluster_status=cluster_status
+        )
+        target = backup.BackupTarget(
+            model="mysql-model",
+            application="mysql",
+            model_owner=TEST_MODEL_OWNER,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            result = backup.run_target(
+                target,
+                dry_run=True,
+                output_path=root / "github-output",
+                command_runner=runner,
+                temporary_root=root,
+            )
+            records = read_records(root / "github-output")
+
+        self.assertEqual(result, 1)
+        self.assertEqual(records[0]["result"], "❌ Failure")
+        self.assertIn(
+            "cluster is not in a healthy state: NO_QUORUM", records[0]["notes"]
+        )
 
     def test_selects_first_healthy_replica(self):
         selection = backup.select_backup_unit(

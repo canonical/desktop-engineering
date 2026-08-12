@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,6 +18,8 @@ from backup_helpers import (
     CommandCapture,
     CommandRunner,
     join_notes,
+    juju_operations,
+    juju_run,
     juju_run_succeeded,
     parameter_value,
     read_json_object,
@@ -27,6 +29,19 @@ from backup_helpers import (
 
 logger = logging.getLogger(__name__)
 
+# Charms whose Juju status primary marker lags behind reality; for these, the
+# get-cluster-status action provides the authoritative member roles.
+_CLUSTER_STATUS_ACTION = "get-cluster-status"
+_CLUSTER_STATUS_CHARMS = frozenset({"mysql", "mysql-k8s"})
+_ONLINE_MEMBER = "ONLINE"
+
+# Cluster states in which get-cluster-status reports the topology as usable.
+_HEALTHY_CLUSTER_STATES = frozenset({"OK", "OK_PARTIAL"})
+
+# Translation from user-facing roles to get-cluster-status memberRole names.
+_MEMBER_ROLES = {"non-primary": "SECONDARY", "primary": "PRIMARY"}
+
+_UNIT_PATTERN = re.compile(r"/(?P<number>[0-9]+)$")
 
 class SelectionError(ValueError):
     """Raised when no unit satisfies the requested selection policy."""
@@ -68,7 +83,6 @@ class Selection:
     unit: str
     requested_role: str
     selected_role: str
-    degraded: bool
     warning: str | None
     workload: str
     agent: str
@@ -76,7 +90,108 @@ class Selection:
 
 
 @dataclass(frozen=True)
-class RunContext:
+class _ClusterMember:
+    """One cluster member's topology role and reachability status."""
+
+    role: str
+    status: str
+
+
+class _ClusterStatusSelector(_Selector):
+    """Select a unit using get-cluster-status topology roles and member health."""
+
+    def select(
+        self, members: Mapping[str, _ClusterMember], unit_role: str
+    ) -> Selection:
+        """Select an online eligible unit matching the requested member role."""
+
+        eligible = self.eligible()
+        for unit in self.units:
+            if unit.name not in members:
+                unit.reasons.append("missing from cluster topology")
+        online = {
+            unit.name: member
+            for unit in eligible
+            if (member := members.get(unit.name)) is not None
+            and member.status == _ONLINE_MEMBER
+        }
+        if not online:
+            raise SelectionError(
+                f"application {self.application} has no online eligible cluster members"
+            )
+
+        warning = None
+        if unit_role == "ANY":
+            selected_name = min(online, key=_unit_number)
+        else:
+            matches = [
+                name for name, member in online.items() if member.role == unit_role
+            ]
+            # In single member scenarios, try to fall back to the primary.
+            if not matches and unit_role == "SECONDARY" and len(members) == 1:
+                matches = [
+                    name for name, member in online.items() if member.role == "PRIMARY"
+                ]
+                if matches:
+                    warning = "no online secondary unit; selected the primary"
+            if not matches:
+                raise SelectionError(
+                    f"application {self.application} has no online eligible"
+                    f" {unit_role.lower()} member"
+                )
+            selected_name = min(matches, key=_unit_number)
+        selected_member = online[selected_name]
+
+        return Selection(
+            unit=selected_name,
+            requested_role=unit_role,
+            selected_role=(
+                "primary" if selected_member.role == "PRIMARY" else "secondary"
+            ),
+            warning=warning,
+            workload="online",
+            agent="online",
+            excluded=self.exclusions(),
+        )
+
+
+def _parse_cluster_members(
+    document: Mapping[str, Any], application: str
+) -> dict[str, _ClusterMember]:
+    """Map topology member names to units, capturing memberRole and status."""
+
+    try:
+        replica_set = document["defaultReplicaSet"]
+        cluster_status = replica_set["status"]
+        if cluster_status not in _HEALTHY_CLUSTER_STATES:
+            raise SelectionError(f"cluster is not in a healthy state: {cluster_status}")
+        topology = replica_set["topology"]
+        if not topology:
+            raise KeyError("topology")
+        prefix = f"{application.removeprefix('cs:')}-"
+        members: dict[str, _ClusterMember] = {}
+        for name, member in topology.items():
+            if not name.startswith(prefix):
+                raise KeyError(name)
+            number = name.removeprefix(prefix)
+            if not number.isdigit():
+                raise KeyError(name)
+            members[f"{application}/{number}"] = _ClusterMember(
+                role=member["memberRole"],
+                status=member["status"],
+            )
+        return members
+    except (KeyError, TypeError) as error:
+        raise SelectionError(f"malformed cluster status document: {error}") from error
+
+
+# ---------------------------------------------------------------------------
+# Backup orchestration
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _RunContext:
     """Resources and reporting details shared by one target run."""
 
     target: BackupTarget
@@ -108,6 +223,22 @@ class RunContext:
             notes=notes,
         )
 
+    def juju_run(
+        self, name: str, unit: str, action: str, *arguments: str
+    ) -> tuple[CommandCapture, bool]:
+        """Run a Juju action and return its capture plus envelope success."""
+
+        capture = self.capture(name)
+        succeeded = juju_run(
+            self.runner,
+            capture,
+            self.target.qualified_model,
+            unit,
+            action,
+            *arguments,
+        )
+        return capture, succeeded
+
 
 UNIT_PATTERN = re.compile(r"/(?P<number>[0-9]+)$")
 SUMMARY_FAILURE = "❌ Failure"
@@ -115,6 +246,12 @@ SUMMARY_SUCCESS = "✅ Success"
 SUMMARY_DEGRADED_SUCCESS = "⚠️ Success (degraded)"
 SUMMARY_DRY_RUN = "⏭️ Dry run"
 SUMMARY_DEGRADED_DRY_RUN = "⏭️ Dry run (degraded)"
+
+# Charms whose Juju status primary marker lags behind reality; for these, the
+# get-cluster-status action provides the authoritative member roles.
+CLUSTER_STATUS_ACTION = "get-cluster-status"
+CLUSTER_STATUS_CHARMS = frozenset({"mysql", "mysql-k8s"})
+ONLINE_MEMBER = "ONLINE"
 
 
 def target_from_action_inputs(values: Mapping[str, str]) -> BackupTarget:
@@ -178,7 +315,6 @@ def select_backup_unit(
 
     primaries = [unit for unit in parsed_units if unit["primary"]]
     warning = None
-    degraded = False
     if unit_role == "any":
         selected = eligible[0]
     else:
@@ -196,7 +332,6 @@ def select_backup_unit(
             selected = eligible_replicas[0]
         else:
             selected = eligible_primaries[0]
-            degraded = True
             warning = "no eligible non-primary unit; selected the primary"
 
     excluded = tuple(
@@ -208,7 +343,6 @@ def select_backup_unit(
         unit=selected["unit"],
         requested_role=unit_role,
         selected_role="primary" if selected["primary"] else "non-primary",
-        degraded=degraded,
         warning=warning,
         workload=selected["workload"],
         agent=selected["agent"],
@@ -290,7 +424,7 @@ def run_target(
             selection.workload,
             selection.agent,
         )
-        if selection.degraded:
+        if selection.warning:
             logger.warning(
                 "Unit selection is degraded; no eligible requested-role unit found"
             )
@@ -322,6 +456,100 @@ def run_target(
         return 0
 
 
+def requires_cluster_status(status: Mapping[str, Any], application: str) -> bool:
+    """Return whether the application runs a charm with cluster-status support."""
+
+    charm = status.get("applications", {}).get(application, {}).get("charm")
+    return isinstance(charm, str) and charm.split(":")[-1] in CLUSTER_STATUS_CHARMS
+
+
+def parse_cluster_members(
+    document: Mapping[str, Any], application: str
+) -> dict[str, dict[str, str]]:
+    """Map topology member names to units, capturing memberRole and status."""
+
+    try:
+        topology = document["defaultReplicaSet"]["topology"]
+        if not topology:
+            raise KeyError("topology")
+        prefix = f"{application.removeprefix('cs:')}-"
+        members: dict[str, dict[str, str]] = {}
+        for name, member in topology.items():
+            if not name.startswith(prefix):
+                raise KeyError(name)
+            number = name.removeprefix(prefix)
+            if not number.isdigit():
+                raise KeyError(name)
+            members[f"{application}/{number}"] = {
+                "role": member["memberRole"],
+                "status": member["status"],
+            }
+        return members
+    except (KeyError, TypeError) as error:
+        raise SelectionError(f"malformed cluster status document: {error}") from error
+
+
+def select_cluster_status_unit(
+    parsed_units: Sequence[dict[str, Any]],
+    members: Mapping[str, Mapping[str, str]],
+    application: str,
+    unit_role: str,
+) -> Selection:
+    """Select a unit using get-cluster-status topology roles and member health."""
+
+    eligible = [unit for unit in parsed_units if not unit["reasons"]]
+    if not eligible:
+        raise SelectionError(f"application {application} has no eligible units")
+    for unit in parsed_units:
+        if unit["unit"] not in members:
+            unit["reasons"].append("missing from cluster topology")
+    online = {
+        unit["unit"]: member
+        for unit in eligible
+        if (member := members.get(unit["unit"])) is not None
+        and member["status"] == ONLINE_MEMBER
+    }
+    if not online:
+        raise SelectionError(
+            f"application {application} has no online eligible cluster members"
+        )
+
+    warning = None
+    if unit_role == "ANY":
+        selected_name = min(online, key=_unit_number)
+    else:
+        matches = [
+            name for name, member in online.items() if member["role"] == unit_role
+        ]
+        if not matches and unit_role == "SECONDARY":
+            matches = [
+                name for name, member in online.items() if member["role"] == "PRIMARY"
+            ]
+            if matches:
+                warning = "no online secondary unit; selected the primary"
+        if not matches:
+            raise SelectionError(
+                f"application {application} has no online eligible {unit_role.lower()} member"
+            )
+        selected_name = min(matches, key=_unit_number)
+    selected_member = online[selected_name]
+
+    excluded = tuple(
+        Exclusion(unit["unit"], tuple(unit["reasons"]))
+        for unit in parsed_units
+        if unit["reasons"]
+    )
+    return Selection(
+        unit=selected_name,
+        requested_role=unit_role,
+        selected_role="primary" if selected_member["role"] == "PRIMARY" else "secondary",
+        warning=warning,
+        workload="online",
+        agent="online",
+        excluded=excluded,
+    )
+
+
 def _select_target_unit(context: RunContext) -> Selection | None:
     """Read Juju status and select a unit, reporting failures to the summary."""
 
@@ -346,8 +574,10 @@ def _select_target_unit(context: RunContext) -> Selection | None:
         return None
     try:
         status = read_json_object(capture.stdout)
+        if requires_cluster_status(status, target.application):
+            return _select_cluster_status_unit(context, status)
         return select_backup_unit(status, target.application, target.unit_role)
-    except (json.JSONDecodeError, OSError, ValueError) as error:
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as error:
         logger.error(
             "Unable to select a backup unit for %s: %s", context.target_name, error
         )
@@ -359,33 +589,73 @@ def _select_target_unit(context: RunContext) -> Selection | None:
         return None
 
 
+def _select_cluster_status_unit(
+    context: RunContext, status: Mapping[str, Any]
+) -> Selection | None:
+    """Select a unit using the charm's get-cluster-status action output."""
+
+    target = context.target
+    # Translate the user-facing role to memberRole naming (PRIMARY/SECONDARY)
+    unit_role = {"non-primary": "SECONDARY", "primary": "PRIMARY"}.get(
+        target.unit_role, "ANY"
+    )
+    applications = status["applications"]
+    application_status = applications[target.application]
+    units = application_status.get("units")
+    if not isinstance(units, dict) or not units:
+        raise SelectionError(
+            f"application {target.application} has no units in status"
+        )
+    parsed_units = sorted(
+        (_parse_unit(name, value) for name, value in units.items()),
+        key=lambda unit: _unit_number(unit["unit"]),
+    )
+    eligible = [unit for unit in parsed_units if not unit["reasons"]]
+    if not eligible:
+        raise SelectionError(f"application {target.application} has no eligible units")
+    query_unit = eligible[0]
+
+    logger.info("Reading cluster status from %s", query_unit["unit"])
+    capture, succeeded = context.juju_run(
+        "cluster-status", query_unit["unit"], CLUSTER_STATUS_ACTION
+    )
+    if not succeeded:
+        raise SelectionError(
+            f"{CLUSTER_STATUS_ACTION} failed on {query_unit['unit']}"
+        )
+    operations = juju_operations(capture.stdout)
+    cluster_status = operations[0].get("results", {}).get("status")
+    if not isinstance(cluster_status, str):
+        raise SelectionError(
+            f"{CLUSTER_STATUS_ACTION} did not return a status document"
+        )
+    document = json.loads(cluster_status)
+    if not isinstance(document, dict):
+        raise SelectionError("cluster status document is not an object")
+    members = parse_cluster_members(document, target.application)
+    return select_cluster_status_unit(
+        parsed_units, members, target.application, unit_role
+    )
+
+
 def _run_backup_action(context: RunContext, selection: Selection, notes: str) -> bool:
     """Run the configured backup action, withholding its captured stdout."""
 
     target = context.target
     logger.info("Running the configured backup action on %s", selection.unit)
-    capture = context.capture("action")
-    command = [
-        "juju",
-        "run",
-        *_model_arguments(target),
+    _, succeeded = context.juju_run(
+        "action",
         selection.unit,
         target.action,
         f"--wait={target.timeout}",
-        "--format=json",
-        "--quiet",
         *(
             f"{name}={parameter_value(value)}"
             for name, value in target.parameters.items()
         ),
-    ]
-    result = capture.run(context.runner, command)
-    if result == 0 and juju_run_succeeded(capture.stdout):
+    )
+    if succeeded:
         logger.info("Backup action completed successfully on %s", selection.unit)
         return True
-    stderr = capture.stderr.read_text().strip()
-    if stderr:
-        logger.warning("Backup action stderr: %s", stderr)
     logger.error(
         "Backup action failed for %s on %s; action output was withheld",
         context.target_name,
@@ -404,26 +674,13 @@ def _list_backups(context: RunContext, selection: Selection, notes: str) -> bool
 
     target = context.target
     logger.info("Listing backups on %s; command output follows", selection.unit)
-    capture = context.capture("list-backups")
-    command = [
-        "juju",
-        "run",
-        *_model_arguments(target),
-        selection.unit,
-        "list-backups",
-        f"--wait={target.timeout}",
-        "--format=json",
-        "--quiet",
-    ]
-    result = capture.run(context.runner, command)
-    succeeded = result == 0 and juju_run_succeeded(capture.stdout)
+    capture, succeeded = context.juju_run(
+        "list-backups", selection.unit, "list-backups", f"--wait={target.timeout}"
+    )
     if succeeded:
         capture.print()
         logger.info("Backup listing completed successfully on %s", selection.unit)
         return True
-    stderr = capture.stderr.read_text().strip()
-    if stderr:
-        logger.warning("list-backups stderr: %s", stderr)
     logger.error(
         "Unable to list backups for %s on %s; command output was withheld",
         context.target_name,
@@ -456,9 +713,10 @@ def _selection_notes(selection: Selection) -> str:
 def _success_result(selection: Selection, *, dry_run: bool) -> str:
     """Choose the summary result for dry-run and degraded-success states."""
 
+    degraded = selection.warning is not None
     if dry_run:
-        return SUMMARY_DEGRADED_DRY_RUN if selection.degraded else SUMMARY_DRY_RUN
-    return SUMMARY_DEGRADED_SUCCESS if selection.degraded else SUMMARY_SUCCESS
+        return SUMMARY_DEGRADED_DRY_RUN if degraded else SUMMARY_DRY_RUN
+    return SUMMARY_DEGRADED_SUCCESS if degraded else SUMMARY_SUCCESS
 
 
 def main() -> int:

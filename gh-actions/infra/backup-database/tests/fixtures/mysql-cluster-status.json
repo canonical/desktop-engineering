@@ -1,0 +1,37 @@
+{
+  "clusterName": "cluster-00000000000000000000000000000000",
+  "clusterRole": "PRIMARY",
+  "defaultReplicaSet": {
+    "name": "default",
+    "primary": "juju-000000-mysql-model-13:3306",
+    "ssl": "REQUIRED",
+    "status": "OK",
+    "statusText": "Cluster is ONLINE and can tolerate up to ONE failure.",
+    "topology": {
+      "mysql-0": {
+        "address": "juju-000000-mysql-model-13:3306",
+        "memberRole": "SECONDARY",
+        "mode": "R/O",
+        "status": "ONLINE",
+        "version": "8.4.8"
+      },
+      "mysql-1": {
+        "address": "juju-000000-mysql-model-14:3306",
+        "memberRole": "SECONDARY",
+        "mode": "R/O",
+        "status": "ONLINE",
+        "version": "8.4.8"
+      },
+      "mysql-2": {
+        "address": "juju-000000-mysql-model-17:3306",
+        "memberRole": "PRIMARY",
+        "mode": "R/W",
+        "status": "ONLINE",
+        "version": "8.4.8"
+      }
+    },
+    "topologyMode": "Single-Primary"
+  },
+  "domainName": "cluster-set-00000000000000000000000000000000",
+  "groupInformationSourceMember": "juju-000000-mysql-model-13:3306"
+}

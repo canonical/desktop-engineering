@@ -1,0 +1,22 @@
+{
+  "applications": {
+    "mysql": {
+      "charm": "mysql",
+      "charm-name": "mysql",
+      "units": {
+        "mysql/0": {
+          "workload-status": {"current": "active", "message": "Primary"},
+          "juju-status": {"current": "idle"}
+        },
+        "mysql/1": {
+          "workload-status": {"current": "active", "message": ""},
+          "juju-status": {"current": "idle"}
+        },
+        "mysql/2": {
+          "workload-status": {"current": "active", "message": ""},
+          "juju-status": {"current": "idle"}
+        }
+      }
+    }
+  }
+}
