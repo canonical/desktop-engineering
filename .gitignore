@@ -4,3 +4,6 @@
 
 # Node dependencies for JS actions
 node_modules/
+
+# Python
+__pycache__/
