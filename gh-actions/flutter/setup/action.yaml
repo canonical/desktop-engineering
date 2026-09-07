@@ -20,7 +20,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Detect FVM and Melos
       id: detect-files
