@@ -16,6 +16,9 @@ inputs:
   flutter-version:
     description: The Flutter version to force (defaults to version determined by FVM)
     required: false
+  fvm-version:
+    description: The FVM version to install (defaults to latest)
+    required: false
 
 runs:
   using: "composite"
@@ -36,12 +39,18 @@ runs:
         fi
 
     - name: Install FVM Flutter
+      if: ${{ steps.detect-files.outputs.fvm == 'true' || inputs.flutter-version != '' }}
       shell: bash
       run: |
-        curl -fsSL https://fvm.app/install.sh | bash
-        source ~/.bashrc
+        if [[ -n "${{ inputs.fvm-version }}" ]]; then
+          curl -fsSL https://fvm.app/install.sh | bash -s -- "${{ inputs.fvm-version }}"
+        else
+          curl -fsSL https://fvm.app/install.sh | bash
+        fi
+
+        export PATH="$HOME/fvm/bin:$PATH"
+        echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
         fvm --version
-        echo "~/.fvm_flutter/bin" >> $GITHUB_PATH
 
         if [[ "${{ inputs.flutter-version }}" ]]; then
           echo "Forcing use of Flutter v${{ inputs.flutter-version }}"
@@ -52,16 +61,33 @@ runs:
 
     - uses: kuhnroyal/flutter-fvm-config-action@v3
       id: fvm-config-action
+      if: ${{ steps.detect-files.outputs.fvm == 'true' }}
 
     - name: Install Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: ${{ steps.fvm-config-action.outputs.FLUTTER_VERSION }}
+        flutter-version: ${{ steps.fvm-config-action.outputs.FLUTTER_VERSION || inputs.flutter-version }}
         channel: ${{ steps.fvm-config-action.outputs.FLUTTER_CHANNEL }}
 
     - name: Install Melos
-      uses: bluefireteam/melos-action@v3
       if: ${{ steps.detect-files.outputs.melos == 'true' }}
+      shell: bash
+      run: |
+        # Parse the locked melos version from pubspec.lock: under the
+        # top-level "  melos:" package key, the first nested version field
+        if [[ -f "./pubspec.lock" ]]; then
+          VERSION=$(awk '/^  melos:/{f=1} f && /^    version:/{gsub(/"/, "", $2); print $2; exit}' pubspec.lock)
+        fi
+        if [[ -z "$VERSION" ]]; then
+          echo "::error::No melos entry found in pubspec.lock."
+          echo "::error::Add melos to dev_dependencies and commit pubspec.lock."
+          exit 1
+        fi
+        echo "Using melos $VERSION locked in pubspec.lock"
+
+        dart pub global activate melos "$VERSION"
+        echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+        dart pub global run melos bootstrap
 
     - name: Flutter Doctor
       shell: bash
@@ -69,6 +95,7 @@ runs:
         flutter doctor --verbose
 
     - name: FVM Flutter Doctor
+      if: ${{ steps.detect-files.outputs.fvm == 'true' || inputs.flutter-version != '' }}
       shell: bash
       run: |
         fvm flutter doctor --verbose
