@@ -54,24 +54,19 @@ jobs:
 
 #### Inputs
 
-| Input             | Description                                                        | Default                            |
-| ----------------- | ------------------------------------------------------------------ | ---------------------------------- |
-| `flutter-version` | The Flutter version to force                                       | Version determined by FVM (`.fvmrc`) |
-| `fvm-version`     | The FVM version to install (passed to the FVM installer)           | Latest                             |
+| Input         | Description                                              | Default |
+| ------------- | -------------------------------------------------------- | ------- |
+| `fvm-version` | The FVM version to install (passed to the FVM installer) | Latest  |
 
 #### FVM behavior
 
-The setup action only installs FVM when the repository contains an `.fvmrc` file
-or when `flutter-version` is forced via the input. Bare `fvm install` without an
-`.fvmrc` fails hard in FVM 4.x (exit 65), so for repositories without `.fvmrc`
-the FVM steps (including `FVM Flutter Doctor`) are skipped and no `fvm` binary
-is available — use plain `flutter` commands in that case.
+A `.fvmrc` file at the repository root is **mandatory** - the setup action
+fails when it is missing. Pin a Flutter version with `fvm use <version>` and
+commit the resulting `.fvmrc`. The Flutter version is always the one pinned in
+`.fvmrc`, keeping all repositories on the same approach.
 
 FVM is installed to `$HOME/fvm/bin` (FVM 4.x layout) and that directory is
 appended to `$GITHUB_PATH`.
-
-Without an `.fvmrc`, Flutter itself is still installed: the version forced via
-`flutter-version`, or the latest stable release when the input is unset.
 
 #### Melos behavior
 

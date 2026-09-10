@@ -36,7 +36,6 @@ jobs:
     name: Local matrix tests
     uses: ./gh-actions/flutter/flutter.yaml
     with:
-      flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}
       packages-dir: ${{ inputs.packages-dir }}
     needs: prepare-local
@@ -64,7 +63,6 @@ jobs:
     name: Remote matrix tests
     uses: ./gh-actions/flutter/flutter.yaml
     with:
-      flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}
       packages-dir: ${{ inputs.packages-dir }}
     needs: prepare-remote

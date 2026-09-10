@@ -10,12 +10,9 @@ outputs:
     value: ${{ steps.detect-files.outputs.melos }}
   flutter-version:
     description: The Flutter version that was setup
-    value: ${{ steps.fvm-config-action.outputs.FLUTTER_VERSION }}
+    value: ${{ steps.install-flutter.outputs.flutter-version }}
 
 inputs:
-  flutter-version:
-    description: The Flutter version to force (defaults to version determined by FVM)
-    required: false
   fvm-version:
     description: The FVM version to install (defaults to latest)
     required: false
@@ -27,20 +24,22 @@ runs:
 
     - name: Detect FVM and Melos
       id: detect-files
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        if [[ -f "./.fvmrc" ]]; then
-          echo "FVM detected"
-          echo "fvm=true" >> "$GITHUB_OUTPUT"
+        if [[ ! -f "./.fvmrc" ]]; then
+          echo "::error::No .fvmrc found at the repository root."
+          echo "::error::Pin a Flutter version with FVM ('fvm use <version>') and commit .fvmrc."
+          exit 1
         fi
+        echo "fvm=true" >> "$GITHUB_OUTPUT"
         if [[ -f "./melos.yaml" ]]; then
           echo "Melos detected"
           echo "melos=true" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Install FVM Flutter
-      if: ${{ steps.detect-files.outputs.fvm == 'true' || inputs.flutter-version != '' }}
-      shell: bash
+      id: install-flutter
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         if [[ -n "${{ inputs.fvm-version }}" ]]; then
           curl -fsSL https://fvm.app/install.sh | bash -s -- "${{ inputs.fvm-version }}"
@@ -52,26 +51,20 @@ runs:
         echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
         fvm --version
 
-        if [[ "${{ inputs.flutter-version }}" ]]; then
-          echo "Forcing use of Flutter v${{ inputs.flutter-version }}"
-          fvm use "${{ inputs.flutter-version }}"
-        fi
-
+        # Installs the Flutter SDK pinned in .fvmrc and creates the local
+        # .fvm/flutter_sdk symlink
         fvm install
 
-    - uses: kuhnroyal/flutter-fvm-config-action@v3
-      id: fvm-config-action
-      if: ${{ steps.detect-files.outputs.fvm == 'true' }}
+        FLUTTER_VERSION=$(jq -r '.flutter' .fvmrc)
+        echo "flutter-version=$FLUTTER_VERSION" >> "$GITHUB_OUTPUT"
 
-    - name: Install Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: ${{ steps.fvm-config-action.outputs.FLUTTER_VERSION || inputs.flutter-version }}
-        channel: ${{ steps.fvm-config-action.outputs.FLUTTER_CHANNEL }}
+        # Put the FVM-pinned SDK on PATH so bare `flutter` and `dart` resolve
+        # to the exact same SDK that `fvm flutter` / `fvm dart` use
+        echo "$GITHUB_WORKSPACE/.fvm/flutter_sdk/bin" >> "$GITHUB_PATH"
 
     - name: Install Melos
       if: ${{ steps.detect-files.outputs.melos == 'true' }}
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
         # Parse the locked melos version from pubspec.lock: under the
         # top-level "  melos:" package key, the first nested version field
@@ -90,12 +83,9 @@ runs:
         dart pub global run melos bootstrap
 
     - name: Flutter Doctor
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        flutter --version
+        fvm flutter --version
         flutter doctor --verbose
 
-    - name: FVM Flutter Doctor
-      if: ${{ steps.detect-files.outputs.fvm == 'true' || inputs.flutter-version != '' }}
-      shell: bash
-      run: |
-        fvm flutter doctor --verbose
