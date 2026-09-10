@@ -32,7 +32,6 @@ jobs:
     name: Local matrix tests
     uses: ./gh-actions/flutter/melos.yaml
     with:
-      flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}
     needs: prepare-local
     if: ${{ inputs.enable-local }}
@@ -59,7 +58,6 @@ jobs:
     name: Remote matrix tests
     uses: ./gh-actions/flutter/melos.yaml
     with:
-      flutter-version: ${{ matrix.versions }}
       os: ${{ inputs.os }}
     needs: prepare-remote
     if: ${{ inputs.enable-remote }}

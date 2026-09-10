@@ -3,9 +3,6 @@ name: Comprehensive Melos actions
 on:
   workflow_call:
     inputs:
-      flutter-version:
-        description: The Flutter version to use for this workflow (defaults to FVM version)
-        type: string
       os:
         description: OS to run on
         type: string
@@ -17,8 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
-        with:
-          flutter-version: ${{ inputs.flutter-version }}
       - run: melos generate
       - run: melos gen-l10n
       - run: melos analyze --fatal-infos
@@ -28,8 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
-        with:
-          flutter-version: ${{ inputs.flutter-version }}
       - run: melos generate
       - run: melos gen-l10n
       - run: melos format:exclude
@@ -39,8 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
-        with:
-          flutter-version: ${{ inputs.flutter-version }}
       - run: melos generate
       - run: melos gen-l10n
 
@@ -49,8 +40,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./gh-actions/flutter/setup
-        with:
-          flutter-version: ${{ inputs.flutter-version }}
       - run: sudo apt update && sudo apt install -y lcov
       - run: melos generate
       - run: melos gen-l10n
