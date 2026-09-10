@@ -52,12 +52,6 @@ jobs:
       - run: fvm flutter test
 ```
 
-#### Inputs
-
-| Input         | Description                                              | Default |
-| ------------- | -------------------------------------------------------- | ------- |
-| `fvm-version` | The FVM version to install (passed to the FVM installer) | Latest  |
-
 #### FVM behavior
 
 A `.fvmrc` file at the repository root is **mandatory** - the setup action
@@ -79,6 +73,3 @@ is opinionated about the version to keep all repositories on the same approach:
    hard-to-debug issues. Add melos to your dev dependencies and commit
    `pubspec.lock`.
 
-Note that the globally activated version is what a direct `melos` call on PATH
-uses; `dart pub global run melos` inside a repo that also has melos in its dev
-dependencies resolves the workspace's locked version instead.

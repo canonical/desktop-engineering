@@ -12,11 +12,6 @@ outputs:
     description: The Flutter version that was setup
     value: ${{ steps.install-flutter.outputs.flutter-version }}
 
-inputs:
-  fvm-version:
-    description: The FVM version to install (defaults to latest)
-    required: false
-
 runs:
   using: "composite"
   steps:
@@ -41,11 +36,7 @@ runs:
       id: install-flutter
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        if [[ -n "${{ inputs.fvm-version }}" ]]; then
-          curl -fsSL https://fvm.app/install.sh | bash -s -- "${{ inputs.fvm-version }}"
-        else
-          curl -fsSL https://fvm.app/install.sh | bash
-        fi
+        curl -fsSL https://fvm.app/install.sh | bash
 
         export PATH="$HOME/fvm/bin:$PATH"
         echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
