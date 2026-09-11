@@ -1,0 +1,30 @@
+# Sync the repo planning repo tickets with the board status.
+# Keep the three triggers on one caller: the reconcile is a full-board sweep, so any issues event settles the
+# whole board, and schedule is just a daily floor for when the repo is silent.
+
+name: AI planning board status sync
+
+on:
+  issues:
+    types:
+      [
+        opened,
+        closed,
+        reopened,
+        assigned,
+        unassigned,
+        labeled,
+        unlabeled,
+        edited,
+      ]
+  workflow_dispatch: {}
+  schedule:
+    - cron: "37 13 * * *"
+
+jobs:
+  sync:
+    uses: canonical/desktop-engineering/gh-actions/ai-planning/board-sync.yaml@main
+    with:
+      project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
+    secrets:
+      token: ${{ secrets.AI_PLANNING_TOKEN }}

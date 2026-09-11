@@ -1,0 +1,56 @@
+# Composite action that reconciles an AI planning board's Status column from live
+# GitHub facts. A **composite action** (not a reusable workflow) so it can live at
+# this path: reusable workflows must be rooted in `.github/workflows`, but an action
+# can be referenced from any directory as
+# `canonical/desktop-engineering/gh-actions/ai-planning@<ref>`.
+#
+# It runs one idempotent full-board reconcile: reads every Project card's live
+# GitHub facts (issue / PR / dependency state, cross-repo, over a fine-grained PAT)
+# and sets each card's Status from scratch. The `ai_planning` package it drives
+# lives at `../../ai-planning`. See ./README.md.
+name: AI planning board status sync
+description: >-
+  Idempotent full-board reconcile of an AI planning board's Status column,
+  driven by the ai_planning package in canonical/desktop-engineering.
+
+inputs:
+  project-id:
+    description: The org Project (v2) node id (PVT_...) whose board to reconcile.
+    required: true
+  token:
+    description: Fine-grained PAT (Issues:read, PRs:read, org Projects:write).
+    required: true
+  ref:
+    description: Ref of canonical/desktop-engineering providing the ai_planning package.
+    required: false
+    default: ai_planning_board
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the ai_planning tooling
+      uses: actions/checkout@v4
+      with:
+        repository: canonical/desktop-engineering
+        ref: ${{ inputs.ref }}
+        sparse-checkout: ai-planning
+        path: desktop-engineering-ai-planning
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install the ai_planning package
+      shell: bash
+      run: python -m pip install ./desktop-engineering-ai-planning/ai-planning
+
+    - name: Run the reconcile sweep
+      shell: bash
+      env:
+        AI_PLANNING_TOKEN: ${{ inputs.token }}
+        AI_PLANNING_PROJECT_ID: ${{ inputs.project-id }}
+        # The caller repo IS the planning repo; passing it seeds its issues (and
+        # their sub-issue children) onto the board.
+        AI_PLANNING_REPO: ${{ github.repository }}
+      run: python -m ai_planning

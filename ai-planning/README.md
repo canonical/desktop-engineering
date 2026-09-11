@@ -1,0 +1,168 @@
+# AI planning board
+
+A **per-squad planning surface** for **agentic / AI-native development**, plus the
+**status-reconcile tooling** that keeps its board honest — as **self-contained
+scaffolding**.
+
+Each board is **scoped to one squad/team**: `setup.sh` takes a `TEAM` and stands up
+that team's private planning repo and org Project. The board is where planning
+skills (map / spec / tickets / triage / implement) publish their maps, specs,
+implementation tickets, and research/prototype artifacts, driven by the agent.
+
+This folder lives inside the `desktop-engineering` resources repo as a **template**.
+Deploying it (`./setup.sh`) pushes a **clean copy** of the planning **surface** out
+as a standalone **private planning repo** in your org: planning issues live there
+and a **thin caller** workflow ships inside it
+(`.github/workflows/board-sync.yml`). The reconcile **code runs in one place only** —
+the reusable workflow at
+`canonical/desktop-engineering/gh-actions/ai-planning/board-sync.yaml`, which the
+caller invokes. Nothing is deployed to any code repo. `setup.sh` never touches this
+parent repo's git state.
+
+## What the deployed repo is
+
+- **The deployed planning repo holds the issues + a thin caller workflow**: the
+  squad's planning issues (maps, specs' implementation tickets,
+  research/prototype/grilling tickets) live there as GitHub **issues** (never
+  committed files), alongside a one-job `.github/workflows/board-sync.yml` that
+  calls the reusable reconcile workflow. The reconcile **code itself lives once**
+  in `canonical/desktop-engineering` (`ai-planning/` package +
+  `gh-actions/ai-planning/board-sync.yaml`), not in each planning repo.
+- **One org-level Project (v2)** is the board. Its single **Status** field has five
+  columns: **Blocked · Ready · In progress · In review · Done**. No custom fields —
+  hierarchy uses the native **Parent issue** field, "which repo" uses the native
+  **Repository** field.
+- **Only a spec crosses into a code repo** (created directly in its destination).
+  Its implementation tickets stay in the planning repo, parented cross-repo.
+
+## How the board stays in sync (no unreliable cron dependency)
+
+The board is reconciled by **one idempotent full-board sweep** (`python -m
+ai_planning`) that, each run, **cards every issue then sets its Status from
+scratch** off live facts. Two phases:
+
+- **Pass 0 — seed.** Add every OPEN planning-repo issue to the board, then take
+  the transitive closure over native **sub-issues**, so a cross-repo child such
+  as a spec (reachable only through its map) is carded too. `addProjectV2ItemById`
+  is idempotent and the sweep diffs against the board first, so a settled board
+  issues no adds. **The agent never runs `item-add`.**
+- **Sync.** Read each card's facts and write its derived Status.
+
+The sweep is reached by, in order of importance:
+
+1. **`on: issues` events in this repo** — the prompt, reliable path. *Any* issue
+   activity here fires a full sweep of the whole board (seed + sync), so even
+   unrelated events card and reconcile every issue, including a brand-new one.
+   (GitHub's best-effort delay applies to `schedule`, **not** to issue/dispatch
+   events.)
+2. **Native Project "→ Done" workflows** — closes/merges set Done with no sweep at
+   all (settings-only, cross-repo, reliable).
+3. **A daily `schedule` (`37 13 * * *`)** — the quiescence floor only, for when the
+   board is silent. Its lateness is harmless because events carry the fast path.
+
+The agent writes **no** Status and adds **no** cards: it only creates and wires
+issues (labels, assignee, `blocked-by`, sub-issues), and the sweep derives every
+column — assignee → In progress, open blocker → Blocked, non-draft linked PR →
+In review, closed → Done, plus the child roll-up.
+
+**No event is ever lost:** the sweep reconciles *current state*, so a dropped,
+delayed, or `cancel-in-progress`-cancelled event just settles on the next trigger.
+The one thing no planning-repo trigger can see promptly is a **human** marking a
+spec's PR ready-for-review (it happens in the code repo, has no native workflow)
+— it settles on the next event sweep or the daily floor.
+
+Why not webhooks / a GitHub App / a code-repo workflow? They need org-owner rights
+or a hosted receiver or a footprint in the code repo — deliberately out of scope
+here (the rationale is summarised above).
+
+## Deploy
+
+```bash
+# from this folder inside desktop-engineering:
+ORG=my-org TEAM="Desktop Apps" ./setup.sh   # or run ./setup.sh and answer the prompts
+```
+
+`setup.sh` (idempotent, re-runnable):
+
+1. **stages a clean copy** of the planning surface (no `.git`, no dev cruft, and
+   **without** the Python package/tests/packaging) and pushes it as the private
+   planning repo (`<org>/<team-slug>-ai-planning`) — the parent
+   `desktop-engineering` repo is never modified;
+2. creates the org Project (titled `<team> AI planning`) and sets its five Status columns (private);
+3. creates the label vocabulary;
+4. prompts for the fine-grained **PAT** and stores it as the `AI_PLANNING_TOKEN`
+   secret plus the `AI_PLANNING_PROJECT_ID` variable **on the deployed planning repo**;
+5. prints the two click-only follow-ups (enable native "→ Done"; create the Board
+   and Efforts views).
+
+Board title and repo name derive from `TEAM`; override with `BOARD_TITLE` /
+`PLANNING_REPO` if you want different labels.
+
+Then confirm the workflow:
+
+```bash
+gh workflow run board-sync.yml --repo <org>/<team-slug>-ai-planning
+# or open/close a test issue here and watch the card settle.
+```
+
+> The private planning repo is **exempt** from GitHub's 60-day scheduled-workflow
+> auto-disable (that rule is public-repo only), so the daily floor won't silently
+> switch off.
+
+## The PAT (fine-grained, least privilege)
+
+Mint at <https://github.com/settings/personal-access-tokens/new>:
+
+- **Resource owner:** the org (so the org `Projects` permission and org approval apply).
+- **Repository access → All repositories:** every repo the token owner can access.
+  This is deliberately broad: the alternative — all public repos *plus* a hand-picked
+  set of private ones — isn't expressible in a single fine-grained grant, and it would
+  force a token edit every time a spec targets a new destination code repo. "All
+  repositories" avoids that churn; the permissions below keep it least-privilege.
+- **Repository permissions:** `Issues: Read and write`, `Pull requests: Read-only`.
+  (Write on Issues so the job can update the planning issues it reconciles.)
+- **Organization permissions:** `Projects: Read and write`.
+- **No `actions` permission** — nothing calls `gh workflow run`.
+
+Migration path: swap the PAT for a **GitHub App** installation token later (own
+identity, no rotation) once an org owner can approve it — the job code is unchanged,
+only how the token is minted.
+
+## Layout
+
+```
+setup.sh                              one-pass deploy (repo + project + labels + PAT)
+adapter/issue-tracker.md              Matt Pocock skills adapter (copy into a target
+                                      project's docs/agents/issue-tracker.md)
+.github/workflows/board-sync.yml      thin caller: triggers -> the reusable workflow
+                                      (this is all a deployed planning repo carries)
+src/ai_planning/                      the sweep: fetch → sync_status → write
+  sync_status.py                      the pure precedence-ladder function (unit-tested)
+  job.py / facts_mapping.py / queries.py / client.py
+tests/                                pytest for the pure function + mappers
+
+# hosted once in this same repo, called by every planning repo:
+../gh-actions/ai-planning/board-sync.yaml   the reusable reconcile workflow
+```
+
+## Wiring the Matt Pocock skills to this board
+
+`adapter/issue-tracker.md` is the tracker-adapter profile that makes the Matt Pocock
+engineering skills (`/wayfinder`, `/to-spec`, `/to-tickets`, `/triage`, `/implement`)
+publish to **this** board without forking any vendored `SKILL.md`. In a **target
+project**, copy it to `docs/agents/issue-tracker.md` — the skills already consult it
+through that project's `AGENTS.md` → `docs/agents/*` pointer. It keeps the
+`wayfinder:` label vocabulary the skills expect (created by `setup.sh`), and defines
+every tracker operation (create/read/list, blocking, frontier, claim, resolve,
+promotion) against this board.
+
+## Develop
+
+```bash
+python -m pip install -e .
+python -m pytest
+```
+
+The precedence ladder lives entirely in `sync_status(facts) → Status`; the fetch and
+write mappers hold no branching. See `tests/test_sync_status.py` for the full truth
+table (Done > Blocked > In review > In progress > Ready, plus the child roll-up).
