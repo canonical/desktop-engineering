@@ -9,6 +9,8 @@ Two repos, referenced by symbol throughout:
 
 Pass `--repo` accordingly on every `gh` call.
 
+**A bare `#n` — in any command, skill invocation, or user message — resolves against the planning repo by default, before any tracker read.** Look it up there first, not in the destination repo `gh` would otherwise infer. The one exception is `/to-tickets`, whose argument is always a spec, and a spec lives in the destination repo. Fully-qualify a reference (`<owner>/<repo>#n`), or name it by its `wayfinder:spec` label, to point at the destination repo instead.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --repo <owner>/<repo> --title "..." --body "..."`. Use a heredoc for multi-line bodies.
@@ -38,7 +40,7 @@ Create a planning-repo issue.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `gh issue view <number> --comments`. A bare `#n` resolves to the planning repo `<planning-repo>` (home of every artifact except the spec); fully-qualify a spec as `<owner>/<repo>#n` or name it by its `wayfinder:spec` label.
+Run `gh issue view <number> --comments`, against whichever repo the bare `#n` resolved to (see above).
 
 ## Wayfinding operations
 

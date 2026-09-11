@@ -1,6 +1,11 @@
 # Sync the repo planning repo tickets with the board status.
 # Keep the three triggers on one caller: the reconcile is a full-board sweep, so any issues event settles the
-# whole board, and schedule is just a daily floor for when the repo is silent.
+# whole board, and schedule is just a short floor for when the repo is silent.
+#
+# The prompt path for a code-repo PR merge is `gh workflow run board-sync.yml --repo <planning-repo>` at merge
+# time (GitHub sends the planning repo no signal for a merge in another repo). The 10-minute `schedule` is only
+# the quiescence floor for when that dispatch is missed — a merged spec-branch ticket then settles on the next
+# floor sweep rather than instantly.
 
 name: AI planning board status sync
 
@@ -19,12 +24,15 @@ on:
       ]
   workflow_dispatch: {}
   schedule:
-    - cron: "37 13 * * *"
+    - cron: "*/10 * * * *"
 
 jobs:
   sync:
     uses: canonical/desktop-engineering/gh-actions/ai-planning/board-sync.yaml@main
     with:
       project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
+      # Optional allow-list of destination code repos for the merged-PR timeline
+      # fallback; unset -> the fallback stays inert (see the ai-planning README).
+      destination-repos: ${{ vars.AI_PLANNING_DESTINATION_REPOS }}
     secrets:
       token: ${{ secrets.AI_PLANNING_TOKEN }}

@@ -45,6 +45,82 @@ def _open_non_draft_pr(content: dict[str, Any]) -> bool:
     return False
 
 
+def _timeline_xref_nodes(content: dict[str, Any]) -> list[dict[str, Any]]:
+    """The issue's CROSS_REFERENCED_EVENT timeline nodes, or an empty list."""
+
+    timeline = content.get("timelineItems") or {}
+    return timeline.get("nodes") or []
+
+
+def _has_merged_linked_pr(
+    content: dict[str, Any], destination_repos: set[str] | None
+) -> bool:
+    """True when a merged cross-repo destination PR references this issue.
+
+    The timeline fallback (ticket 06): an implementation ticket's PR targets a
+    **spec branch**, not the code repo's default branch, so GitHub treats its
+    closing keyword as inert — `closedByPullRequestsReferences` stays empty,
+    `willCloseTarget` is false, and merging never natively closes the ticket.
+    But the mention still lands a CROSS_REFERENCED_EVENT on this issue's
+    timeline, so we detect the merge here.
+
+    Keyed off `source.merged` (equivalently `state == "MERGED"`), never
+    `willCloseTarget` (always false for a spec-branch PR). Two guards stop an
+    unrelated merged PR that merely name-drops the ticket from wrongly
+    completing it: the reference must be `isCrossRepository`, and the source
+    repo must be in the caller-supplied destination allow-list. An empty/absent
+    allow-list matches nothing, so the fallback stays inert until a deployment
+    opts in by naming its destination repos.
+    """
+
+    allow = destination_repos or set()
+    if not allow:
+        return False
+    for event in _timeline_xref_nodes(content):
+        source = event.get("source") or {}
+        if source.get("__typename") != "PullRequest":
+            continue
+        merged = source.get("merged") is True or source.get("state") == "MERGED"
+        if not merged:
+            continue
+        if not event.get("isCrossRepository"):
+            continue
+        repo = (source.get("repository") or {}).get("nameWithOwner")
+        if repo in allow:
+            return True
+    return False
+
+
+def item_timeline_page_info(item: dict[str, Any]) -> tuple[bool, str | None]:
+    """`(has_next_page, end_cursor)` for this item's cross-reference timeline.
+
+    Read-only structural helper: the job uses it to decide whether to page the
+    rest of an issue's CROSS_REFERENCED_EVENT timeline (via `ISSUE_TIMELINE_QUERY`)
+    when it carries more references than one embedded page.
+    """
+
+    content = item.get("content") or {}
+    timeline = content.get("timelineItems") or {}
+    page_info = timeline.get("pageInfo") or {}
+    return bool(page_info.get("hasNextPage")), page_info.get("endCursor")
+
+
+def extend_item_timeline(
+    item: dict[str, Any], nodes: list[dict[str, Any]]
+) -> None:
+    """Append paged CROSS_REFERENCED_EVENT nodes onto this item's content.
+
+    Lets the job fold a paged timeline tail back into the item so the single
+    `item_to_facts` read scores the full set. A no-op for a contentless item.
+    """
+
+    content = item.get("content")
+    if not content:
+        return
+    timeline = content.setdefault("timelineItems", {"nodes": []})
+    timeline.setdefault("nodes", []).extend(nodes)
+
+
 def item_current_status_option_id(item: dict[str, Any]) -> str | None:
     """The Status single-select option id already set on this card, if any.
 
@@ -89,12 +165,19 @@ def item_child_content_ids(item: dict[str, Any]) -> list[str]:
     ]
 
 
-def item_to_facts(item: dict[str, Any]) -> Facts | None:
+def item_to_facts(
+    item: dict[str, Any], *, destination_repos: set[str] | None = None
+) -> Facts | None:
     """Map one GraphQL Project item to `Facts`, or `None` if it has no content.
 
     `None` means "nothing to score" (draft item / invisible content); the job
     skips it. A non-null content of any type (Issue or PullRequest) is mapped:
     every field is read defensively so a partial payload never raises.
+
+    `destination_repos` is the allow-list of code repos whose merged PRs may
+    complete a cross-repo implementation ticket via the timeline fallback; it is
+    threaded straight through to `_has_merged_linked_pr` (no precedence logic
+    here). Omit it and the fallback stays inert.
     """
 
     content = item.get("content")
@@ -111,4 +194,5 @@ def item_to_facts(item: dict[str, Any]) -> Facts | None:
         has_open_non_draft_pr=_open_non_draft_pr(content),
         assigned=(assignees.get("totalCount") or 0) >= 1,
         is_map=MAP_LABEL in labels,
+        has_merged_linked_pr=_has_merged_linked_pr(content, destination_repos),
     )

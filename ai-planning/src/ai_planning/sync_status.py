@@ -7,11 +7,19 @@ on one side, the Project field writer on the other) maps into and out of this
 function and holds no branching of its own.
 
 Precedence (first match wins):
-    1. closed                                  -> Done
+    1. closed OR merged linked PR                 -> Done
     2. open blocker (>=1)                       -> Blocked
     3. open non-draft PR                         -> In review
     4. assigned OR >=1 child In progress          -> In progress
     5. otherwise                                 -> Ready
+
+`has_merged_linked_pr` shares the top rung with `closed`: a cross-repo
+implementation PR that has merged completes its ticket even though its closing
+keyword was inert (it targeted a spec branch, not the repo default branch), so
+`closedByPullRequestsReferences`/native closing never fired. The job detects the
+merge from the issue timeline and closes the underlying issue; this function
+resolves the card to Done either way, so the column is right whether the read
+lands before or after that close.
 
 The child roll-up (`child_in_progress_count`) only ever lifts a parent out of
 Ready into In progress: Done, Blocked and In review still win on the parent's
@@ -51,6 +59,12 @@ class Facts:
     whose own *synced* Status is In progress. It is computed by the job (a
     two-pass roll-up), never by this function, and it only ever lifts a parent
     out of Ready into In progress.
+
+    `has_merged_linked_pr` is True when the issue's timeline carries a
+    CROSS_REFERENCED_EVENT sourced from a MERGED pull request in an allow-listed
+    destination repo (cross-repository). It exists because a spec-branch PR's
+    closing keyword is inert, so a merge would otherwise never complete the
+    ticket. Like `closed`, it resolves the card to Done.
     """
 
     closed: bool
@@ -59,6 +73,7 @@ class Facts:
     assigned: bool
     child_in_progress_count: int = 0
     is_map: bool = False
+    has_merged_linked_pr: bool = False
 
 
 def make_facts(
@@ -69,6 +84,7 @@ def make_facts(
     assigned: bool,
     child_in_progress_count: int = 0,
     is_map: bool = False,
+    has_merged_linked_pr: bool = False,
 ) -> Facts:
     """Build a Facts tuple. Keyword-only so call sites read as a fact table."""
 
@@ -79,6 +95,7 @@ def make_facts(
         assigned=assigned,
         child_in_progress_count=child_in_progress_count,
         is_map=is_map,
+        has_merged_linked_pr=has_merged_linked_pr,
     )
 
 
@@ -91,7 +108,7 @@ def sync_status(facts: Facts) -> Status | None:
 
     if facts.is_map:
         return None
-    if facts.closed:
+    if facts.closed or facts.has_merged_linked_pr:
         return Status.DONE
     if facts.open_blocker_count >= 1:
         return Status.BLOCKED

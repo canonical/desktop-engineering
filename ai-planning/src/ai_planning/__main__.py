@@ -9,6 +9,10 @@ Environment:
     AI_PLANNING_PROJECT_ID      the Project v2 node id (PVT_...)
     AI_PLANNING_REPO    the planning repo as `owner/name` (pass 0 seeds its issues
                         onto the board, and their sub-issue children transitively)
+    AI_PLANNING_DESTINATION_REPOS   optional, comma/space-separated `owner/name`
+                        allow-list of code repos whose merged PRs may complete a
+                        cross-repo implementation ticket via the timeline fallback
+                        (ticket 06). Unset -> the fallback stays inert.
 """
 
 from __future__ import annotations
@@ -18,6 +22,14 @@ import sys
 
 from ai_planning.client import GraphQLClient
 from ai_planning.job import run_sync
+
+
+def _parse_destination_repos(raw: str | None) -> set[str]:
+    """Split the allow-list env value on commas/whitespace into `owner/name`s."""
+
+    if not raw:
+        return set()
+    return {token for token in raw.replace(",", " ").split() if token}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,8 +43,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    destination_repos = _parse_destination_repos(
+        os.environ.get("AI_PLANNING_DESTINATION_REPOS")
+    )
+
     client = GraphQLClient.with_token(token)
-    result = run_sync(client, project_id, planning_repo=planning_repo)
+    result = run_sync(
+        client,
+        project_id,
+        planning_repo=planning_repo,
+        destination_repos=destination_repos,
+    )
 
     for item_id, status in result.written:
         print(f"{item_id} -> {status.value}")
@@ -41,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         f"written={len(result.written)} "
         f"unchanged={len(result.unchanged)} "
         f"skipped_maps={len(result.skipped_maps)} "
-        f"skipped_contentless={len(result.skipped_contentless)}",
+        f"skipped_contentless={len(result.skipped_contentless)} "
+        f"closed_issues={len(result.closed_issues)}",
         file=sys.stderr,
     )
     return 0

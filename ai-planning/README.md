@@ -57,19 +57,50 @@ The sweep is reached by, in order of importance:
    events.)
 2. **Native Project "→ Done" workflows** — closes/merges set Done with no sweep at
    all (settings-only, cross-repo, reliable).
-3. **A daily `schedule` (`37 13 * * *`)** — the quiescence floor only, for when the
-   board is silent. Its lateness is harmless because events carry the fast path.
+3. **A `workflow_dispatch` at code-repo merge time** — the prompt path for a merge
+   that lands in *another* repo. GitHub sends the planning repo no event for a
+   merge elsewhere, so the agent/dev that merges an implementation PR runs
+   `gh workflow run board-sync.yml --repo <planning-repo>`; the sweep then closes
+   the ticket (see the timeline fallback below) and dependents unblock at once.
+4. **A short `schedule` (`*/10 * * * *`)** — the quiescence floor only, for when the
+   board is silent (e.g. a dispatch was missed). Its lateness is harmless because
+   events and the dispatch carry the fast path. It is a 10-minute floor rather than
+   a daily one so a merged implementation ticket whose dispatch is missed still
+   settles within minutes, not up to a day.
 
 The agent writes **no** Status and adds **no** cards: it only creates and wires
 issues (labels, assignee, `blocked-by`, sub-issues), and the sweep derives every
 column — assignee → In progress, open blocker → Blocked, non-draft linked PR →
 In review, closed → Done, plus the child roll-up.
 
+### The merged-PR timeline fallback (cross-repo implementation tickets)
+
+An implementation ticket lives in the planning repo, but its PR lives in a code
+repo and targets the spec's **branch, not that repo's default branch**. GitHub
+honours a closing keyword (`Closes owner/repo#n`) **only** on a PR that targets the
+repo's default branch, so on a spec-branch PR the keyword is inert:
+`closedByPullRequestsReferences`/`closingIssuesReferences` stay empty and merging
+neither closes the ticket nor unblocks its dependents. (Verified against
+<https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue>.)
+
+The mention still lands a `CROSS_REFERENCED_EVENT` on the **issue's** timeline,
+though, which the sweep already reads. So the sweep detects the merge there — keyed
+off the source PR's `merged`/`state`, **never** `willCloseTarget` (which is false
+on a spec-branch PR) — and, when the referencing PR has merged, **closes the
+underlying issue** (using the PAT's existing `Issues: write`). Closing is what
+clears the native `blocked_by` edges so dependents unblock; the `closed → Done`
+path then sets the card. Two guards stop a false positive: the reference must be
+cross-repository, and the source repo must be named in the optional
+`AI_PLANNING_DESTINATION_REPOS` allow-list variable (unset → the fallback stays
+inert). Instant-from-the-planning-repo-only is impossible without a hosted
+webhook/App receiver, so the `workflow_dispatch`-at-merge call above is the chosen
+prompt path, with the 10-minute floor as backstop.
+
 **No event is ever lost:** the sweep reconciles *current state*, so a dropped,
 delayed, or `cancel-in-progress`-cancelled event just settles on the next trigger.
 The one thing no planning-repo trigger can see promptly is a **human** marking a
 spec's PR ready-for-review (it happens in the code repo, has no native workflow)
-— it settles on the next event sweep or the daily floor.
+— it settles on the next event sweep, the merge dispatch, or the floor.
 
 Why not webhooks / a GitHub App / a code-repo workflow? They need org-owner rights
 or a hosted receiver or a footprint in the code repo — deliberately out of scope

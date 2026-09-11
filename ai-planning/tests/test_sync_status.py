@@ -136,10 +136,50 @@ from ai_planning.sync_status import Status, sync_status, make_facts
             None,
             id="map->skipped",
         ),
+        # Merged linked PR completes the ticket even while the issue is still
+        # OPEN (spec-branch PR: the closing keyword was inert) -> Done.
+        pytest.param(
+            make_facts(
+                closed=False,
+                open_blocker_count=0,
+                has_open_non_draft_pr=False,
+                assigned=True,
+                has_merged_linked_pr=True,
+            ),
+            Status.DONE,
+            id="merged linked PR while open->Done",
+        ),
+        # Merged linked PR shares the top rung with closed: it beats a blocker,
+        # an open review PR and assignment, exactly as closed does.
+        pytest.param(
+            make_facts(
+                closed=False,
+                open_blocker_count=1,
+                has_open_non_draft_pr=True,
+                assigned=True,
+                has_merged_linked_pr=True,
+            ),
+            Status.DONE,
+            id="merged+blocker+pr+assigned->Done",
+        ),
     ],
 )
 def test_sync_status_table(facts, expected):
     assert sync_status(facts) == expected
+
+
+def test_a_map_with_a_merged_linked_pr_is_still_skipped():
+    """The map skip precedes the merged-PR rung too: a map is never forced
+    into Done, whatever its timeline says."""
+    facts = make_facts(
+        closed=False,
+        open_blocker_count=0,
+        has_open_non_draft_pr=False,
+        assigned=False,
+        is_map=True,
+        has_merged_linked_pr=True,
+    )
+    assert sync_status(facts) is None
 
 
 def test_map_is_skipped_even_when_it_would_otherwise_be_done():

@@ -38,13 +38,17 @@ from typing import Any
 from ai_planning.client import SupportsExecute
 from ai_planning.sync_status import Facts, Status, sync_status
 from ai_planning.facts_mapping import (
+    extend_item_timeline,
     item_child_content_ids,
     item_content_id,
     item_current_status_option_id,
+    item_timeline_page_info,
     item_to_facts,
 )
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
+    CLOSE_ISSUE_MUTATION,
+    ISSUE_TIMELINE_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
     REPO_ISSUES_QUERY,
@@ -73,6 +77,7 @@ class SyncResult:
     unchanged: list[tuple[str, Status]] = field(default_factory=list)
     skipped_maps: list[str] = field(default_factory=list)
     skipped_contentless: list[str] = field(default_factory=list)
+    closed_issues: list[str] = field(default_factory=list)
 
 
 def fetch_status_field(client: SupportsExecute, project_id: str) -> StatusField:
@@ -175,6 +180,65 @@ def fetch_project_item(
     return data.get("node")
 
 
+def iter_issue_timeline_events(
+    client: SupportsExecute,
+    issue_id: str,
+    *,
+    cursor: str | None,
+    page_size: int = 50,
+) -> Iterator[dict[str, Any]]:
+    """Yield an issue's remaining CROSS_REFERENCED_EVENT nodes past `cursor`.
+
+    Only used when an issue carries more cross-references than the single page
+    embedded in the item read; `cursor` is that embedded page's end cursor.
+    """
+
+    while True:
+        data = client.execute(
+            ISSUE_TIMELINE_QUERY,
+            {"issueId": issue_id, "pageSize": page_size, "cursor": cursor},
+        )
+        timeline = (data.get("node") or {}).get("timelineItems") or {}
+        yield from timeline.get("nodes", [])
+        page_info = timeline.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            return
+        cursor = page_info.get("endCursor")
+
+
+def page_item_timeline(
+    client: SupportsExecute, item: dict[str, Any], *, page_size: int = 50
+) -> None:
+    """Fold any paged CROSS_REFERENCED_EVENT tail back into `item` in place.
+
+    The item read embeds only the first page of an issue's cross-reference
+    timeline. When more pages exist, fetch them by the issue's node id and append
+    them so the single `item_to_facts` read scores the full set. A no-op when the
+    embedded page is already complete (the common case).
+    """
+
+    has_next, cursor = item_timeline_page_info(item)
+    if not has_next:
+        return
+    issue_id = item_content_id(item)
+    if issue_id is None:
+        return
+    extend_item_timeline(
+        item,
+        list(
+            iter_issue_timeline_events(
+                client, issue_id, cursor=cursor, page_size=page_size
+            )
+        ),
+    )
+
+
+def close_issue(client: SupportsExecute, issue_id: str) -> None:
+    """Close one issue (COMPLETED) by its node id, clearing its dependency edges."""
+
+    client.execute(CLOSE_ISSUE_MUTATION, {"issueId": issue_id})
+
+
 def _board_content_ids(
     client: SupportsExecute, project_id: str, page_size: int
 ) -> set[str]:
@@ -240,6 +304,7 @@ def run_sync(
     project_id: str,
     *,
     planning_repo: str | None = None,
+    destination_repos: set[str] | None = None,
     page_size: int = 50,
 ) -> SyncResult:
     """Score every card and write each synced Status back, two passes deep.
@@ -252,6 +317,12 @@ def run_sync(
     no sub-issue children present on this board). Pass 2 syncs every parent,
     first rolling its children's pass-1 Status up into `child_in_progress_count`.
     Writes happen afterwards, in the Project's original item order.
+
+    `destination_repos` is the allow-list of code repos whose merged PRs may
+    complete a cross-repo implementation ticket via the timeline fallback. When
+    the fallback fires for a still-OPEN issue, the job closes that issue
+    (COMPLETED) so its native `blocked_by` edges clear and dependents unblock; the
+    card itself resolves to Done here regardless of when that close lands.
     """
 
     seeded_items: dict[str, str] = {}
@@ -270,13 +341,21 @@ def run_sync(
     current_option_id_by_item_id: dict[str, str | None] = {}
     item_id_by_content_id: dict[str, str] = {}
     child_content_ids_by_item_id: dict[str, list[str]] = {}
+    # Issue node ids to close: a merged spec-branch PR completed the ticket via
+    # the timeline fallback, but the issue is still OPEN (its closing keyword was
+    # inert). Closing it clears the native blocked_by edges so dependents unblock.
+    issue_ids_to_close: dict[str, str] = {}
 
     def ingest(item: dict[str, Any]) -> None:
         item_id: str = item["id"]
         item_order.append(item_id)
         current_option_id_by_item_id[item_id] = item_current_status_option_id(item)
 
-        facts = item_to_facts(item)
+        # Fold any paged cross-reference timeline tail in before scoring so the
+        # merged-PR fact sees the full set, not just the first embedded page.
+        page_item_timeline(client, item, page_size=page_size)
+
+        facts = item_to_facts(item, destination_repos=destination_repos)
         if facts is None:
             result.skipped_contentless.append(item_id)
             return
@@ -285,6 +364,8 @@ def run_sync(
         content_id = item_content_id(item)
         if content_id is not None:
             item_id_by_content_id[content_id] = item_id
+            if facts.has_merged_linked_pr and not facts.closed:
+                issue_ids_to_close[item_id] = content_id
         child_content_ids_by_item_id[item_id] = item_child_content_ids(item)
 
     for item in items:
@@ -301,6 +382,17 @@ def run_sync(
         item = fetch_project_item(client, item_id)
         if item is not None:
             ingest(item)
+
+    # Close any still-open issue whose spec-branch PR merged (detected via the
+    # timeline fallback): closing clears its native blocked_by edges so dependents
+    # unblock, and fires an `issues: closed` event that reconciles the board again.
+    # Ordered by first appearance for a deterministic sweep. The card's own Status
+    # is already Done via `has_merged_linked_pr`, independent of this close.
+    for item_id in item_order:
+        issue_id = issue_ids_to_close.get(item_id)
+        if issue_id is not None:
+            close_issue(client, issue_id)
+            result.closed_issues.append(issue_id)
 
     # A "parent" is any item with at least one sub-issue child that is itself
     # a Project item on this board; everything else syncs as a leaf in

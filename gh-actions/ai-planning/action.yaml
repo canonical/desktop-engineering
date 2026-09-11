@@ -20,6 +20,14 @@ inputs:
   token:
     description: Fine-grained PAT (Issues:read, PRs:read, org Projects:write).
     required: true
+  destination-repos:
+    description: >-
+      Optional comma/space-separated owner/name allow-list of code repos whose
+      merged PRs may complete a cross-repo implementation ticket via the timeline
+      fallback (a spec-branch PR's closing keyword is inert, so its merge is
+      detected from the issue timeline instead). Unset -> the fallback stays inert.
+    required: false
+    default: ""
   ref:
     description: Ref of canonical/desktop-engineering providing the ai_planning package.
     required: false
@@ -53,4 +61,6 @@ runs:
         # The caller repo IS the planning repo; passing it seeds its issues (and
         # their sub-issue children) onto the board.
         AI_PLANNING_REPO: ${{ github.repository }}
+        # Allow-list of destination code repos for the merged-PR timeline fallback.
+        AI_PLANNING_DESTINATION_REPOS: ${{ inputs.destination-repos }}
       run: python -m ai_planning

@@ -28,7 +28,7 @@ on:
     types: [opened, closed, reopened, assigned, unassigned, labeled, unlabeled, edited]
   workflow_dispatch: {}
   schedule:
-    - cron: "37 13 * * *"
+    - cron: "*/10 * * * *"
 
 permissions:
   contents: read
@@ -47,6 +47,8 @@ jobs:
         with:
           project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
           token: ${{ secrets.AI_PLANNING_TOKEN }}
+          # Optional: enable the merged-PR timeline fallback for these code repos.
+          destination-repos: ${{ vars.AI_PLANNING_DESTINATION_REPOS }}
 ```
 
 `setup.sh` (in `../../ai-planning`) stands up the repo, org Project, labels, and
@@ -58,11 +60,12 @@ stores the two things this action needs on the planning repo:
 
 ## Inputs
 
-| name         | required | default              | description                                                                 |
-| ------------ | -------- | -------------------- | --------------------------------------------------------------------------- |
-| `project-id` | yes      | —                    | The org Project (v2) node id (`PVT_...`) whose board to reconcile.          |
-| `token`      | yes      | —                    | Fine-grained PAT (Issues:read, PRs:read, org Projects:write).               |
-| `ref`        | no       | `ai_planning_board`  | Ref of `canonical/desktop-engineering` providing the `ai_planning` package. |
+| name             | required | default              | description                                                                 |
+| ---------------- | -------- | -------------------- | --------------------------------------------------------------------------- |
+| `project-id`     | yes      | —                    | The org Project (v2) node id (`PVT_...`) whose board to reconcile.          |
+| `token`          | yes      | —                    | Fine-grained PAT (Issues:read/write, PRs:read, org Projects:write).         |
+| `destination-repos` | no    | `""`                 | Comma/space-separated `owner/name` allow-list of code repos whose merged PRs may complete a cross-repo implementation ticket via the timeline fallback. Unset → the fallback stays inert. |
+| `ref`            | no       | `ai_planning_board`  | Ref of `canonical/desktop-engineering` providing the `ai_planning` package. |
 
 The `permissions` and `concurrency` blocks live on the **caller** job (an action
 cannot set them itself).
