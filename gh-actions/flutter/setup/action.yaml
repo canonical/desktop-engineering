@@ -1,6 +1,12 @@
 name: Flutter setup
 description: Sets up FVM, Flutter, and Melos where possible
 
+inputs:
+  checkout:
+    description: Whether to check out the event repository before setup
+    required: false
+    default: 'true'
+
 outputs:
   fvm:
     description: True if the repo is using FVM for Flutter version management
@@ -16,6 +22,7 @@ runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v6
+      if: inputs.checkout == 'true'
 
     - name: Detect FVM and Melos
       id: detect-files
