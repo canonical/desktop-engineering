@@ -1,6 +1,6 @@
 # AI planning PR dispatch — per-repo caller (ticket 35).
 #
-# Installed/updated by `onboard-code-repo.sh` (never hand-edited in place: a
+# Installed/updated by `add-new-repo.sh` (never hand-edited in place: a
 # re-run of the installer is what keeps this in sync with the template).
 # Non-required, cosmetic check: the real work — authoring the PR's link and
 # scoring its card — runs in the planning repo, dispatched to by this job.

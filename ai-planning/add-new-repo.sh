@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
-# onboard-code-repo.sh — install/update the per-repo PR-dispatch caller in one
+# add-new-repo.sh — install/update the per-repo PR-dispatch caller in one
 # destination code repo, idempotently (ticket 35).
 #
 # Every destination code repo whose PRs should move planning-repo cards
 # needs exactly one thing installed: `.github/workflows/ai-planning-pr.yml`,
 # a ~6-line caller that dispatches its PR events to the planning repo (see
-# `adapter/ai-planning-pr.yml`, the template this script stamps and pushes).
-# It is a **non-required, cosmetic** check — the real work (link-authoring +
-# scoring) runs in the planning repo, not here.
+# `dest-repo/.github/workflows/ai-planning-pr.yml`, the template this script
+# stamps and pushes — its path already mirrors where it lands in the
+# destination repo). It is a **non-required, cosmetic** check — the real
+# work (link-authoring + scoring) runs in the planning repo, not here.
 #
 # This script:
 #   1. stamps the template with the planning repo (`<org>/<planning-repo>`),
@@ -29,13 +30,16 @@
 # secret. Extending `canonical-repo-automation` for this was considered and
 # rejected — this stays its own small, single-purpose script.
 #
+# Run once per destination code repo, any time after the planning repo exists
+# (see `./create-ai-planning-repo.sh`).
+#
 # Prereqs: `gh` authenticated with `repo` scope on the destination repo, jq.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE="$SCRIPT_DIR/adapter/ai-planning-pr.yml"
 CALLER_PATH=".github/workflows/ai-planning-pr.yml"
+TEMPLATE="$SCRIPT_DIR/dest-repo/$CALLER_PATH"
 SECRET_NAME="AI_PLANNING_DISPATCH_TOKEN"
 
 # --- config (env-overridable) ------------------------------------------------

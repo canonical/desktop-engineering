@@ -4,20 +4,23 @@ A **per-squad planning surface** for **agentic / AI-native development**, plus t
 **status-reconcile tooling** that keeps its board honest — as **self-contained
 scaffolding**.
 
-Each board is **scoped to one squad/team**: `setup.sh` takes a `TEAM` and stands up
-that team's private planning repo and org Project. The board is where planning
-skills (map / spec / tickets / triage / implement) publish their maps, specs,
-implementation tickets, and research/prototype artifacts, driven by the agent.
+Each board is **scoped to one squad/team**: `create-ai-planning-repo.sh` takes a
+`TEAM` and stands up that team's private planning repo and org Project. The board
+is where planning skills (map / spec / tickets / triage / implement) publish their
+maps, specs, implementation tickets, and research/prototype artifacts, driven by
+the agent.
 
 This folder lives inside the `desktop-engineering` resources repo as a **template**.
-Deploying it (`./setup.sh`) pushes a **clean copy** of the planning **surface** out
-as a standalone **private planning repo** in your org: planning issues live there
-and a **thin caller** workflow ships inside it
+Deploying it (`./create-ai-planning-repo.sh`) pushes a **clean copy** of the
+planning **surface** out as a standalone **private planning repo** in your org:
+planning issues live there and a **thin caller** workflow ships inside it
 (`.github/workflows/board-sync.yml`). The reconcile **code runs in one place only** —
-the reusable workflow at
-`canonical/desktop-engineering/gh-actions/ai-planning/board-sync.yaml`, which the
-caller invokes. Nothing is deployed to any code repo. `setup.sh` never touches this
-parent repo's git state.
+the composite action at
+`canonical/desktop-engineering/gh-actions/ai-planning`, which the caller invokes.
+Nothing is deployed to any code repo by this script — a destination code repo gets
+only its own small PR-dispatch caller, installed by `./add-new-repo.sh` (see
+"Onboarding a destination code repo" below). `create-ai-planning-repo.sh` never
+touches this parent repo's git state.
 
 ## What the deployed repo is
 
@@ -27,7 +30,7 @@ parent repo's git state.
   committed files), alongside a one-job `.github/workflows/board-sync.yml` that
   calls the reusable reconcile workflow. The reconcile **code itself lives once**
   in `canonical/desktop-engineering` (`ai-planning/` package +
-  `gh-actions/ai-planning/board-sync.yaml`), not in each planning repo.
+  `gh-actions/ai-planning/action.yaml`), not in each planning repo.
 - **One org-level Project (v2)** is the board. Its single **Status** field has five
   columns: **Blocked · Ready · In progress · In review · Done**. No custom fields —
   hierarchy uses the native **Parent issue** field, "which repo" uses the native
@@ -111,10 +114,10 @@ here (the rationale is summarised above).
 
 ```bash
 # from this folder inside desktop-engineering:
-ORG=my-org TEAM="Desktop Apps" ./setup.sh   # or run ./setup.sh and answer the prompts
+ORG=my-org TEAM="Desktop Apps" ./create-ai-planning-repo.sh   # or run it and answer the prompts
 ```
 
-`setup.sh` (idempotent, re-runnable):
+`create-ai-planning-repo.sh` (idempotent, re-runnable):
 
 1. **stages a clean copy** of the planning surface (no `.git`, no dev cruft, and
    **without** the Python package/tests/packaging) and pushes it as the private
@@ -138,8 +141,23 @@ gh workflow run board-sync.yml --repo <org>/<team-slug>-ai-planning
 ```
 
 > The private planning repo is **exempt** from GitHub's 60-day scheduled-workflow
-> auto-disable (that rule is public-repo only), so the daily floor won't silently
-> switch off.
+> auto-disable (that rule is public-repo only) — moot in any case, since this
+> board carries no `schedule` trigger at all (see the immediacy path above).
+
+### Onboarding a destination code repo
+
+Once the planning repo exists, wire each destination code repo's PRs into it:
+
+```bash
+DEST_REPO=<org>/<code-repo> PLANNING_REPO=<org>/<team-slug>-ai-planning ./add-new-repo.sh
+```
+
+`add-new-repo.sh` (idempotent, re-runnable) installs/updates that repo's
+`.github/workflows/ai-planning-pr.yml` PR-dispatch caller (a non-required,
+cosmetic check) via the Contents API, and registers its
+`AI_PLANNING_DISPATCH_TOKEN` secret — the fine-grained PAT (`Contents:
+write` only, scoped to the planning repo) minted once and kept in Bitwarden
+under the planning repo's own entry.
 
 ## The PAT (fine-grained, least privilege)
 
@@ -163,30 +181,39 @@ only how the token is minted.
 ## Layout
 
 ```
-setup.sh                              one-pass deploy (repo + project + labels + PAT)
-adapter/issue-tracker.md              Matt Pocock skills adapter (copy into a target
-                                      project's docs/agents/issue-tracker.md)
+create-ai-planning-repo.sh            one-pass deploy (repo + project + labels + PAT)
+add-new-repo.sh                       onboard one destination code repo (PR-dispatch
+                                      caller + dispatch-token secret)
+dest-repo/                            templates for a DESTINATION repo, laid out at
+                                      their exact destination-relative paths:
+  docs/agents/issue-tracker.md          Matt Pocock skills adapter (copy/stamped into
+                                        a target project's docs/agents/issue-tracker.md)
+  .github/workflows/ai-planning-pr.yml  per-repo PR-dispatch caller (installed by
+                                        add-new-repo.sh)
 .github/workflows/board-sync.yml      thin caller: triggers -> the reusable workflow
                                       (this is all a deployed planning repo carries)
 src/ai_planning/                      the sweep: fetch → sync_status → write
   sync_status.py                      the pure precedence-ladder function (unit-tested)
-  job.py / facts_mapping.py / queries.py / client.py
+  job.py / facts_mapping.py / queries.py / client.py / link_authoring.py / link_authoring_job.py
 tests/                                pytest for the pure function + mappers
 
-# hosted once in this same repo, called by every planning repo:
-../gh-actions/ai-planning/board-sync.yaml   the reusable reconcile workflow
+# hosted once in this same repo, called by every planning repo and every
+# onboarded destination code repo:
+../gh-actions/ai-planning/action.yaml                        the reconcile composite action
+../.github/workflows/ai-planning-pr-dispatch.yaml            the PR-dispatch reusable workflow
 ```
 
 ## Wiring the Matt Pocock skills to this board
 
-`adapter/issue-tracker.md` is the tracker-adapter profile that makes the Matt Pocock
-engineering skills (`/wayfinder`, `/to-spec`, `/to-tickets`, `/triage`, `/implement`)
-publish to **this** board without forking any vendored `SKILL.md`. In a **target
-project**, copy it to `docs/agents/issue-tracker.md` — the skills already consult it
-through that project's `AGENTS.md` → `docs/agents/*` pointer. It keeps the
-`wayfinder:` label vocabulary the skills expect (created by `setup.sh`), and defines
-every tracker operation (create/read/list, blocking, frontier, claim, resolve,
-promotion) against this board.
+`dest-repo/docs/agents/issue-tracker.md` is the tracker-adapter profile that makes
+the Matt Pocock engineering skills (`/wayfinder`, `/to-spec`, `/to-tickets`,
+`/triage`, `/implement`) publish to **this** board without forking any vendored
+`SKILL.md`. In a **target project**, copy it to `docs/agents/issue-tracker.md` —
+the skills already consult it through that project's `AGENTS.md` →
+`docs/agents/*` pointer. It keeps the `wayfinder:` label vocabulary the skills
+expect (created by `create-ai-planning-repo.sh`), and defines every tracker
+operation (create/read/list, blocking, frontier, claim, resolve, promotion)
+against this board.
 
 ## Develop
 

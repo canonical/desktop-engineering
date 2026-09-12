@@ -2,8 +2,9 @@
 # planning repo as a `repository_dispatch`, carrying the PR facts the
 # immediate authoring + detection arm needs. `on: workflow_call` so a
 # destination code repo's per-repo adapter caller
-# (`.github/workflows/ai-planning-pr.yml`, installed by `onboard-code-repo.sh`)
-# is a single `uses:` line — see ../../ai-planning/adapter/ai-planning-pr.yml
+# (`.github/workflows/ai-planning-pr.yml`, installed by `add-new-repo.sh`)
+# is a single `uses:` line — see
+# ../../ai-planning/dest-repo/.github/workflows/ai-planning-pr.yml
 # and gh-actions/ai-planning/README.md.
 #
 # Deliberately dumb: this job knows nothing about tickets, links, or Status —
@@ -40,7 +41,7 @@ on:
           Fine-grained PAT scoped to the planning repo, Contents:write only
           (least privilege for `POST /repos/{owner}/{repo}/dispatches`).
           Minted once, stored in Bitwarden, registered on every destination
-          repo by `onboard-code-repo.sh`.
+          repo by `add-new-repo.sh`.
         required: true
 
 permissions: {}

@@ -26,9 +26,9 @@ name: AI planning board status sync
 on:
   issues:
     types: [opened, closed, reopened, assigned, unassigned, labeled, unlabeled, edited]
+  repository_dispatch:
+    types: [ai-planning-pr]
   workflow_dispatch: {}
-  schedule:
-    - cron: "*/10 * * * *"
 
 permissions:
   contents: read
@@ -47,10 +47,12 @@ jobs:
         with:
           project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
           token: ${{ secrets.AI_PLANNING_TOKEN }}
+          dispatched-pr: ${{ github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload) || '' }}
 ```
 
-`setup.sh` (in `../../ai-planning`) stands up the repo, org Project, labels, and
-stores the two things this action needs on the planning repo:
+`create-ai-planning-repo.sh` (in `../../ai-planning`) stands up the repo, org
+Project, labels, and stores the two things this action needs on the planning
+repo:
 
 - secret **`AI_PLANNING_TOKEN`** — the fine-grained PAT, passed in as `token`;
 - variable **`AI_PLANNING_PROJECT_ID`** — the Project node id, passed in as
@@ -75,8 +77,10 @@ A code-repo PR event reaches this reconcile within about a minute, with no
 
 1. The destination code repo carries a per-repo caller
    (`.github/workflows/ai-planning-pr.yml`, installed by
-   `../../ai-planning/onboard-code-repo.sh`) that `uses:` the reusable
-   workflow `../../.github/workflows/ai-planning-pr-dispatch.yaml` on
+   `../../ai-planning/add-new-repo.sh` from its
+   `../../ai-planning/dest-repo/.github/workflows/ai-planning-pr.yml`
+   template) that `uses:` the reusable workflow
+   `../../.github/workflows/ai-planning-pr-dispatch.yaml` on
    `on: pull_request`. That job POSTs a `repository_dispatch` (event type
    `ai-planning-pr`) at the planning repo, carrying the PR's facts
    (`repository`, `number`, `body`, `baseRefName`, `state`, `isDraft`,

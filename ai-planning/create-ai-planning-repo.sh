@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 #
-# setup.sh — stand up the AI planning board from this scaffolding in one pass.
+# create-ai-planning-repo.sh — stand up the AI planning board from this
+# scaffolding in one pass.
 #
 # This folder is the SCAFFOLDING for a planning repo: it lives inside the
 # desktop-engineering resources repo. Deploying it pushes a clean COPY of the
 # planning SURFACE out as a standalone private planning repo (issues live there),
 # carrying only a THIN caller workflow (.github/workflows/board-sync.yml) that
 # calls the reusable reconcile workflow hosted once in canonical/desktop-engineering
-# (gh-actions/ai-planning/board-sync.yaml). The sync code is never copied. This
+# (gh-actions/ai-planning/action.yaml). The sync code is never copied. This
 # script:
 #   1. creates the org Project (v2) and its Status columns,
-#   2. stamps the board pointer into the adapter and pushes a clean copy of this
-#      folder as the private planning repo,
+#   2. stamps the board pointer into the dest-repo templates and pushes a clean
+#      copy of this folder as the private planning repo,
 #   3. creates the label vocabulary,
 #   4. prompts for the fine-grained **PAT** (`Issues: read/write`, `PRs: read`,
 #      org `Projects: read/write`, `All repositories`) and stores it (+ the Project id) on the repo,
@@ -20,6 +21,9 @@
 # Re-runnable: every step is idempotent or asks before overwriting. It never
 # touches the parent desktop-engineering repo's git state — the planning repo is a
 # separate repo built from a staged copy.
+#
+# Once the planning repo exists, onboard each destination code repo with
+# `./add-new-repo.sh` (installs its PR-dispatch caller + dispatch-token secret).
 #
 # Prereqs: `gh` authenticated with `project` + `read:org` scopes, and git.
 
@@ -98,7 +102,7 @@ gh api graphql -f query='
   -f fid="$STATUS_FIELD_ID" --jq '.data.updateProjectV2Field.projectV2Field.options[].name' \
   | paste -sd' · ' -
 
-# --- 2. push a clean copy as the planning repo (adapter stamped with the pointer) ----
+# --- 2. push a clean copy as the planning repo (dest-repo templates stamped with the pointer) ----
 if gh repo view "$PLANNING_FULL" >/dev/null 2>&1; then
   echo "==> planning repo already exists: $PLANNING_FULL"
 else
@@ -111,24 +115,25 @@ else
   # The sync CODE lives in ONE place (canonical/desktop-engineering); the planning
   # repo carries only the thin caller workflow (.github/workflows/board-sync.yml),
   # which calls the reusable workflow. So the package, its tests, packaging, and
-  # this deploy script never ship into the planning repo.
+  # both deploy scripts never ship into the planning repo.
   rm -rf "$STAGE"/src "$STAGE"/tests
-  rm -f "$STAGE"/pyproject.toml "$STAGE"/setup.sh "$STAGE"/onboard-code-repo.sh
+  rm -f "$STAGE"/pyproject.toml "$STAGE"/create-ai-planning-repo.sh "$STAGE"/add-new-repo.sh
   find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
   find "$STAGE" -type d -name '*.egg-info' -prune -exec rm -rf {} + 2>/dev/null || true
   find "$STAGE" -name '*.pyc' -delete 2>/dev/null || true
-  # Stamp the planning-repo pointer into the adapter so a code repo that fetches
-  # docs/agents/issue-tracker.md points at THIS board with no hand-editing. The
-  # body references the planning repo through the `<planning-repo>` symbol
-  # (defined once at the top), so only that single definition value is stamped —
-  # the un-inferrable pointer — leaving every body reference symbolic. This keeps
-  # a stamped copy a one-line diff from this template. The destination code repo
-  # stays inferred (git remote), never stamped.
-  ADAPTER="$STAGE/adapter/issue-tracker.md"
-  if [ -f "$ADAPTER" ]; then
-    sed -i -e "s|<org>/<planning-repo>|$PLANNING_FULL|g" "$ADAPTER"
-    echo "    stamped adapter pointer: $PLANNING_FULL"
-  fi
+  # Stamp the planning-repo pointer into every dest-repo template so a code repo
+  # that fetches one — docs/agents/issue-tracker.md, .github/workflows/ai-planning-pr.yml —
+  # points at THIS board with no hand-editing. Each body references the planning
+  # repo through the `<planning-repo>` symbol (defined once, at the top of
+  # issue-tracker.md, or as `<org>/<planning-repo>` in ai-planning-pr.yml), so only
+  # that single definition value is stamped — the un-inferrable pointer — leaving
+  # every other body reference symbolic. This keeps a stamped copy a one-line diff
+  # from its template. The destination code repo itself stays inferred (git
+  # remote, or `add-new-repo.sh`'s own argument), never stamped here.
+  find "$STAGE/dest-repo" -type f -print0 2>/dev/null | while IFS= read -r -d '' template; do
+    sed -i -e "s|<org>/<planning-repo>|$PLANNING_FULL|g" "$template"
+  done
+  echo "    stamped dest-repo templates with pointer: $PLANNING_FULL"
   git -C "$STAGE" init -q -b main
   git -C "$STAGE" add -A
   git -C "$STAGE" commit -q -m "AI planning board tooling + planning surface"
@@ -158,7 +163,7 @@ mklabel "wayfinder:task"      8250DF "Planning task ticket"        # purple
 mklabel "wayfinder:map"       0052CC "Planning effort map (index, no work-state)"  # blue
 # wayfinder:spec is NOT created here: specs live in the destination code repo, and
 # labels are per-repo, so it is created there at spec-creation time (see
-# adapter/issue-tracker.md → Wayfinding).
+# dest-repo/docs/agents/issue-tracker.md → Wayfinding).
 
 # --- 4. PAT (mint in browser) + store secret/variable on the planning repo ----
 cat <<EOF
@@ -241,8 +246,12 @@ Then verify the reconcile workflow:
   gh workflow run board-sync.yml --repo $PLANNING_FULL
   # or just open/close a test issue in $PLANNING_FULL and watch the card settle.
 
+Next, onboard each destination code repo so its PR events dispatch here too:
+  DEST_REPO=<org>/<code-repo> PLANNING_REPO=$PLANNING_FULL ./add-new-repo.sh
+
 Done. This repo is the planning repo; file planning issues here and the workflow
-reconciles the board on each event, with the daily cron as the floor.
+reconciles the board on every issues event and every onboarded repo's PR dispatch —
+event-driven only, no schedule cron.
 
 Board: https://github.com/orgs/$ORG/projects/$PROJECT_NUMBER
 EOF
