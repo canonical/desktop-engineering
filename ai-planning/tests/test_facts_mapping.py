@@ -3,14 +3,17 @@
 These assert the mapper reads native GitHub facts faithfully and holds no
 precedence logic of its own (that lives in `sync_status`). No network: every
 case is a hand-built payload shaped like the GraphQL response.
+
+Every PR-derived fact is sourced solely from `closedByPullRequestsReferences(
+userLinkedOnly: true)` — a deliberate native link. There is no mention/keyword
+fallback and no repo allow-list: a mere mention scores nothing, and a linked
+PR counts whether it's cross-repo or same-repo.
 """
 
 from ai_planning.sync_status import make_facts
 from ai_planning.facts_mapping import item_to_facts
 
-from tests.fixtures import issue_item, _xref_event
-
-DEST = "acme/code-repo"
+from tests.fixtures import issue_item, linked_pr
 
 
 def _issue_item(
@@ -59,25 +62,31 @@ def test_map_label_sets_is_map():
 
 
 def test_open_non_draft_pr_is_review_signal():
-    prs = [{"state": "OPEN", "isDraft": False}]
+    prs = [linked_pr(state="OPEN", is_draft=False)]
     assert item_to_facts(_issue_item(prs=prs)).has_open_non_draft_pr is True
 
 
 def test_draft_pr_does_not_count_as_review():
-    prs = [{"state": "OPEN", "isDraft": True}]
-    assert item_to_facts(_issue_item(prs=prs)).has_open_non_draft_pr is False
+    prs = [linked_pr(state="OPEN", is_draft=True)]
+    facts = item_to_facts(_issue_item(prs=prs))
+    assert facts.has_open_non_draft_pr is False
+    assert facts.has_open_draft_pr is True
+
+
+def test_open_draft_pr_is_false_when_no_pr_is_linked():
+    assert item_to_facts(_issue_item()).has_open_draft_pr is False
 
 
 def test_closed_pr_does_not_count_as_review():
-    prs = [{"state": "CLOSED", "isDraft": False}]
+    prs = [linked_pr(state="CLOSED", is_draft=False)]
     assert item_to_facts(_issue_item(prs=prs)).has_open_non_draft_pr is False
 
 
 def test_mixed_prs_one_open_non_draft_is_enough():
     prs = [
-        {"state": "CLOSED", "isDraft": False},
-        {"state": "OPEN", "isDraft": True},
-        {"state": "OPEN", "isDraft": False},
+        linked_pr(state="CLOSED", is_draft=False),
+        linked_pr(state="OPEN", is_draft=True),
+        linked_pr(state="OPEN", is_draft=False),
     ]
     assert item_to_facts(_issue_item(prs=prs)).has_open_non_draft_pr is True
 
@@ -126,96 +135,59 @@ def test_partial_payload_never_raises():
     )
 
 
-# --- the merged-PR timeline fallback (ticket 06) -----------------------------
+# --- the deliberately-linked-PR merge fact -----------------------------------
 
 
-def _timeline_item(*events, state="OPEN"):
-    return issue_item(state=state, timeline=events)
-
-
-def test_merged_cross_repo_pr_in_allow_list_sets_has_merged_linked_pr():
-    item = _timeline_item(_xref_event(merged=True, state="MERGED", repo=DEST))
-    facts = item_to_facts(item, destination_repos={DEST})
-    assert facts.has_merged_linked_pr is True
+def test_merged_linked_pr_sets_has_merged_linked_pr():
+    prs = [linked_pr(state="MERGED", merged=True)]
+    assert item_to_facts(_issue_item(prs=prs)).has_merged_linked_pr is True
 
 
 def test_merged_by_state_alone_still_counts():
     # `state == MERGED` is honoured even if the boolean `merged` is absent.
-    event = _xref_event(state="MERGED", repo=DEST)
-    event["source"].pop("merged")
-    facts = item_to_facts(_timeline_item(event), destination_repos={DEST})
-    assert facts.has_merged_linked_pr is True
+    pr = linked_pr(state="MERGED")
+    pr.pop("merged")
+    assert item_to_facts(_issue_item(prs=[pr])).has_merged_linked_pr is True
 
 
-def test_open_cross_repo_pr_does_not_set_has_merged_linked_pr():
-    item = _timeline_item(_xref_event(merged=False, state="OPEN", repo=DEST))
-    facts = item_to_facts(item, destination_repos={DEST})
-    assert facts.has_merged_linked_pr is False
+def test_merged_by_boolean_alone_still_counts():
+    # The boolean `merged` is honoured even if `state` says something else.
+    pr = linked_pr(state="CLOSED", merged=True)
+    assert item_to_facts(_issue_item(prs=[pr])).has_merged_linked_pr is True
 
 
-def test_merged_pr_in_unlisted_repo_is_ignored():
-    """The allow-list guard: a merged PR that merely mentions the ticket from an
-    unrelated repo must NOT complete it."""
-    item = _timeline_item(_xref_event(merged=True, state="MERGED", repo="acme/other"))
-    facts = item_to_facts(item, destination_repos={DEST})
-    assert facts.has_merged_linked_pr is False
+def test_open_linked_pr_does_not_set_has_merged_linked_pr():
+    prs = [linked_pr(state="OPEN", merged=False)]
+    assert item_to_facts(_issue_item(prs=prs)).has_merged_linked_pr is False
 
 
-def test_merged_same_repo_reference_is_ignored():
-    """isCrossRepository guard: a merged PR in the planning repo itself (not a
-    cross-repo destination) does not trip the fallback."""
-    item = _timeline_item(
-        _xref_event(merged=True, state="MERGED", cross_repo=False, repo=DEST)
-    )
-    facts = item_to_facts(item, destination_repos={DEST})
-    assert facts.has_merged_linked_pr is False
+def test_no_linked_pr_is_no_merged_pr():
+    assert item_to_facts(_issue_item()).has_merged_linked_pr is False
 
 
-def test_no_allow_list_keeps_fallback_inert():
-    """Without a destination allow-list the fallback matches nothing, even for a
-    genuinely merged cross-repo PR."""
-    item = _timeline_item(_xref_event(merged=True, state="MERGED", repo=DEST))
-    assert item_to_facts(item).has_merged_linked_pr is False
-    assert item_to_facts(item, destination_repos=set()).has_merged_linked_pr is False
+def test_one_qualifying_pr_among_several_is_enough():
+    prs = [
+        linked_pr(state="OPEN"),
+        linked_pr(state="CLOSED"),
+        linked_pr(state="MERGED", merged=True),
+    ]
+    assert item_to_facts(_issue_item(prs=prs)).has_merged_linked_pr is True
 
 
-def test_fact_does_not_key_off_will_close_target():
-    """A spec-branch PR has willCloseTarget=false yet still merged: the fact must
-    key off `merged`, so it is True despite willCloseTarget being false."""
-    item = _timeline_item(
-        _xref_event(merged=True, state="MERGED", repo=DEST, will_close=False)
-    )
-    assert item_to_facts(item, destination_repos={DEST}).has_merged_linked_pr is True
+def test_linked_prs_page_info_reads_connection_page_info():
+    from ai_planning.facts_mapping import linked_prs_page_info
+
+    item = issue_item(prs_has_next=True, prs_cursor="cur1")
+    assert linked_prs_page_info(item) == (True, "cur1")
+    assert linked_prs_page_info(_issue_item()) == (False, None)
+    assert linked_prs_page_info({"id": "x", "content": None}) == (False, None)
 
 
-def test_one_qualifying_event_among_several_is_enough():
-    item = _timeline_item(
-        _xref_event(merged=False, state="OPEN", repo=DEST),
-        _xref_event(merged=True, state="MERGED", repo="acme/other"),
-        _xref_event(merged=True, state="MERGED", repo=DEST),
-    )
-    assert item_to_facts(item, destination_repos={DEST}).has_merged_linked_pr is True
+def test_extend_item_linked_prs_appends_nodes():
+    from ai_planning.facts_mapping import extend_item_linked_prs
 
-
-def test_missing_timeline_is_no_merged_pr():
-    facts = item_to_facts(_issue_item(), destination_repos={DEST})
-    assert facts.has_merged_linked_pr is False
-
-
-def test_item_timeline_page_info_reads_connection_page_info():
-    from ai_planning.facts_mapping import item_timeline_page_info
-
-    item = issue_item(timeline_has_next=True, timeline_cursor="cur1")
-    assert item_timeline_page_info(item) == (True, "cur1")
-    assert item_timeline_page_info(_issue_item()) == (False, None)
-    assert item_timeline_page_info({"id": "x", "content": None}) == (False, None)
-
-
-def test_extend_item_timeline_appends_nodes():
-    from ai_planning.facts_mapping import extend_item_timeline
-
-    item = _timeline_item(_xref_event(merged=False, state="OPEN", repo=DEST))
-    extend_item_timeline(item, [_xref_event(merged=True, state="MERGED", repo=DEST)])
-    assert item_to_facts(item, destination_repos={DEST}).has_merged_linked_pr is True
+    item = _issue_item(prs=[linked_pr(state="OPEN")])
+    extend_item_linked_prs(item, [linked_pr(state="MERGED", merged=True)])
+    assert item_to_facts(item).has_merged_linked_pr is True
     # A contentless item is a no-op, not an error.
-    extend_item_timeline({"id": "x", "content": None}, [_xref_event()])
+    extend_item_linked_prs({"id": "x", "content": None}, [linked_pr()])

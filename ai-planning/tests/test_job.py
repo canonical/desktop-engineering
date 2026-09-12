@@ -18,7 +18,7 @@ from ai_planning.job import (
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
     CLOSE_ISSUE_MUTATION,
-    ISSUE_TIMELINE_QUERY,
+    ISSUE_LINKED_PRS_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
     REPO_ISSUES_QUERY,
@@ -26,10 +26,9 @@ from ai_planning.queries import (
     UPDATE_STATUS_MUTATION,
 )
 
-from tests.fixtures import issue_item, _xref_event
+from tests.fixtures import issue_item, linked_pr
 
 PROJECT_ID = "PVT_project"
-DEST_REPO = "acme/code-repo"
 
 STATUS_FIELD_RESPONSE = {
     "node": {
@@ -516,22 +515,20 @@ def test_run_sync_without_planning_repo_does_not_seed():
     assert [item_id for item_id, _ in result.written] == ["i_task"]
 
 
-# --- the merged-PR timeline fallback (ticket 06) -----------------------------
+# --- the self-close-on-merge mechanism ---------------------------------------
 
 
-def _issue_with_timeline(item_id, *events, state="OPEN", **kwargs):
-    return issue_item(item_id, state=state, timeline=events, **kwargs)
+def _issue_with_prs(item_id, *prs, state="OPEN", **kwargs):
+    return issue_item(item_id, state=state, prs=prs, **kwargs)
 
 
-def test_merged_cross_repo_pr_closes_issue_and_sets_done():
-    """A still-OPEN ticket whose spec-branch PR merged is detected via the
-    timeline, its issue is closed (so dependents unblock), and its card -> Done."""
-    item = _issue_with_timeline(
-        "i_ticket", _xref_event(merged=True, state="MERGED", repo=DEST_REPO)
-    )
+def test_merged_linked_pr_closes_issue_and_sets_done():
+    """A still-OPEN ticket whose deliberately-linked PR merged is closed (so
+    dependents unblock) and its card resolves to Done."""
+    item = _issue_with_prs("i_ticket", linked_pr(state="MERGED", merged=True))
     client = FakeClient(_single_page([item]))
 
-    result = run_sync(client, PROJECT_ID, destination_repos={DEST_REPO})
+    result = run_sync(client, PROJECT_ID)
 
     assert result.written == [("i_ticket", Status.DONE)]
     # The underlying issue node id (content id) was closed exactly once.
@@ -540,74 +537,49 @@ def test_merged_cross_repo_pr_closes_issue_and_sets_done():
 
 
 def test_open_pr_still_maps_to_in_review_and_does_not_close():
-    """Unchanged behaviour: an open non-draft linked PR is In review, and the
-    timeline fallback closes nothing."""
-    item = _issue_with_timeline(
-        "i_review",
-        _xref_event(merged=False, state="OPEN", repo=DEST_REPO),
-        prs=[{"state": "OPEN", "isDraft": False}],
-    )
+    """Unchanged behaviour: an open non-draft linked PR is In review, and
+    nothing is closed while the PR is still open."""
+    item = _issue_with_prs("i_review", linked_pr(state="OPEN", is_draft=False))
     client = FakeClient(_single_page([item]))
 
-    result = run_sync(client, PROJECT_ID, destination_repos={DEST_REPO})
+    result = run_sync(client, PROJECT_ID)
 
     assert result.written == [("i_review", Status.IN_REVIEW)]
     assert client.closed == []
 
 
-def test_unrelated_repo_merged_mention_does_not_complete_the_ticket():
-    """Guard: a merged PR in a repo outside the allow-list must not close or
-    Done the ticket — it stays on its own facts (here Ready)."""
-    item = _issue_with_timeline(
-        "i_ticket", _xref_event(merged=True, state="MERGED", repo="acme/unrelated")
-    )
+def test_open_draft_pr_maps_to_in_progress():
+    item = _issue_with_prs("i_draft", linked_pr(state="OPEN", is_draft=True))
     client = FakeClient(_single_page([item]))
 
-    result = run_sync(client, PROJECT_ID, destination_repos={DEST_REPO})
+    result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [("i_ticket", Status.READY)]
+    assert result.written == [("i_draft", Status.IN_PROGRESS)]
     assert client.closed == []
-    assert result.closed_issues == []
 
 
 def test_already_closed_issue_with_merged_pr_is_not_closed_again():
-    """A ticket already CLOSED is Done via `closed`; the fallback does not
+    """A ticket already CLOSED is Done via `closed`; the mechanism does not
     re-issue a close for it, and — being closed — it is never written back
     either (only recorded as `skipped_closed`)."""
-    item = _issue_with_timeline(
-        "i_done",
-        _xref_event(merged=True, state="MERGED", repo=DEST_REPO),
-        state="CLOSED",
+    item = _issue_with_prs(
+        "i_done", linked_pr(state="MERGED", merged=True), state="CLOSED"
     )
     client = FakeClient(_single_page([item]))
 
-    result = run_sync(client, PROJECT_ID, destination_repos={DEST_REPO})
+    result = run_sync(client, PROJECT_ID)
 
     assert result.written == []
     assert result.skipped_closed == [("i_done", Status.DONE)]
     assert client.closed == []
 
 
-def test_fallback_inert_without_destination_repos():
-    """No allow-list -> a merged cross-repo mention is ignored: the card stays on
-    its own facts and nothing is closed."""
-    item = _issue_with_timeline(
-        "i_ticket", _xref_event(merged=True, state="MERGED", repo=DEST_REPO)
-    )
-    client = FakeClient(_single_page([item]))
-
-    result = run_sync(client, PROJECT_ID)
-
-    assert result.written == [("i_ticket", Status.READY)]
-    assert client.closed == []
-
-
-class TimelinePagingFakeClient(FakeClient):
-    """A FakeClient that also serves a paged CROSS_REFERENCED_EVENT tail.
+class LinkedPrPagingFakeClient(FakeClient):
+    """A FakeClient that also serves a paged linked-PR tail.
 
     `tail_pages` maps an issue node id -> a list of (nodes, has_next) pages the
-    ISSUE_TIMELINE_QUERY returns in order, modelling an issue whose timeline
-    exceeds the single embedded page.
+    ISSUE_LINKED_PRS_QUERY returns in order, modelling an issue whose linked-PR
+    connection exceeds the single embedded page.
     """
 
     def __init__(self, item_pages, tail_pages):
@@ -616,14 +588,14 @@ class TimelinePagingFakeClient(FakeClient):
         self._tail_index = {k: 0 for k in tail_pages}
 
     def execute(self, query, variables):
-        if query == ISSUE_TIMELINE_QUERY:
+        if query == ISSUE_LINKED_PRS_QUERY:
             issue_id = variables["issueId"]
             idx = self._tail_index[issue_id]
             nodes, has_next = self._tail_pages[issue_id][idx]
             self._tail_index[issue_id] = idx + 1
             return {
                 "node": {
-                    "timelineItems": {
+                    "closedByPullRequestsReferences": {
                         "pageInfo": {"hasNextPage": has_next, "endCursor": "t_cur"},
                         "nodes": nodes,
                     }
@@ -632,20 +604,19 @@ class TimelinePagingFakeClient(FakeClient):
         return super().execute(query, variables)
 
 
-def test_merged_pr_found_only_on_a_paged_timeline_tail():
-    """The qualifying event is on the second timeline page, past the embedded
-    first page: the job must page the tail before scoring, then close + Done."""
-    item = _issue_with_timeline(
+def test_merged_pr_found_only_on_a_paged_linked_pr_tail():
+    """The qualifying PR is on the second page, past the embedded first page:
+    the job must page the tail before scoring, then close + Done."""
+    item = _issue_with_prs(
         "i_ticket",
-        _xref_event(merged=False, state="OPEN", repo=DEST_REPO),
-        timeline_has_next=True,
-        timeline_cursor="head_cur",
+        linked_pr(state="OPEN"),
+        prs_has_next=True,
+        prs_cursor="head_cur",
     )
-    tail = {"I_i_ticket": [([_xref_event(merged=True, state="MERGED",
-                                         repo=DEST_REPO)], False)]}
-    client = TimelinePagingFakeClient(_single_page([item]), tail)
+    tail = {"I_i_ticket": [([linked_pr(state="MERGED", merged=True)], False)]}
+    client = LinkedPrPagingFakeClient(_single_page([item]), tail)
 
-    result = run_sync(client, PROJECT_ID, destination_repos={DEST_REPO})
+    result = run_sync(client, PROJECT_ID)
 
     assert result.written == [("i_ticket", Status.DONE)]
     assert client.closed == ["I_i_ticket"]

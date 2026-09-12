@@ -6,29 +6,11 @@ single edit, not shotgun surgery across two test files.
 """
 
 
-def _xref_event(*, merged=False, state="OPEN", cross_repo=True, repo=None,
-                will_close=False):
-    """A CROSS_REFERENCED_EVENT timeline node sourced from a PullRequest.
+def linked_pr(*, state="OPEN", is_draft=False, merged=False):
+    """One node of the `closedByPullRequestsReferences(userLinkedOnly: true)`
+    connection: a deliberately-linked PR, shaped like the GraphQL response."""
 
-    Shaped like the GraphQL response the fetch shell reads: `merged`/`state`
-    say whether the PR merged, `cross_repo` is `isCrossRepository`, `repo` is the
-    source PR's `nameWithOwner`, and `will_close` is `willCloseTarget` (always
-    false for a spec-branch PR — carried only so tests can prove the fact does
-    not key off it).
-    """
-
-    return {
-        "willCloseTarget": will_close,
-        "isCrossRepository": cross_repo,
-        "source": {
-            "__typename": "PullRequest",
-            "number": 1,
-            "state": state,
-            "merged": merged,
-            "baseRefName": "some-spec-branch",
-            "repository": {"nameWithOwner": repo} if repo is not None else None,
-        },
-    }
+    return {"state": state, "isDraft": is_draft, "merged": merged}
 
 
 def issue_item(
@@ -42,9 +24,8 @@ def issue_item(
     content_id=None,
     child_content_ids=(),
     status_option_id=None,
-    timeline=(),
-    timeline_has_next=False,
-    timeline_cursor=None,
+    prs_has_next=False,
+    prs_cursor=None,
 ):
     """An Issue-content Project item with the fields the fetch shell reads.
 
@@ -55,9 +36,10 @@ def issue_item(
     children, for the two-pass roll-up.
     `status_option_id` is the Status single-select option id already set on the
     card, if any, used by the job's skip-if-unchanged guard.
-    `timeline` is the list of CROSS_REFERENCED_EVENT nodes on the issue timeline
-    (build them with `_xref_event`), and `timeline_has_next`/`timeline_cursor`
-    model the timeline connection's `pageInfo` for the paging path.
+    `prs` is the list of deliberately-linked PR nodes (build them with
+    `linked_pr`) on `closedByPullRequestsReferences`, and
+    `prs_has_next`/`prs_cursor` model that connection's `pageInfo` for the
+    paging path.
     """
 
     return {
@@ -72,13 +54,12 @@ def issue_item(
             "assignees": {"totalCount": assignees},
             "labels": {"nodes": [{"name": name} for name in labels]},
             "issueDependenciesSummary": {"blockedBy": blocked_by},
-            "closedByPullRequestsReferences": {"nodes": list(prs)},
-            "timelineItems": {
+            "closedByPullRequestsReferences": {
                 "pageInfo": {
-                    "hasNextPage": timeline_has_next,
-                    "endCursor": timeline_cursor,
+                    "hasNextPage": prs_has_next,
+                    "endCursor": prs_cursor,
                 },
-                "nodes": list(timeline),
+                "nodes": list(prs),
             },
             "subIssues": {"nodes": [{"id": cid} for cid in child_content_ids]},
         },

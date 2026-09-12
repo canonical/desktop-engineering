@@ -53,17 +53,17 @@ from typing import Any
 from ai_planning.client import SupportsExecute
 from ai_planning.sync_status import Facts, Status, sync_status
 from ai_planning.facts_mapping import (
-    extend_item_timeline,
+    extend_item_linked_prs,
     item_child_content_ids,
     item_content_id,
     item_current_status_option_id,
-    item_timeline_page_info,
+    linked_prs_page_info,
     item_to_facts,
 )
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
     CLOSE_ISSUE_MUTATION,
-    ISSUE_TIMELINE_QUERY,
+    ISSUE_LINKED_PRS_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
     REPO_ISSUES_QUERY,
@@ -196,53 +196,55 @@ def fetch_project_item(
     return data.get("node")
 
 
-def iter_issue_timeline_events(
+def iter_issue_linked_prs(
     client: SupportsExecute,
     issue_id: str,
     *,
     cursor: str | None,
     page_size: int = 50,
 ) -> Iterator[dict[str, Any]]:
-    """Yield an issue's remaining CROSS_REFERENCED_EVENT nodes past `cursor`.
+    """Yield an issue's remaining linked-PR nodes past `cursor`.
 
-    Only used when an issue carries more cross-references than the single page
-    embedded in the item read; `cursor` is that embedded page's end cursor.
+    Only used when an issue carries more deliberately-linked PRs than the
+    single page embedded in the item read; `cursor` is that embedded page's
+    end cursor.
     """
 
     while True:
         data = client.execute(
-            ISSUE_TIMELINE_QUERY,
+            ISSUE_LINKED_PRS_QUERY,
             {"issueId": issue_id, "pageSize": page_size, "cursor": cursor},
         )
-        timeline = (data.get("node") or {}).get("timelineItems") or {}
-        yield from timeline.get("nodes", [])
-        page_info = timeline.get("pageInfo") or {}
+        refs = (data.get("node") or {}).get("closedByPullRequestsReferences") or {}
+        yield from refs.get("nodes", [])
+        page_info = refs.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
             return
         cursor = page_info.get("endCursor")
 
 
-def page_item_timeline(
+def page_item_linked_prs(
     client: SupportsExecute, item: dict[str, Any], *, page_size: int = 50
 ) -> None:
-    """Fold any paged CROSS_REFERENCED_EVENT tail back into `item` in place.
+    """Fold any paged linked-PR tail back into `item` in place.
 
-    The item read embeds only the first page of an issue's cross-reference
-    timeline. When more pages exist, fetch them by the issue's node id and append
-    them so the single `item_to_facts` read scores the full set. A no-op when the
-    embedded page is already complete (the common case).
+    The item read embeds only the first page of an issue's
+    `closedByPullRequestsReferences` connection. When more pages exist, fetch
+    them by the issue's node id and append them so the single `item_to_facts`
+    read scores the full set. A no-op when the embedded page is already
+    complete (the common case).
     """
 
-    has_next, cursor = item_timeline_page_info(item)
+    has_next, cursor = linked_prs_page_info(item)
     if not has_next:
         return
     issue_id = item_content_id(item)
     if issue_id is None:
         return
-    extend_item_timeline(
+    extend_item_linked_prs(
         item,
         list(
-            iter_issue_timeline_events(
+            iter_issue_linked_prs(
                 client, issue_id, cursor=cursor, page_size=page_size
             )
         ),
@@ -320,7 +322,6 @@ def run_sync(
     project_id: str,
     *,
     planning_repo: str | None = None,
-    destination_repos: set[str] | None = None,
     page_size: int = 50,
 ) -> SyncResult:
     """Score every card and write each synced Status back, two passes deep.
@@ -337,11 +338,13 @@ def run_sync(
     feeds the child roll-up) but never written back, since the native
     "closed -> Done" Project workflow already owns that column.
 
-    `destination_repos` is the allow-list of code repos whose merged PRs may
-    complete a cross-repo implementation ticket via the timeline fallback. When
-    the fallback fires for a still-OPEN issue, the job closes that issue
-    (COMPLETED) so its native `blocked_by` edges clear and dependents unblock; the
-    card itself resolves to Done here regardless of when that close lands.
+    Every card scores off `item_to_facts`'s sole PR read — a deliberately-linked
+    PR (`closedByPullRequestsReferences(userLinkedOnly: true)`), cross-repo or
+    same-repo alike, no allow-list required. When a linked PR has merged while
+    its issue is still OPEN (e.g. a spec-branch PR, whose closing keyword
+    GitHub treats as inert), the job self-closes that issue (COMPLETED) so its
+    native `blocked_by` edges clear and dependents unblock; the card itself
+    resolves to Done here regardless of when that close lands.
     """
 
     seeded_items: dict[str, str] = {}
@@ -360,9 +363,10 @@ def run_sync(
     current_option_id_by_item_id: dict[str, str | None] = {}
     item_id_by_content_id: dict[str, str] = {}
     child_content_ids_by_item_id: dict[str, list[str]] = {}
-    # Issue node ids to close: a merged spec-branch PR completed the ticket via
-    # the timeline fallback, but the issue is still OPEN (its closing keyword was
-    # inert). Closing it clears the native blocked_by edges so dependents unblock.
+    # Issue node ids to close: a merged, deliberately-linked PR completed the
+    # ticket, but the issue is still OPEN (its closing keyword was inert, e.g. a
+    # spec-branch PR). Closing it clears the native blocked_by edges so
+    # dependents unblock.
     issue_ids_to_close: dict[str, str] = {}
 
     def ingest(item: dict[str, Any]) -> None:
@@ -370,11 +374,11 @@ def run_sync(
         item_order.append(item_id)
         current_option_id_by_item_id[item_id] = item_current_status_option_id(item)
 
-        # Fold any paged cross-reference timeline tail in before scoring so the
-        # merged-PR fact sees the full set, not just the first embedded page.
-        page_item_timeline(client, item, page_size=page_size)
+        # Fold any paged linked-PR tail in before scoring so the merged-PR fact
+        # sees the full set, not just the first embedded page.
+        page_item_linked_prs(client, item, page_size=page_size)
 
-        facts = item_to_facts(item, destination_repos=destination_repos)
+        facts = item_to_facts(item)
         if facts is None:
             result.skipped_contentless.append(item_id)
             return
@@ -402,11 +406,12 @@ def run_sync(
         if item is not None:
             ingest(item)
 
-    # Close any still-open issue whose spec-branch PR merged (detected via the
-    # timeline fallback): closing clears its native blocked_by edges so dependents
-    # unblock, and fires an `issues: closed` event that reconciles the board again.
-    # Ordered by first appearance for a deterministic sweep. The card's own Status
-    # is already Done via `has_merged_linked_pr`, independent of this close.
+    # Close any still-open issue whose deliberately-linked PR merged: closing
+    # clears its native blocked_by edges so dependents unblock, and fires an
+    # `issues: closed` event that reconciles the board again. Ordered by first
+    # appearance for a deterministic sweep. The card's own Status is already
+    # Done via `has_merged_linked_pr`, independent of this close. A harmless
+    # no-op when GitHub's own native close already fired.
     for item_id in item_order:
         issue_id = issue_ids_to_close.get(item_id)
         if issue_id is not None:

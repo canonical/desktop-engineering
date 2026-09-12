@@ -22,35 +22,21 @@ query($projectId: ID!) {
 }
 """
 
-# How many CROSS_REFERENCED_EVENT timeline entries to read per issue in the
-# per-item embed and per page of the stand-alone pager. Cross-references are
-# already a narrow slice of an issue's timeline, so one page covers all but the
-# most-referenced tickets; anything beyond is paged (see `ISSUE_TIMELINE_QUERY`).
-TIMELINE_PAGE_SIZE = 50
+# How many linked-PR nodes to read per issue in the per-item embed and per page
+# of the stand-alone pager. A deliberate native link
+# (`closedByPullRequestsReferences(userLinkedOnly: true)`) is already a narrow
+# set, so one page covers all but the most-linked tickets; anything beyond is
+# paged (see `ISSUE_LINKED_PRS_QUERY`).
+LINKED_PR_PAGE_SIZE = 50
 
-# The CROSS_REFERENCED_EVENT selection, shared verbatim by the per-item embed
-# (below) and the stand-alone timeline pager (`ISSUE_TIMELINE_QUERY`) so the two
-# paths that feed `_has_merged_linked_pr` never drift. `willCloseTarget` is read
-# for observability only — it is *false* on a spec-branch PR (GitHub honours a
-# closing keyword only against the repo's default branch), so the fact keys off
-# `source.merged`/`state`, never `willCloseTarget`. `isCrossRepository` and the
-# source repo's `nameWithOwner` are the false-positive guard: only a MERGED PR in
-# an allow-listed destination repo, cross-repository, completes the ticket.
-_TIMELINE_XREF_FIELDS = """
-  ... on CrossReferencedEvent {
-    willCloseTarget
-    isCrossRepository
-    source {
-      __typename
-      ... on PullRequest {
-        number
-        state
-        merged
-        baseRefName
-        repository { nameWithOwner }
-      }
-    }
-  }
+# The linked-PR node selection, shared verbatim by the per-item embed (below)
+# and the stand-alone pager (`ISSUE_LINKED_PRS_QUERY`) so the two paths that feed
+# `has_merged_linked_pr` / `has_open_non_draft_pr` / `has_open_draft_pr` never
+# drift.
+_LINKED_PR_FIELDS = """
+  state
+  isDraft
+  merged
 """
 
 # The per-item selection, shared by the paged board read and the single-item
@@ -58,20 +44,18 @@ _TIMELINE_XREF_FIELDS = """
 # paths that feed `item_to_facts`). `status: fieldValueByName(name: "Status")`
 # reads the card's *current* Status option id so the writer can skip a card
 # already in the right column (a no-op write on GitHub, skipped to save the API
-# call and avoid board churn). `closedByPullRequestsReferences` gives the PRs that
-# would close the issue; `issueDependenciesSummary.blockedBy` gives the open
-# blocker count. `subIssues` gives the native sub-issue children the job needs
-# for the parent's child-In-progress roll-up (two-pass sync: leaves first,
-# then parents).
+# call and avoid board churn). `issueDependenciesSummary.blockedBy` gives the
+# open blocker count. `subIssues` gives the native sub-issue children the job
+# needs for the parent's child-In-progress roll-up (two-pass sync: leaves
+# first, then parents).
 #
-# `timelineItems(itemTypes: [CROSS_REFERENCED_EVENT])` is the timeline fallback
-# (ticket 06): `closedByPullRequestsReferences` only lists PRs that *would close*
-# the issue, which GitHub populates solely for PRs targeting the repo default
-# branch. An implementation PR targets a **spec branch**, so its closing keyword
-# is inert and that connection stays empty — but the mention still lands a
-# CROSS_REFERENCED_EVENT on this issue's timeline, which is what detects the merge.
-# `pageInfo` lets the job page the rest (via `ISSUE_TIMELINE_QUERY`) when an issue
-# carries more cross-references than one page.
+# `closedByPullRequestsReferences(userLinkedOnly: true, includeClosedPrs: true)`
+# is the **sole** PR read: it is GitHub's deliberate-link connection (a PR body
+# `Closes #n`, or a manually attached link), not a mere mention, so a card only
+# ever scores off a PR someone actually linked to it — cross-repo and
+# same-repo alike, no repo allow-list needed. `pageInfo` lets the job page the
+# rest (via `ISSUE_LINKED_PRS_QUERY`) when an issue carries more linked PRs
+# than one page.
 _ITEM_NODE_FIELDS = """
   id
   status: fieldValueByName(name: "Status") {
@@ -88,10 +72,11 @@ _ITEM_NODE_FIELDS = """
       assignees { totalCount }
       labels(first: 50) { nodes { name } }
       issueDependenciesSummary { blockedBy }
-      closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {
-        nodes { state isDraft }
-      }
-      timelineItems(first: %d, itemTypes: [CROSS_REFERENCED_EVENT]) {
+      closedByPullRequestsReferences(
+        first: %d
+        userLinkedOnly: true
+        includeClosedPrs: true
+      ) {
         pageInfo { hasNextPage endCursor }
         nodes { %s }
       }
@@ -107,7 +92,7 @@ _ITEM_NODE_FIELDS = """
       labels(first: 50) { nodes { name } }
     }
   }
-""" % (TIMELINE_PAGE_SIZE, _TIMELINE_XREF_FIELDS)
+""" % (LINKED_PR_PAGE_SIZE, _LINKED_PR_FIELDS)
 
 # Enumerate Project items one page at a time, reading each item's underlying
 # issue/PR facts cross-repo (see `_ITEM_NODE_FIELDS`). `$cursor` is null on the
@@ -183,30 +168,36 @@ mutation($projectId: ID!, $contentId: ID!) {
 }
 """
 
-# Page an issue's CROSS_REFERENCED_EVENT timeline beyond the first page embedded
-# in the item read, keyed by the issue's own node id (`$cursor` null on page one).
-# Only reached when an issue carries more cross-references than one page — the
-# fields match `_TIMELINE_XREF_FIELDS` exactly so the paged tail scores identically
+# Page an issue's linked-PR connection beyond the first page embedded in the
+# item read, keyed by the issue's own node id (`$cursor` null on page one). Only
+# reached when an issue carries more deliberately-linked PRs than one page — the
+# fields match `_LINKED_PR_FIELDS` exactly so the paged tail scores identically
 # to the embedded head.
-ISSUE_TIMELINE_QUERY = """
+ISSUE_LINKED_PRS_QUERY = """
 query($issueId: ID!, $pageSize: Int!, $cursor: String) {
   node(id: $issueId) {
     ... on Issue {
-      timelineItems(first: $pageSize, after: $cursor, itemTypes: [CROSS_REFERENCED_EVENT]) {
+      closedByPullRequestsReferences(
+        first: $pageSize
+        after: $cursor
+        userLinkedOnly: true
+        includeClosedPrs: true
+      ) {
         pageInfo { hasNextPage endCursor }
         nodes { %s }
       }
     }
   }
 }
-""" % _TIMELINE_XREF_FIELDS
+""" % _LINKED_PR_FIELDS
 
-# Close one issue by its node id, marked COMPLETED. The sweep closes an
-# implementation ticket whose spec-branch PR has merged (detected via the
-# timeline fallback) but whose closing keyword was inert, so the native
-# `blocked_by` dependency clears and dependents unblock. Uses the PAT's existing
-# `Issues: write`; idempotent enough in practice (only issued for a still-OPEN
-# issue, and re-closing a closed issue is a harmless no-op on GitHub).
+# Close one issue by its node id, marked COMPLETED. The sweep self-closes an
+# implementation ticket whose deliberately-linked PR has merged while the issue
+# is still open (e.g. a spec-branch PR, whose closing keyword GitHub treats as
+# inert), so the native `blocked_by` dependency clears and dependents unblock.
+# Uses the PAT's existing `Issues: write`; idempotent enough in practice (only
+# issued for a still-OPEN issue, and re-closing a closed issue is a harmless
+# no-op on GitHub — including when GitHub's own native close already fired).
 CLOSE_ISSUE_MUTATION = """
 mutation($issueId: ID!) {
   closeIssue(input: { issueId: $issueId, stateReason: COMPLETED }) {

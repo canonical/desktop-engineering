@@ -7,19 +7,22 @@ on one side, the Project field writer on the other) maps into and out of this
 function and holds no branching of its own.
 
 Precedence (first match wins):
-    1. closed OR merged linked PR                 -> Done
-    2. open blocker (>=1)                       -> Blocked
-    3. open non-draft PR                         -> In review
-    4. assigned OR >=1 child In progress          -> In progress
-    5. otherwise                                 -> Ready
+    1. closed OR merged linked PR                                    -> Done
+    2. open blocker (>=1)                                            -> Blocked
+    3. open non-draft PR                                             -> In review
+    4. assigned OR >=1 child In progress OR open draft PR            -> In progress
+    5. otherwise                                                     -> Ready
 
-`has_merged_linked_pr` shares the top rung with `closed`: a cross-repo
-implementation PR that has merged completes its ticket even though its closing
-keyword was inert (it targeted a spec branch, not the repo default branch), so
-`closedByPullRequestsReferences`/native closing never fired. The job detects the
-merge from the issue timeline and closes the underlying issue; this function
-resolves the card to Done either way, so the column is right whether the read
-lands before or after that close.
+`has_merged_linked_pr` shares the top rung with `closed`: a deliberately-linked
+PR that has merged completes its ticket even when the issue is still OPEN (e.g.
+a spec-branch PR, whose closing keyword GitHub treats as inert, so native
+closing never fired). The job self-closes the underlying issue when it detects
+this; this function resolves the card to Done either way, so the column is
+right whether the read lands before or after that close.
+
+`has_open_draft_pr` is a deliberately-linked PR that is OPEN and still a draft:
+a draft is not a review, so it lifts a card only as far as In progress, never
+into In review (that rung is reserved for `has_open_non_draft_pr`).
 
 The child roll-up (`child_in_progress_count`) only ever lifts a parent out of
 Ready into In progress: Done, Blocked and In review still win on the parent's
@@ -55,16 +58,19 @@ class Facts:
     `has_open_non_draft_pr` is deliberately narrow: a draft PR is not a review,
     so it is False until the PR is marked ready for review.
 
+    `has_open_draft_pr` is True when a deliberately-linked PR is OPEN and still
+    a draft. It lifts a card only into In progress, never In review.
+
     `child_in_progress_count` is the number of this item's sub-issue children
     whose own *synced* Status is In progress. It is computed by the job (a
     two-pass roll-up), never by this function, and it only ever lifts a parent
     out of Ready into In progress.
 
-    `has_merged_linked_pr` is True when the issue's timeline carries a
-    CROSS_REFERENCED_EVENT sourced from a MERGED pull request in an allow-listed
-    destination repo (cross-repository). It exists because a spec-branch PR's
-    closing keyword is inert, so a merge would otherwise never complete the
-    ticket. Like `closed`, it resolves the card to Done.
+    `has_merged_linked_pr` is True when the issue has a deliberately-linked PR
+    (`closedByPullRequestsReferences(userLinkedOnly: true)`) that is MERGED. It
+    exists because a spec-branch PR's closing keyword is inert, so a merge
+    would otherwise never complete the ticket. Like `closed`, it resolves the
+    card to Done.
     """
 
     closed: bool
@@ -74,6 +80,7 @@ class Facts:
     child_in_progress_count: int = 0
     is_map: bool = False
     has_merged_linked_pr: bool = False
+    has_open_draft_pr: bool = False
 
 
 def make_facts(
@@ -85,6 +92,7 @@ def make_facts(
     child_in_progress_count: int = 0,
     is_map: bool = False,
     has_merged_linked_pr: bool = False,
+    has_open_draft_pr: bool = False,
 ) -> Facts:
     """Build a Facts tuple. Keyword-only so call sites read as a fact table."""
 
@@ -96,6 +104,7 @@ def make_facts(
         child_in_progress_count=child_in_progress_count,
         is_map=is_map,
         has_merged_linked_pr=has_merged_linked_pr,
+        has_open_draft_pr=has_open_draft_pr,
     )
 
 
@@ -114,6 +123,6 @@ def sync_status(facts: Facts) -> Status | None:
         return Status.BLOCKED
     if facts.has_open_non_draft_pr:
         return Status.IN_REVIEW
-    if facts.assigned or facts.child_in_progress_count >= 1:
+    if facts.assigned or facts.child_in_progress_count >= 1 or facts.has_open_draft_pr:
         return Status.IN_PROGRESS
     return Status.READY

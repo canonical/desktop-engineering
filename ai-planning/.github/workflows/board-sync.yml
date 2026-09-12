@@ -39,8 +39,5 @@ jobs:
     uses: canonical/desktop-engineering/gh-actions/ai-planning/board-sync.yaml@main
     with:
       project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
-      # Optional allow-list of destination code repos for the merged-PR timeline
-      # fallback; unset -> the fallback stays inert (see the ai-planning README).
-      destination-repos: ${{ vars.AI_PLANNING_DESTINATION_REPOS }}
     secrets:
       token: ${{ secrets.AI_PLANNING_TOKEN }}

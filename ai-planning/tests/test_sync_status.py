@@ -5,7 +5,8 @@ precedence ladder and every tie-break in the spec table. No network, no wiring.
 
 Locked precedence (first match wins):
     closed -> Done > open blocker -> Blocked > open non-draft PR -> In review
-    > assigned or >=1 child In progress -> In progress > else -> Ready
+    > assigned or >=1 child In progress or open draft PR -> In progress
+    > else -> Ready
 
 The child roll-up only lifts a parent out of Ready into In progress; Done,
 Blocked and In review still win on the parent's own facts.
@@ -161,6 +162,43 @@ from ai_planning.sync_status import Status, sync_status, make_facts
             ),
             Status.DONE,
             id="merged+blocker+pr+assigned->Done",
+        ),
+        # An open draft PR lifts an otherwise-Ready card into In progress,
+        # the same rung as `assigned`/the child roll-up.
+        pytest.param(
+            make_facts(
+                closed=False,
+                open_blocker_count=0,
+                has_open_non_draft_pr=False,
+                assigned=False,
+                has_open_draft_pr=True,
+            ),
+            Status.IN_PROGRESS,
+            id="open+draftPR+unassigned->In progress",
+        ),
+        # The draft PR's own In-progress rung never wins over a blocker.
+        pytest.param(
+            make_facts(
+                closed=False,
+                open_blocker_count=1,
+                has_open_non_draft_pr=False,
+                assigned=False,
+                has_open_draft_pr=True,
+            ),
+            Status.BLOCKED,
+            id="draftPR+blocker->Blocked",
+        ),
+        # Nor over an open non-draft PR (In review still outranks it).
+        pytest.param(
+            make_facts(
+                closed=False,
+                open_blocker_count=0,
+                has_open_non_draft_pr=True,
+                assigned=False,
+                has_open_draft_pr=True,
+            ),
+            Status.IN_REVIEW,
+            id="draftPR+nonDraftPR->In review",
         ),
     ],
 )

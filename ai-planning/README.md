@@ -61,7 +61,7 @@ The sweep is reached by, in order of importance:
    that lands in *another* repo. GitHub sends the planning repo no event for a
    merge elsewhere, so the agent/dev that merges an implementation PR runs
    `gh workflow run board-sync.yml --repo <planning-repo>`; the sweep then closes
-   the ticket (see the timeline fallback below) and dependents unblock at once.
+   the ticket (see the self-close mechanism below) and dependents unblock at once.
 4. **A short `schedule` (`*/10 * * * *`)** — the quiescence floor only, for when the
    board is silent (e.g. a dispatch was missed). Its lateness is harmless because
    events and the dispatch carry the fast path. It is a 10-minute floor rather than
@@ -70,31 +70,32 @@ The sweep is reached by, in order of importance:
 
 The agent writes **no** Status and adds **no** cards: it only creates and wires
 issues (labels, assignee, `blocked-by`, sub-issues), and the sweep derives every
-column — assignee → In progress, open blocker → Blocked, non-draft linked PR →
-In review, closed → Done, plus the child roll-up.
+column — assignee or open draft linked PR → In progress, open blocker → Blocked,
+non-draft linked PR → In review, closed or merged linked PR → Done, plus the
+child roll-up.
 
-### The merged-PR timeline fallback (cross-repo implementation tickets)
+### Self-close on merge (cross-repo implementation tickets)
 
 An implementation ticket lives in the planning repo, but its PR lives in a code
 repo and targets the spec's **branch, not that repo's default branch**. GitHub
 honours a closing keyword (`Closes owner/repo#n`) **only** on a PR that targets the
-repo's default branch, so on a spec-branch PR the keyword is inert:
-`closedByPullRequestsReferences`/`closingIssuesReferences` stay empty and merging
-neither closes the ticket nor unblocks its dependents. (Verified against
+repo's default branch, so on a spec-branch PR the keyword is inert: merging
+neither closes the ticket nor unblocks its dependents through GitHub's own native
+close-on-merge. (Verified against
 <https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue>.)
 
-The mention still lands a `CROSS_REFERENCED_EVENT` on the **issue's** timeline,
-though, which the sweep already reads. So the sweep detects the merge there — keyed
-off the source PR's `merged`/`state`, **never** `willCloseTarget` (which is false
-on a spec-branch PR) — and, when the referencing PR has merged, **closes the
-underlying issue** (using the PAT's existing `Issues: write`). Closing is what
-clears the native `blocked_by` edges so dependents unblock; the `closed → Done`
-path then sets the card. Two guards stop a false positive: the reference must be
-cross-repository, and the source repo must be named in the optional
-`AI_PLANNING_DESTINATION_REPOS` allow-list variable (unset → the fallback stays
-inert). Instant-from-the-planning-repo-only is impossible without a hosted
-webhook/App receiver, so the `workflow_dispatch`-at-merge call above is the chosen
-prompt path, with the 10-minute floor as backstop.
+The PR is still a **deliberate native link** on the issue, though —
+`closedByPullRequestsReferences(userLinkedOnly: true)` — which the sweep reads as
+its sole PR signal (never a mention or keyword-inclusive read). So the sweep
+detects the merge there — keyed off the linked PR's `merged`/`state` — and, when
+it has merged while the issue is still open, **closes the underlying issue**
+(using the PAT's existing `Issues: write`). Closing is what clears the native
+`blocked_by` edges so dependents unblock; the `closed → Done` path then sets the
+card (the merged-PR fact alone already sets it too, so the column is right either
+way). No allow-list or cross-repo guard is needed: the deliberate link itself,
+cross-repo or same-repo, is the guard. Instant-from-the-planning-repo-only is
+impossible without a hosted webhook/App receiver, so the `workflow_dispatch`-at-
+merge call above is the chosen prompt path, with the 10-minute floor as backstop.
 
 **No event is ever lost:** the sweep reconciles *current state*, so a dropped,
 delayed, or `cancel-in-progress`-cancelled event just settles on the next trigger.
