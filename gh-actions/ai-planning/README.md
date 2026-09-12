@@ -63,6 +63,32 @@ stores the two things this action needs on the planning repo:
 | `project-id`     | yes      | —                    | The org Project (v2) node id (`PVT_...`) whose board to reconcile.          |
 | `token`          | yes      | —                    | Fine-grained PAT (Issues:read/write, PRs:read, org Projects:write).         |
 | `ref`            | no       | `ai_planning_board`  | Ref of `canonical/desktop-engineering` providing the `ai_planning` package. |
+| `dispatched-pr`  | no       | `""`                 | JSON `repository_dispatch` `client_payload` (ticket 35), forwarded by the caller only when it ran `on: repository_dispatch`; the immediate arm authors that one PR's link before this same sweep scores it. |
 
 The `permissions` and `concurrency` blocks live on the **caller** job (an action
 cannot set them itself).
+
+## The immediacy path (ticket 35)
+
+A code-repo PR event reaches this reconcile within about a minute, with no
+`schedule` cron anywhere in the path:
+
+1. The destination code repo carries a per-repo caller
+   (`.github/workflows/ai-planning-pr.yml`, installed by
+   `../../ai-planning/onboard-code-repo.sh`) that `uses:` the reusable
+   workflow `../../.github/workflows/ai-planning-pr-dispatch.yaml` on
+   `on: pull_request`. That job POSTs a `repository_dispatch` (event type
+   `ai-planning-pr`) at the planning repo, carrying the PR's facts
+   (`repository`, `number`, `body`, `baseRefName`, `state`, `isDraft`,
+   `merged`) as its `client_payload`.
+2. The planning repo's `board-sync.yml` caller listens `on: repository_dispatch`
+   (beside `on: issues` and `workflow_dispatch`) and forwards the payload to
+   this action's `dispatched-pr` input.
+3. This action's `python -m ai_planning` invocation authors that one PR's
+   deliberate link (`ai_planning.link_authoring_job.author_dispatched_pr_link`)
+   before running its usual full-board sweep — so the immediate path pays for
+   one targeted lookup, not the reconcile arm's full-repo PR scan.
+
+The reusable dispatch workflow itself must live at the repo root's
+`.github/workflows/` (GitHub's hard requirement for `uses: …/foo.yaml`), which
+is why it is a sibling of, not inside, this composite action's own directory.

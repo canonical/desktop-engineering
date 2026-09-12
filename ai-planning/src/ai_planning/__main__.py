@@ -16,16 +16,29 @@ Environment:
                         detection guard `AI_PLANNING_DESTINATION_REPOS`, even
                         though it may hold the same repos in practice. Unset
                         skips the reconcile arm entirely.
+    AI_PLANNING_DISPATCHED_PR    optional JSON `repository_dispatch`
+                        `client_payload` (ticket 35): when set, the immediate
+                        arm authors this one dispatched PR's link instead of
+                        the reconcile arm's full-repo scan — the two never run
+                        in the same invocation, since the immediate path's
+                        whole point is to avoid that scan's fixed per-repo
+                        cost (ticket 22). Either way the sweep below still
+                        scores and writes every card.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
 from ai_planning.client import GraphQLClient
 from ai_planning.job import run_sync
-from ai_planning.link_authoring_job import author_missing_links
+from ai_planning.link_authoring_job import (
+    author_dispatched_pr_link,
+    author_missing_links,
+    dispatched_pr_from_payload,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,8 +54,15 @@ def main(argv: list[str] | None = None) -> int:
 
     client = GraphQLClient.with_token(token)
 
+    dispatched_pr_json = os.environ.get("AI_PLANNING_DISPATCHED_PR")
     link_scan_repos = os.environ.get("AI_PLANNING_LINK_SCAN_REPOS")
-    if link_scan_repos:
+    if dispatched_pr_json:
+        pr = dispatched_pr_from_payload(json.loads(dispatched_pr_json))
+        ref = author_dispatched_pr_link(client, pr)
+        if ref is not None:
+            print(f"linked {pr.owner}/{pr.name}#{pr.number} -> {ref.repo_full_name}#{ref.number}")
+        print(f"dispatched_pr_linked={int(ref is not None)}", file=sys.stderr)
+    elif link_scan_repos:
         destination_repos = [
             repo.strip() for repo in link_scan_repos.split(",") if repo.strip()
         ]

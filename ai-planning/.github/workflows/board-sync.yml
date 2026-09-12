@@ -1,18 +1,22 @@
-# Sync the repo planning repo tickets with the board status.
-# Keep the three triggers on one caller: the reconcile is a full-board sweep, so any issues event settles the
-# whole board, and schedule is just a short floor for when the repo is silent.
+# Sync the planning repo's tickets with the board status.
 #
-# The prompt path for a code-repo PR merge is `gh workflow run board-sync.yml --repo <planning-repo>` at merge
-# time (GitHub sends the planning repo no signal for a merge in another repo). The 10-minute `schedule` is only
-# the quiescence floor for when that dispatch is missed — a merged spec-branch ticket then settles on the next
-# floor sweep rather than instantly.
+# Three triggers, one caller: any `issues` event here settles the whole board;
+# a code-repo PR event dispatches straight to this repo (ticket 35) — a single
+# job POSTs `repository_dispatch` at the destination code repo's per-repo
+# caller (`.github/workflows/ai-planning-pr.yml`), which lands here as
+# `on: repository_dispatch`, immediacy end to end within a minute, for both
+# the same-repo spec and the cross-repo implementation-ticket linkage cases.
+#
+# No `schedule` cron: immediacy is event-driven only (`repository_dispatch` +
+# `on: issues`), never a polling floor (#25/#28's cron reconciliation is
+# settled by removing it entirely, not by tightening its interval).
 
 name: AI planning board status sync
 
 # One global concurrency group: the sweep is a full-board reconcile, so a burst of
-# triggers (several issue events in quick succession, plus the schedule) needs no
-# more than the one in flight — `cancel-in-progress` collapses the burst to a
-# single run instead of queuing/serialising redundant sweeps of the same board.
+# triggers (several issue events plus a burst of PR dispatches) needs no more than
+# the one in flight — `cancel-in-progress` collapses the burst to a single run
+# instead of queuing/serialising redundant sweeps of the same board.
 concurrency:
   group: ai-planning-board-sync
   cancel-in-progress: true
@@ -30,14 +34,25 @@ on:
         unlabeled,
         edited,
       ]
+  repository_dispatch:
+    types: [ai-planning-pr]
   workflow_dispatch: {}
-  schedule:
-    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
 
 jobs:
   sync:
-    uses: canonical/desktop-engineering/gh-actions/ai-planning/board-sync.yaml@main
-    with:
-      project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
-    secrets:
-      token: ${{ secrets.AI_PLANNING_TOKEN }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Reconcile the planning board
+        uses: canonical/desktop-engineering/gh-actions/ai-planning@ai_planning_board
+        with:
+          project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
+          token: ${{ secrets.AI_PLANNING_TOKEN }}
+          # Forwarded only on the dispatch trigger: the immediate arm authors
+          # this one PR's link before the same sweep scores it. Every other
+          # trigger passes '' (falsy in Python — see ai_planning.__main__),
+          # running exactly the reconcile sweep it always has.
+          dispatched-pr: ${{ github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload) || '' }}

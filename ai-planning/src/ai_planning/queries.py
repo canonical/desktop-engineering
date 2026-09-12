@@ -276,6 +276,28 @@ query($owner: String!, $name: String!, $number: Int!) {
 }
 """
 
+# The immediate arm (ticket 35): read one dispatched PR's already-authored
+# deliberate links by number, shaped identically to `REPO_PRS_QUERY`'s
+# `closingIssuesReferences` embed so `_already_linked_refs` scores either read
+# the same way. The dispatch payload already carries `body`/`baseRefName`, so
+# this query fetches only what the payload can't: the PR's node id (the write
+# target) and its current links (the read-before-write guard).
+PR_BY_NUMBER_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      closingIssuesReferences(first: %d, userLinkedOnly: true) {
+        nodes {
+          number
+          repository { owner { login } name }
+        }
+      }
+    }
+  }
+}
+""" % _LINK_AUTHORING_PAGE_SIZE
+
 # Author one deliberate PR<->issue close-link (`link_authoring.pick_link_target`'s
 # chosen target). Additive only: GitHub exposes no complementary "unlink"
 # mutation this tooling uses, so authoring stays conservative (see

@@ -1,0 +1,93 @@
+# Reusable workflow (ticket 35): forward one code-repo PR event to the
+# planning repo as a `repository_dispatch`, carrying the PR facts the
+# immediate authoring + detection arm needs. `on: workflow_call` so a
+# destination code repo's per-repo adapter caller
+# (`.github/workflows/ai-planning-pr.yml`, installed by `onboard-code-repo.sh`)
+# is a single `uses:` line — see ../../ai-planning/adapter/ai-planning-pr.yml
+# and gh-actions/ai-planning/README.md.
+#
+# Deliberately dumb: this job knows nothing about tickets, links, or Status —
+# it only relays the dispatched PR's own facts. Every decision happens once,
+# in the planning repo, off this payload
+# (`ai_planning.link_authoring_job.author_dispatched_pr_link`).
+#
+# Lives here, at the repo root's `.github/workflows/`, not beside its sibling
+# composite action at `gh-actions/ai-planning/`: a **reusable workflow**
+# (`uses: …/foo.yaml`) must be rooted in `.github/workflows` — GitHub rejects
+# any other path — which is exactly why the *reconcile* side is a composite
+# action instead (see `gh-actions/ai-planning/action.yaml`'s header comment).
+# This one has no such freedom: it must itself be the trigger side of a
+# `repository_dispatch` POST, so it stays a reusable workflow and lives here.
+name: AI planning PR dispatch
+
+on:
+  workflow_call:
+    inputs:
+      planning-repo:
+        description: The planning repo (`owner/name`) to dispatch to.
+        required: true
+        type: string
+      event-type:
+        description: >-
+          The `repository_dispatch` event type the planning repo's
+          board-sync.yml listens for.
+        required: false
+        type: string
+        default: ai-planning-pr
+    secrets:
+      dispatch-token:
+        description: >-
+          Fine-grained PAT scoped to the planning repo, Contents:write only
+          (least privilege for `POST /repos/{owner}/{repo}/dispatches`).
+          Minted once, stored in Bitwarden, registered on every destination
+          repo by `onboard-code-repo.sh`.
+        required: true
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch this PR's facts to the planning repo
+        env:
+          GH_TOKEN: ${{ secrets.dispatch-token }}
+          PLANNING_REPO: ${{ inputs.planning-repo }}
+          EVENT_TYPE: ${{ inputs.event-type }}
+          # Passed through env, never interpolated into the script directly:
+          # PR title/body/branch names are attacker-controlled strings, and
+          # `${{ }}` interpolation lands them in the shell *before* bash gets
+          # to quote them. `jq --arg`/`env.FOO` below read them safely.
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_STATE: ${{ github.event.pull_request.state }}
+          PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg owner "$REPO_OWNER" \
+            --arg name "$REPO_NAME" \
+            --argjson number "$PR_NUMBER" \
+            --arg body "$PR_BODY" \
+            --arg baseRefName "$PR_BASE_REF" \
+            --arg state "$PR_STATE" \
+            --argjson isDraft "$PR_IS_DRAFT" \
+            --argjson merged "$PR_MERGED" \
+            '{
+              event_type: env.EVENT_TYPE,
+              client_payload: {
+                repository: {owner: $owner, name: $name},
+                number: $number,
+                body: $body,
+                baseRefName: $baseRefName,
+                state: $state,
+                isDraft: $isDraft,
+                merged: $merged
+              }
+            }' \
+          | gh api "repos/$PLANNING_REPO/dispatches" --input -

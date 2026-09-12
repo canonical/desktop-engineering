@@ -14,6 +14,13 @@ The scan scope is named `AI_PLANNING_LINK_SCAN_REPOS` (see `__main__`) —
 deliberately distinct from the detection guard `AI_PLANNING_DESTINATION_REPOS`
 that ticket 31 already retired, even though it may hold the same repo list in
 practice.
+
+`author_dispatched_pr_link` (ticket 35) is the immediate arm's counterpart:
+the identical shared rule (`link_authoring.pick_link_target`), scoped to the
+one PR a `repository_dispatch` event names instead of a full-repo scan — the
+fixed per-repo PR-page cost this reconcile arm otherwise pays on every sweep
+(ticket 22). Both arms share every helper below them; only the entry point
+and its I/O scope differ.
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ from ai_planning.link_authoring import (
 from ai_planning.queries import (
     ADD_CLOSE_ISSUE_REFERENCES_MUTATION,
     ISSUE_BY_NUMBER_QUERY,
+    PR_BY_NUMBER_QUERY,
     REPO_PRS_QUERY,
 )
 
@@ -157,3 +165,82 @@ def author_missing_links(
         for pr in iter_repo_prs(client, owner, name, page_size=page_size):
             _process_pr(client, result, pr, owner=owner, name=name)
     return result
+
+
+@dataclass(frozen=True)
+class DispatchedPR:
+    """One `repository_dispatch` `client_payload`'s facts this arm needs.
+
+    The payload also carries `baseRefName`/`state`/`isDraft`/`merged` (see
+    `gh-actions/ai-planning/pr-dispatch.yaml`), but those feed only the
+    downstream sweep's own re-read (`item_to_facts`) — this arm cares about
+    nothing but the body it parses candidates from and the owner/name/number
+    it queries and writes with.
+    """
+
+    owner: str
+    name: str
+    number: int
+    body: str | None
+
+
+def dispatched_pr_from_payload(payload: dict[str, Any]) -> DispatchedPR:
+    """Parse a `repository_dispatch` `client_payload` dict into a `DispatchedPR`."""
+
+    repository = payload.get("repository") or {}
+    return DispatchedPR(
+        owner=repository["owner"],
+        name=repository["name"],
+        number=payload["number"],
+        body=payload.get("body"),
+    )
+
+
+def author_dispatched_pr_link(
+    client: SupportsExecute, pr: DispatchedPR
+) -> TicketRef | None:
+    """Immediate arm (ticket 35): author the one link `pr`'s body resolves
+    to, applying the identical shared rule `author_missing_links` applies on
+    the reconcile arm — but scoped to this single dispatched PR instead of a
+    full-repo scan, so the immediate path pays no more than one targeted
+    lookup per referenced ticket plus one read-before-write PR fetch.
+
+    Returns the authored `TicketRef`, or `None` when nothing was authored:
+    no candidate ticket in the body, an ambiguous candidate set, an unknown
+    PR, or a PR that already carries its deliberate link. The caller (the
+    sweep that follows) scores the card either way.
+    """
+
+    refs = parse_candidate_refs(pr.body, default_owner=pr.owner, default_repo=pr.name)
+    if not refs:
+        return None
+
+    candidates = [
+        candidate
+        for ref in refs
+        if (
+            candidate := resolve_candidate(
+                client, ref, pr_owner=pr.owner, pr_repo=pr.name
+            )
+        )
+        is not None
+    ]
+    target = pick_link_target(candidates)
+    if target is None:
+        return None
+
+    data = client.execute(
+        PR_BY_NUMBER_QUERY,
+        {"owner": pr.owner, "name": pr.name, "number": pr.number},
+    )
+    pr_node = (data.get("repository") or {}).get("pullRequest")
+    if pr_node is None:
+        return None
+    if target.ref in _already_linked_refs(pr_node):
+        return None
+
+    client.execute(
+        ADD_CLOSE_ISSUE_REFERENCES_MUTATION,
+        {"issueId": target.node_id, "pullRequestId": pr_node["id"]},
+    )
+    return target.ref

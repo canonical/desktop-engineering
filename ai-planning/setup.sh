@@ -113,7 +113,7 @@ else
   # which calls the reusable workflow. So the package, its tests, packaging, and
   # this deploy script never ship into the planning repo.
   rm -rf "$STAGE"/src "$STAGE"/tests
-  rm -f "$STAGE"/pyproject.toml "$STAGE"/setup.sh
+  rm -f "$STAGE"/pyproject.toml "$STAGE"/setup.sh "$STAGE"/onboard-code-repo.sh
   find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
   find "$STAGE" -type d -name '*.egg-info' -prune -exec rm -rf {} + 2>/dev/null || true
   find "$STAGE" -name '*.pyc' -delete 2>/dev/null || true

@@ -24,6 +24,13 @@ inputs:
     description: Ref of canonical/desktop-engineering providing the ai_planning package.
     required: false
     default: ai_planning_board
+  dispatched-pr:
+    description: >-
+      JSON `repository_dispatch` client_payload (ticket 35), passed through
+      verbatim when the caller ran from `on: repository_dispatch`. Empty on
+      every other trigger, in which case the sweep runs exactly as before.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -53,4 +60,8 @@ runs:
         # The caller repo IS the planning repo; passing it seeds its issues (and
         # their sub-issue children) onto the board.
         AI_PLANNING_REPO: ${{ github.repository }}
+        # Forwarded verbatim to the immediate authoring arm; empty is falsy in
+        # Python, so an empty string here is the same as the variable being
+        # unset (see ai_planning.__main__).
+        AI_PLANNING_DISPATCHED_PR: ${{ inputs.dispatched-pr }}
       run: python -m ai_planning
