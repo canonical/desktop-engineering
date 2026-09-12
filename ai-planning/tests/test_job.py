@@ -128,7 +128,9 @@ def test_card_already_in_the_right_column_is_not_rewritten():
 
 def test_fully_settled_board_writes_nothing():
     """When every card already sits in its synced column, a resync is a pure
-    read: no mutation is sent at all."""
+    read: no mutation is sent at all. A closed card is recorded separately
+    (`skipped_closed`), never `unchanged`: closed cards are never write-
+    candidates at all, whether or not their column happens to match."""
     items = [
         _issue("i_ready", status_option_id="opt_ready"),
         _issue("i_done", state="CLOSED", status_option_id="opt_done"),
@@ -138,11 +140,14 @@ def test_fully_settled_board_writes_nothing():
     result = run_sync(client, PROJECT_ID)
 
     assert client.mutations == []
-    assert [item_id for item_id, _ in result.unchanged] == ["i_ready", "i_done"]
+    assert [item_id for item_id, _ in result.unchanged] == ["i_ready"]
+    assert result.skipped_closed == [("i_done", Status.DONE)]
     assert result.written == []
 
 
 def test_syncs_and_writes_each_status():
+    """A closed card still gets its Status computed (Done here) but is never
+    written back — only the four open cards produce a mutation."""
     items = [
         _issue("i_ready"),
         _issue("i_blocked", blocked_by=1),
@@ -159,8 +164,8 @@ def test_syncs_and_writes_each_status():
         ("i_blocked", Status.BLOCKED),
         ("i_review", Status.IN_REVIEW),
         ("i_progress", Status.IN_PROGRESS),
-        ("i_done", Status.DONE),
     ]
+    assert result.skipped_closed == [("i_done", Status.DONE)]
     # Each write carries the matching option id for the synced Status.
     written_option_ids = [m["optionId"] for m in client.mutations]
     assert written_option_ids == [
@@ -168,11 +173,12 @@ def test_syncs_and_writes_each_status():
         "opt_blocked",
         "opt_in_review",
         "opt_in_progress",
-        "opt_done",
     ]
-    # Every mutation targets the right project, item and field.
+    # Every mutation targets the right project, item and field. The closed
+    # card produced no mutation at all.
     assert all(m["projectId"] == PROJECT_ID for m in client.mutations)
     assert all(m["fieldId"] == "PVTSSF_status" for m in client.mutations)
+    assert "i_done" not in [m["itemId"] for m in client.mutations]
 
 
 def test_blocked_beats_review_through_the_full_pipeline():
@@ -315,6 +321,38 @@ def test_child_not_on_board_does_not_make_an_item_a_parent():
     result = run_sync(client, PROJECT_ID)
 
     assert dict(result.written) == {"i_solo": Status.READY}
+
+
+def test_closed_card_is_never_written_even_when_its_column_is_stale():
+    """A closed card is skipped from writing regardless of what Status it
+    currently shows — closed cards are simply never write-candidates, not
+    merely 'already correct'."""
+    item = _issue("i_stale_closed", state="CLOSED", status_option_id="opt_ready")
+    client = FakeClient(_single_page([item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.mutations == []
+    assert result.written == []
+    assert result.unchanged == []
+    assert result.skipped_closed == [("i_stale_closed", Status.DONE)]
+
+
+def test_closed_child_is_read_for_roll_up_but_never_written():
+    """A closed child still has its (Done) Status computed and is available to
+    the parent roll-up, but it is not itself written back; only the parent
+    (still open) is."""
+    child = _issue("i_child", state="CLOSED")
+    parent = _issue("i_parent")
+    parent["content"]["subIssues"] = {"nodes": [{"id": "I_i_child"}]}
+    client = FakeClient(_single_page([child, parent]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert result.skipped_closed == [("i_child", Status.DONE)]
+    # The closed child's Done status does not count as In progress, so the
+    # parent (unassigned, no other children) stays Ready.
+    assert dict(result.written) == {"i_parent": Status.READY}
 
 
 PLANNING_REPO = "acme/acme-ai-planning"
@@ -534,7 +572,8 @@ def test_unrelated_repo_merged_mention_does_not_complete_the_ticket():
 
 def test_already_closed_issue_with_merged_pr_is_not_closed_again():
     """A ticket already CLOSED is Done via `closed`; the fallback does not
-    re-issue a close for it."""
+    re-issue a close for it, and — being closed — it is never written back
+    either (only recorded as `skipped_closed`)."""
     item = _issue_with_timeline(
         "i_done",
         _xref_event(merged=True, state="MERGED", repo=DEST_REPO),
@@ -544,7 +583,8 @@ def test_already_closed_issue_with_merged_pr_is_not_closed_again():
 
     result = run_sync(client, PROJECT_ID, destination_repos={DEST_REPO})
 
-    assert result.written == [("i_done", Status.DONE)]
+    assert result.written == []
+    assert result.skipped_closed == [("i_done", Status.DONE)]
     assert client.closed == []
 
 

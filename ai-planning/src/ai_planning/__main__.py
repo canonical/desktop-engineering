@@ -63,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         f"unchanged={len(result.unchanged)} "
         f"skipped_maps={len(result.skipped_maps)} "
         f"skipped_contentless={len(result.skipped_contentless)} "
+        f"skipped_closed={len(result.skipped_closed)} "
         f"closed_issues={len(result.closed_issues)}",
         file=sys.stderr,
     )

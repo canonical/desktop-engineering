@@ -25,8 +25,23 @@ Maps (`sync_status` returns `None`) get no Status written; they are recorded so
 the caller can, optionally, surface an "all children closed" hint. A map is never
 auto-closed. Items with no content (draft items / invisible issues) are skipped.
 
+A **closed card is never written**: only open cards board-wide are write-
+candidates. A closed card's facts are still read and scored — its synced Status
+feeds the child roll-up and the future map-cascade — but the sweep leaves the
+column itself alone; the native "closed → Done" Project workflow already owns
+it, so writing here would just be a wasted mutation, and a finished effort's
+closed cards would otherwise dominate the API-call count of every sweep as N
+grows. See `run_sync`'s final write loop.
+
 Nothing is deployed in any code repo: a spec's PR state is reached remotely
 through the same GraphQL client, cross-repo.
+
+Scaling note (documented, not built): one sweep fully paginates the board up to
+three times over — `seed_board`'s `_board_content_ids` diff read, its closure
+loop's own `iter_project_items` pass(es), and `run_sync`'s main `items` read.
+That is a flat cost regardless of N today; at N≈500+ cards it is the first
+place worth cutting (e.g. a single cached board read shared across all three),
+but is a pre-agreed future lever, not a problem this prefactor solves.
 """
 
 from __future__ import annotations
@@ -77,6 +92,7 @@ class SyncResult:
     unchanged: list[tuple[str, Status]] = field(default_factory=list)
     skipped_maps: list[str] = field(default_factory=list)
     skipped_contentless: list[str] = field(default_factory=list)
+    skipped_closed: list[tuple[str, Status]] = field(default_factory=list)
     closed_issues: list[str] = field(default_factory=list)
 
 
@@ -316,7 +332,10 @@ def run_sync(
     its item id so it is still synced now. Pass 1 syncs every leaf (an item with
     no sub-issue children present on this board). Pass 2 syncs every parent,
     first rolling its children's pass-1 Status up into `child_in_progress_count`.
-    Writes happen afterwards, in the Project's original item order.
+    Writes happen afterwards, in the Project's original item order. Only **open**
+    cards are write-candidates: a closed card's Status is still computed (it
+    feeds the child roll-up) but never written back, since the native
+    "closed -> Done" Project workflow already owns that column.
 
     `destination_repos` is the allow-list of code repos whose merged PRs may
     complete a cross-repo implementation ticket via the timeline fallback. When
@@ -429,13 +448,20 @@ def run_sync(
     # Write back in the Project's original item order. A card already showing
     # the synced Status is left untouched: re-writing the same option id is a
     # no-op on GitHub's side, so we skip it to save an API call and avoid any
-    # needless board churn.
+    # needless board churn. A closed card is never written at all: its Status
+    # is already owned by the native "closed -> Done" Project workflow, and a
+    # finished effort's closed cards would otherwise dominate every sweep's
+    # write volume as N grows. Its synced Status is still computed above (it
+    # feeds the child roll-up and the future map-cascade), just not written.
     for item_id in item_order:
         if item_id not in facts_by_item_id:
             continue  # already recorded in skipped_contentless
         status = status_by_item_id[item_id]
         if status is None:  # a map: no work-Status, never forced into a column
             result.skipped_maps.append(item_id)
+            continue
+        if facts_by_item_id[item_id].closed:
+            result.skipped_closed.append((item_id, status))
             continue
         target_option_id = status_field.option_id_for(status)
         if current_option_id_by_item_id.get(item_id) == target_option_id:
