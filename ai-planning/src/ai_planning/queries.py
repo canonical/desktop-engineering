@@ -195,12 +195,27 @@ query($issueId: ID!, $pageSize: Int!, $cursor: String) {
 # implementation ticket whose deliberately-linked PR has merged while the issue
 # is still open (e.g. a spec-branch PR, whose closing keyword GitHub treats as
 # inert), so the native `blocked_by` dependency clears and dependents unblock.
-# Uses the PAT's existing `Issues: write`; idempotent enough in practice (only
-# issued for a still-OPEN issue, and re-closing a closed issue is a harmless
-# no-op on GitHub — including when GitHub's own native close already fired).
+# Also used, cross-repo, by the map auto-close cascade to close a map whose
+# subtree has settled. Uses the PAT's existing `Issues: write`; idempotent
+# enough in practice (only issued for a still-OPEN issue, and re-closing a
+# closed issue is a harmless no-op on GitHub — including when GitHub's own
+# native close already fired).
 CLOSE_ISSUE_MUTATION = """
 mutation($issueId: ID!) {
   closeIssue(input: { issueId: $issueId, stateReason: COMPLETED }) {
+    issue { id state }
+  }
+}
+"""
+
+# Reopen one issue by its node id. Used solely by the map auto-close cascade:
+# a closed map whose subtree gains an open descendant again (any descendant
+# reopens) is reopened here, cross-repo, via the same PAT `Issues: write`
+# scope as `CLOSE_ISSUE_MUTATION`. A no-op on GitHub when the issue is already
+# open.
+REOPEN_ISSUE_MUTATION = """
+mutation($issueId: ID!) {
+  reopenIssue(input: { issueId: $issueId }) {
     issue { id state }
   }
 }

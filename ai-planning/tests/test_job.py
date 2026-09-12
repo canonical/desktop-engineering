@@ -8,8 +8,10 @@ with no network and no dependence on GitHub's live schema.
 import pytest
 
 from ai_planning.client import GraphQLClient, GraphQLError
-from ai_planning.sync_status import Status
+from ai_planning.sync_status import Facts, Status, make_facts
 from ai_planning.job import (
+    MapCascadeAction,
+    compute_map_cascade,
     fetch_status_field,
     iter_project_items,
     run_sync,
@@ -21,6 +23,7 @@ from ai_planning.queries import (
     ISSUE_LINKED_PRS_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
+    REOPEN_ISSUE_MUTATION,
     REPO_ISSUES_QUERY,
     STATUS_FIELD_QUERY,
     UPDATE_STATUS_MUTATION,
@@ -67,6 +70,7 @@ class FakeClient:
         self._page_index = 0
         self.mutations = []
         self.closed = []
+        self.reopened = []
 
     def execute(self, query, variables):
         if query == STATUS_FIELD_QUERY:
@@ -93,6 +97,10 @@ class FakeClient:
             self.closed.append(variables["issueId"])
             return {"closeIssue": {"issue": {"id": variables["issueId"],
                                              "state": "CLOSED"}}}
+        if query == REOPEN_ISSUE_MUTATION:
+            self.reopened.append(variables["issueId"])
+            return {"reopenIssue": {"issue": {"id": variables["issueId"],
+                                              "state": "OPEN"}}}
         raise AssertionError(f"unexpected query: {query!r}")
 
 
@@ -620,3 +628,165 @@ def test_merged_pr_found_only_on_a_paged_linked_pr_tail():
 
     assert result.written == [("i_ticket", Status.DONE)]
     assert client.closed == ["I_i_ticket"]
+
+
+# --- the map auto-close cascade ----------------------------------------------
+
+
+def _map(item_id, *, state="OPEN", child_content_ids=()):
+    item = _issue(item_id, state=state, labels=("wayfinder:map",))
+    item["content"]["subIssues"] = {
+        "nodes": [{"id": cid} for cid in child_content_ids]
+    }
+    return item
+
+
+def test_map_whose_entire_subtree_is_closed_auto_closes():
+    """AC-6: a map with a fully-closed subtree auto-closes."""
+    child_a = _issue("i_child_a", state="CLOSED")
+    child_b = _issue("i_child_b", state="CLOSED")
+    map_item = _map("i_map", child_content_ids=("I_i_child_a", "I_i_child_b"))
+    client = FakeClient(_single_page([child_a, child_b, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.closed == ["I_i_map"]
+    assert result.map_closed == ["I_i_map"]
+    assert client.reopened == []
+
+
+def test_map_with_an_open_descendant_does_not_auto_close():
+    child = _issue("i_child")  # OPEN
+    map_item = _map("i_map", child_content_ids=("I_i_child",))
+    client = FakeClient(_single_page([child, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.closed == []
+    assert result.map_closed == []
+
+
+def test_childless_map_never_auto_closes():
+    """Childless-map guard: zero descendants means never auto-close, even
+    though vacuously "zero open descendants" would otherwise be true."""
+    map_item = _map("i_map")
+    client = FakeClient(_single_page([map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.closed == []
+    assert result.map_closed == []
+
+
+def test_closed_map_auto_reopens_when_a_descendant_reopens():
+    child = _issue("i_child")  # OPEN
+    map_item = _map("i_map", state="CLOSED", child_content_ids=("I_i_child",))
+    client = FakeClient(_single_page([child, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.reopened == ["I_i_map"]
+    assert result.map_reopened == ["I_i_map"]
+    assert client.closed == []
+
+
+def test_map_auto_close_is_reason_agnostic():
+    """A subtree closed out-of-scope (NOT_PLANNED) closes the map exactly like
+    one closed COMPLETED — `Facts.closed` carries no reason, by design."""
+    child = _issue("i_child", state="CLOSED")
+    map_item = _map("i_map", child_content_ids=("I_i_child",))
+    client = FakeClient(_single_page([child, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert result.map_closed == ["I_i_map"]
+
+
+def test_off_board_descendant_blocks_the_close():
+    """A sub-issue child that isn't itself a Project item has no known closed
+    fact, so it is treated conservatively as open — it blocks the close even
+    when every *resolved* sibling descendant is closed."""
+    closed_child = _issue("i_child", state="CLOSED")
+    map_item = _map(
+        "i_map", child_content_ids=("I_i_child", "I_off_board")
+    )
+    client = FakeClient(_single_page([closed_child, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.closed == []
+    assert result.map_closed == []
+
+
+def test_childless_because_only_child_is_off_board_never_auto_closes():
+    map_item = _map("i_map", child_content_ids=("I_off_board",))
+    client = FakeClient(_single_page([map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.closed == []
+    assert result.map_closed == []
+
+
+def test_merged_linked_pr_descendant_cascade_closes_the_map_in_the_same_sweep():
+    """A ticket whose deliberately-linked PR merged resolves to Done even
+    before the sweep's own self-close fires this run; the map cascade treats
+    it as settled immediately, so the map closes in this same sweep too."""
+    ticket = _issue_with_prs("i_ticket", linked_pr(state="MERGED", merged=True))
+    map_item = _map("i_map", child_content_ids=("I_i_ticket",))
+    client = FakeClient(_single_page([ticket, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.closed == ["I_i_ticket", "I_i_map"]
+    assert result.map_closed == ["I_i_map"]
+
+
+def test_nested_map_cascade_settles_deepest_first_in_one_sweep():
+    """A closed leaf ticket closes its immediate (inner) map, and that closed
+    inner map is itself enough to close the outer map — both settle inside
+    this one sweep, with no need for a second run."""
+    ticket = _issue("i_ticket", state="CLOSED")
+    inner_map = _map("i_inner_map", child_content_ids=("I_i_ticket",))
+    outer_map = _map("i_outer_map", child_content_ids=("I_i_inner_map",))
+    client = FakeClient(_single_page([ticket, inner_map, outer_map]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert set(client.closed) == {"I_i_inner_map", "I_i_outer_map"}
+    assert set(result.map_closed) == {"I_i_inner_map", "I_i_outer_map"}
+
+
+def test_nested_map_stays_open_while_the_inner_map_still_has_an_open_child():
+    open_ticket = _issue("i_ticket")  # OPEN
+    inner_map = _map("i_inner_map", child_content_ids=("I_i_ticket",))
+    outer_map = _map("i_outer_map", child_content_ids=("I_i_inner_map",))
+    client = FakeClient(_single_page([open_ticket, inner_map, outer_map]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.closed == []
+    assert result.map_closed == []
+
+
+def test_compute_map_cascade_is_a_pure_function_over_facts():
+    """Direct unit test of the reducer: no client, no run_sync — just the
+    subtree-closure decision from in-memory facts."""
+    facts_by_item_id = {
+        "i_map": make_facts(
+            closed=False, open_blocker_count=0, has_open_non_draft_pr=False,
+            assigned=False, is_map=True,
+        ),
+        "i_child": make_facts(
+            closed=True, open_blocker_count=0, has_open_non_draft_pr=False,
+            assigned=False,
+        ),
+    }
+    item_id_by_content_id = {"C_map": "i_map", "C_child": "i_child"}
+    child_content_ids_by_item_id = {"i_map": ["C_child"], "i_child": []}
+
+    actions = compute_map_cascade(
+        facts_by_item_id, item_id_by_content_id, child_content_ids_by_item_id
+    )
+
+    assert actions == [MapCascadeAction("i_map", "C_map", close=True)]

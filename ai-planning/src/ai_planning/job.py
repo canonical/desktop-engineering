@@ -22,8 +22,12 @@ ordering. Results are written back in the Project's original item order,
 regardless of which pass produced them.
 
 Maps (`sync_status` returns `None`) get no Status written; they are recorded so
-the caller can, optionally, surface an "all children closed" hint. A map is never
-auto-closed. Items with no content (draft items / invisible issues) are skipped.
+the caller can, optionally, surface an "all children closed" hint. Items with no
+content (draft items / invisible issues) are skipped.
+
+A map auto-closes and auto-reopens by `compute_map_cascade`, a pure reducer over
+each map's native sub-issue subtree (any depth), folded into this same sweep —
+no new trigger. See that function's docstring for the predicate.
 
 A **closed card is never written**: only open cards board-wide are write-
 candidates. A closed card's facts are still read and scored — its synced Status
@@ -66,6 +70,7 @@ from ai_planning.queries import (
     ISSUE_LINKED_PRS_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
+    REOPEN_ISSUE_MUTATION,
     REPO_ISSUES_QUERY,
     STATUS_FIELD_QUERY,
     UPDATE_STATUS_MUTATION,
@@ -94,6 +99,8 @@ class SyncResult:
     skipped_contentless: list[str] = field(default_factory=list)
     skipped_closed: list[tuple[str, Status]] = field(default_factory=list)
     closed_issues: list[str] = field(default_factory=list)
+    map_closed: list[str] = field(default_factory=list)
+    map_reopened: list[str] = field(default_factory=list)
 
 
 def fetch_status_field(client: SupportsExecute, project_id: str) -> StatusField:
@@ -257,6 +264,136 @@ def close_issue(client: SupportsExecute, issue_id: str) -> None:
     client.execute(CLOSE_ISSUE_MUTATION, {"issueId": issue_id})
 
 
+def reopen_issue(client: SupportsExecute, issue_id: str) -> None:
+    """Reopen one issue by its node id. Used solely by the map cascade."""
+
+    client.execute(REOPEN_ISSUE_MUTATION, {"issueId": issue_id})
+
+
+@dataclass(frozen=True)
+class MapCascadeAction:
+    """One map to close or reopen, decided by `compute_map_cascade`."""
+
+    item_id: str
+    content_id: str
+    close: bool
+
+
+def compute_map_cascade(
+    facts_by_item_id: dict[str, Facts],
+    item_id_by_content_id: dict[str, str],
+    child_content_ids_by_item_id: dict[str, list[str]],
+) -> list[MapCascadeAction]:
+    """Pure reducer: decide which maps this sweep should close or reopen.
+
+    A map auto-closes when its **subtree** (every native sub-issue descendant,
+    at any depth — not just direct children) has at least one descendant and
+    zero open descendants; "open" is reason-agnostic, so a descendant closed as
+    `NOT_PLANNED`/out-of-scope counts the same as one closed `COMPLETED`. A
+    closed map **auto-reopens** the moment any descendant is open again. A
+    **childless map never auto-closes**, regardless of its own state.
+
+    A descendant this run never ingested (off-board, or contentless) has no
+    known closed fact, so it is conservatively treated as open — it can still
+    block a close, but the caller never sees a `Facts` for it to misread.
+
+    A descendant counts as "closed" for this predicate when it is `closed` OR
+    has a merged deliberately-linked PR (`has_merged_linked_pr`) — the same
+    Done precedence `sync_status` uses — so a spec-branch ticket the sweep is
+    about to self-close (its closing keyword being inert) settles the cascade
+    in this same pass rather than waiting for the next sweep's re-read of the
+    close that just fired.
+
+    Nested maps cascade in the same pass: this function iterates to a fixed
+    point, so a deeply-nested map that this same call decides to close is
+    already reflected as closed when its own ancestor map's subtree is
+    evaluated, in whatever order the maps happen to be visited.
+
+    Returns the ordered list of decided actions; no client I/O happens here —
+    the caller issues each mutation and folds the result back onto its own
+    `facts_by_item_id` for the rest of the sweep.
+    """
+
+    content_id_by_item_id = {v: k for k, v in item_id_by_content_id.items()}
+
+    def children_of(item_id: str) -> tuple[list[str], list[str]]:
+        """This item's direct sub-issue children, split into
+        `(resolved_item_ids, unresolved_content_ids)` — resolved is any child
+        content id that is itself a Project item on this board; unresolved is
+        one that isn't (off-board, or never ingested), and so has no further
+        children of its own and no known closed fact.
+        """
+        resolved: list[str] = []
+        unresolved: list[str] = []
+        for content_id in child_content_ids_by_item_id.get(item_id, []):
+            child_item_id = item_id_by_content_id.get(content_id)
+            if child_item_id is None:
+                unresolved.append(content_id)
+            else:
+                resolved.append(child_item_id)
+        return resolved, unresolved
+
+    def descendants_of(item_id: str) -> tuple[set[str], set[str]]:
+        """The full subtree below `item_id`, as `(item_ids, unresolved_content_ids)`.
+
+        `item_ids` is every on-board descendant, at any depth. Each entry in
+        `unresolved_content_ids` is a descendant the board can't resolve to a
+        Facts read (a leaf as far as this traversal is concerned) — it still
+        counts as a descendant, and, having no known closed fact, always
+        counts as open (see the caller).
+        """
+        seen: set[str] = set()
+        unresolved: set[str] = set()
+        stack = [item_id]
+        while stack:
+            current = stack.pop()
+            resolved_children, unresolved_children = children_of(current)
+            unresolved.update(unresolved_children)
+            for child_item_id in resolved_children:
+                if child_item_id not in seen:
+                    seen.add(child_item_id)
+                    stack.append(child_item_id)
+        return seen, unresolved
+
+    closed_by_item_id = {
+        item_id: facts.closed or facts.has_merged_linked_pr
+        for item_id, facts in facts_by_item_id.items()
+    }
+    map_item_ids = [
+        item_id for item_id, facts in facts_by_item_id.items() if facts.is_map
+    ]
+
+    actions: list[MapCascadeAction] = []
+    changed = True
+    while changed:
+        changed = False
+        for item_id in map_item_ids:
+            descendant_item_ids, unresolved_content_ids = descendants_of(item_id)
+            if not descendant_item_ids and not unresolved_content_ids:
+                continue  # childless-map guard: never auto-close
+            # An unresolved descendant has no known closed fact, so it always
+            # counts as open — it can block a close but never causes one.
+            open_descendant_count = len(unresolved_content_ids) + sum(
+                1
+                for descendant in descendant_item_ids
+                if closed_by_item_id.get(descendant) is not True
+            )
+            currently_closed = closed_by_item_id.get(item_id, False)
+            content_id = content_id_by_item_id.get(item_id)
+            if content_id is None:
+                continue
+            if open_descendant_count == 0 and not currently_closed:
+                actions.append(MapCascadeAction(item_id, content_id, close=True))
+                closed_by_item_id[item_id] = True
+                changed = True
+            elif open_descendant_count > 0 and currently_closed:
+                actions.append(MapCascadeAction(item_id, content_id, close=False))
+                closed_by_item_id[item_id] = False
+                changed = True
+
+    return actions
+
+
 def _board_content_ids(
     client: SupportsExecute, project_id: str, page_size: int
 ) -> set[str]:
@@ -345,6 +482,12 @@ def run_sync(
     GitHub treats as inert), the job self-closes that issue (COMPLETED) so its
     native `blocked_by` edges clear and dependents unblock; the card itself
     resolves to Done here regardless of when that close lands.
+
+    The map auto-close cascade (`compute_map_cascade`) runs once per sweep,
+    right after facts are read: it closes a map whose subtree has settled
+    (>=1 descendant, zero open) and reopens one whose subtree gained an open
+    descendant back, cross-repo, via the same `AI_PLANNING_TOKEN`. No separate
+    trigger — this sweep is the only mechanism.
     """
 
     seeded_items: dict[str, str] = {}
@@ -417,6 +560,25 @@ def run_sync(
         if issue_id is not None:
             close_issue(client, issue_id)
             result.closed_issues.append(issue_id)
+
+    # Map auto-close cascade: fold each map's subtree closure into this same
+    # sweep, no new trigger. `compute_map_cascade` is the pure reducer (see its
+    # docstring for the predicate); this loop is the only place that turns its
+    # decisions into cross-repo mutations, updating `facts_by_item_id` in step
+    # so any later read of a map's `closed` fact this run (e.g. an ancestor
+    # map's own subtree) already reflects it.
+    for action in compute_map_cascade(
+        facts_by_item_id, item_id_by_content_id, child_content_ids_by_item_id
+    ):
+        if action.close:
+            close_issue(client, action.content_id)
+            result.map_closed.append(action.content_id)
+        else:
+            reopen_issue(client, action.content_id)
+            result.map_reopened.append(action.content_id)
+        facts_by_item_id[action.item_id] = replace(
+            facts_by_item_id[action.item_id], closed=action.close
+        )
 
     # A "parent" is any item with at least one sub-issue child that is itself
     # a Project item on this board; everything else syncs as a leaf in
