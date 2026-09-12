@@ -35,7 +35,10 @@ Key facts (full detail in the README):
   write` + `Pull requests: read-only` (all repositories), org `Projects: read and
   write`, no `actions:write`. Each destination repo's `AI_PLANNING_DISPATCH_TOKEN`
   is a separate, narrower PAT: `Contents: write` only, scoped to the planning repo
-  (least privilege for `POST /repos/{owner}/{repo}/dispatches`).
+  (least privilege for `POST /repos/{owner}/{repo}/dispatches`). Mint it **once**
+  and keep it in **Bitwarden** under the planning repo's own entry — `add-new-repo.sh`
+  registers the same token on every destination repo it onboards, so it is never
+  re-minted per repo.
 - The private planning repo is exempt from the 60-day scheduled-workflow
   auto-disable (a public-repo rule) — moot here, since nothing on this board is
   a `schedule` trigger.

@@ -110,6 +110,15 @@ Why not webhooks / a GitHub App / a code-repo workflow? They need org-owner righ
 or a hosted receiver or a footprint in the code repo — deliberately out of scope
 here (the rationale is summarised above).
 
+### Scaling lever (future): the 3× pagination de-dup
+
+Every sweep run pages the board **three times over**: the seed closure loop, the
+`_board_content_ids` de-dup read, and the main `items` read each fully paginate
+independently. That is an accepted cost at today's scale (open cards board-wide,
+roughly `N≈500` before it starts to bite) and is **not built now** — it is a
+documented escape hatch to reach for if/when the sweep's run time or API-call
+budget becomes a problem, not a change this design requires.
+
 ## Deploy
 
 ```bash
