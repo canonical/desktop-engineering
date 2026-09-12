@@ -220,3 +220,75 @@ mutation($issueId: ID!) {
   }
 }
 """
+
+# The link-authoring reconcile arm (ticket 33): page one destination repo's
+# PRs from the *PR side* — an unlinked cross-repo PR is invisible from the
+# issue side, so the scan has to start here. `states: [OPEN, MERGED]` covers
+# both a PR still awaiting review and one whose merge needs its link authored
+# after the fact (the straggler case, e.g. a spec-branch merge). `body` and
+# `baseRefName` feed `link_authoring.parse_candidate_refs`; the embedded
+# `closingIssuesReferences(userLinkedOnly: true)` is this PR's own already-
+# authored deliberate links (symmetric to the Issue-side
+# `closedByPullRequestsReferences` read), so the reconcile arm can skip a PR
+# that already carries its one correct link without a second round-trip.
+_LINK_AUTHORING_PAGE_SIZE = 20
+
+REPO_PRS_QUERY = """
+query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(
+      first: $pageSize
+      after: $cursor
+      states: [OPEN, MERGED]
+    ) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        number
+        body
+        baseRefName
+        closingIssuesReferences(first: %d, userLinkedOnly: true) {
+          nodes {
+            number
+            repository { owner { login } name }
+          }
+        }
+      }
+    }
+  }
+}
+""" % _LINK_AUTHORING_PAGE_SIZE
+
+# Resolve one candidate `TicketRef` (parsed from a PR body) to the fact
+# `link_authoring.pick_link_target`'s tie-break needs: the issue's own node
+# id (the write target for `ADD_CLOSE_ISSUE_REFERENCES_MUTATION`) and its
+# labels (to test for `wayfinder:spec`). A ref naming an issue that doesn't
+# exist, or the token can't see, resolves to a null `issue` — the caller
+# drops it from the candidate set rather than raising.
+ISSUE_BY_NUMBER_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      id
+      labels(first: 50) { nodes { name } }
+    }
+  }
+}
+"""
+
+# Author one deliberate PR<->issue close-link (`link_authoring.pick_link_target`'s
+# chosen target). Additive only: GitHub exposes no complementary "unlink"
+# mutation this tooling uses, so authoring stays conservative (see
+# `link_authoring`'s docstring) and a wrong link is recovered by hand in the
+# GitHub UI. Idempotent in effect — re-adding an already-present link is a
+# harmless no-op — but the reconcile arm still reads-before-writing (via
+# `closingIssuesReferences` above) to avoid the redundant call.
+ADD_CLOSE_ISSUE_REFERENCES_MUTATION = """
+mutation($issueId: ID!, $pullRequestId: ID!) {
+  addCloseIssueReferences(
+    input: { issueId: $issueId, pullRequestIds: [$pullRequestId] }
+  ) {
+    issue { id }
+  }
+}
+"""
