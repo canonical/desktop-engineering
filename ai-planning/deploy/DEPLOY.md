@@ -23,8 +23,9 @@ Key facts (full detail in the README):
   "→ Done" workflows handle closes.
 - **Secret/variable location:** `AI_PLANNING_TOKEN` + `AI_PLANNING_PROJECT_ID`
   on **this** repo (not a separate automation repo).
-- **Token scope:** Issues:read + PRs:read on the planning repo and destination code
-  repos, org Projects:write. No `actions:write`.
+- **Token scope:** `Issues: read and write` + `Pull requests: read-only` on the
+  planning repo and destination code repos, org `Projects: read and write`. No
+  `actions:write`.
 - The private planning repo is exempt from the 60-day scheduled-workflow
   auto-disable (a public-repo rule).
 
