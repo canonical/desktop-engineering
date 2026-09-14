@@ -14,9 +14,10 @@ Running the deploy script (below) stands up three things for a team:
 
 - **A private planning repo** (`<org>/<team-slug>-ai-planning`). Every planning
   artifact — maps, specs' implementation tickets, research/prototype/grilling
-  tickets — lives here as a GitHub **issue**, not a committed file. The repo also
-  carries one tiny workflow (`.github/workflows/board-sync.yml`) that keeps the
-  board in sync.
+  tickets — lives here as a GitHub **issue**, not a committed file. The repo
+  deliberately carries **almost nothing** on disk: just one tiny workflow
+  (`.github/workflows/board-sync.yml`) that keeps the board in sync, plus a short
+  README.
 - **An org-level Project board.** One **Status** field with five columns —
   **Blocked · Ready · In progress · In review · Done**. There are no custom fields:
   the board reuses GitHub's native **Parent issue** field for hierarchy and the
@@ -28,34 +29,47 @@ Only one kind of artifact ever leaves the planning repo: a finished **spec** is
 created directly in its destination code repo. Its implementation tickets stay in
 the planning repo and point back up to it.
 
-This folder lives inside the `desktop-engineering` resources repo as a **template**.
-The actual reconcile code runs in exactly one place — the composite action at
-`canonical/desktop-engineering/gh-actions/ai-planning` — which every deployed
-planning repo calls. The code is never copied into a planning repo or a code repo.
+This folder lives inside the `desktop-engineering` resources repo and is the
+**single home** of every script, template and line of sync code. A deployed
+planning repo carries only its `board-sync.yml`; destination code repos are wired
+up straight from here by `setup-dest-repo.sh`. The reconcile code runs in exactly
+one place — the composite action at
+`canonical/desktop-engineering/gh-actions/ai-planning/sync` — which every deployed
+planning repo calls. Nothing here is ever copied into a planning repo beyond that
+one workflow.
 
 ## Deploy
 
 From this folder, inside a clone of `desktop-engineering`:
 
 ```bash
-ORG=my-org TEAM="Desktop Apps" ./create-ai-planning-repo.sh
-# or just run ./create-ai-planning-repo.sh and answer the prompts
+ORG=my-org TEAM="Desktop Apps" ./setup-ai-planning-repo.sh
+# or just run ./setup-ai-planning-repo.sh and answer the prompts
 ```
 
-The script is idempotent — safe to re-run. In one pass it:
+The script is idempotent — safe to re-run, and re-running it against an existing
+planning repo is the supported way to **refresh** it after this scaffolding
+changes (it syncs only the files that changed, never touching issues). In one pass it:
 
-1. **pushes a clean copy** of the planning surface out as the private planning repo
-   (no `.git`, no dev cruft, and without the Python package/tests). Your local
+1. **creates the planning repo** carrying only `.github/workflows/board-sync.yml`
+   and a short README (on a refresh it syncs just those). Your local
    `desktop-engineering` checkout is never modified;
 2. creates the org Project (titled `<team> AI planning`) with its five Status columns;
 3. creates the label vocabulary;
 4. prompts you for a fine-grained **PAT** and stores it as the `AI_PLANNING_TOKEN`
-   secret, plus the `AI_PLANNING_PROJECT_ID` variable, **on the planning repo**;
+   secret, plus the `AI_PLANNING_PROJECT_ID` variable, **on the planning repo**.
+   On a refresh the secret is already set, so it skips that prompt (pass
+   `ROTATE_PAT=1` to replace the token);
 5. prints two click-only follow-ups for you to finish in the GitHub UI (enable the
    native "→ Done" workflow; create the Board and Efforts views).
 
 Repo name and board title come from `TEAM`; override with `PLANNING_REPO` /
 `BOARD_TITLE` if you want different names.
+
+> **Refreshing from a local clone.** If you run the script from inside a clone of
+> the planning repo, it infers the org/repo from that clone's `origin` and writes
+> the refreshed files into your working tree (for you to review, commit and push)
+> instead of pushing them straight through the API.
 
 Then check it works:
 
@@ -75,15 +89,29 @@ move planning cards** (draft PR → In progress, ready for review → In review,
 merged → Done), wire that code repo in:
 
 ```bash
-DEST_REPO=<org>/<code-repo> PLANNING_REPO=<org>/<team-slug>-ai-planning ./add-new-repo.sh
+DEST_REPO=<org>/<code-repo> PLANNING_REPO=<org>/<team-slug>-ai-planning ./setup-dest-repo.sh
 ```
 
-This is the *only* footprint the tooling leaves in a code repo. Again idempotent,
-it installs a small PR-dispatch workflow (`.github/workflows/ai-planning-pr.yml`)
-that relays PR events to the planning repo, and registers the
-`AI_PLANNING_DISPATCH_TOKEN` secret it needs. The workflow shows up as a
-non-required, cosmetic check on PRs — the real work happens back in the planning
-repo, so it never gates a merge.
+Run it from this folder (the templates live only here). Again idempotent — re-run
+it any time to refresh whatever drifted after a template change — it stamps the
+chosen planning repo into and installs two files on the code repo's default
+branch:
+
+- **`.github/workflows/ai-planning-pr.yml`** — the PR-dispatch caller that relays
+  PR events to the planning repo (a non-required, cosmetic check — the real work
+  happens back in the planning repo, so it never gates a merge); and
+- **`docs/agents/issue-tracker.md`** — the planning-skills adapter pointing at this
+  board (pass `WITH_ADAPTER=0` to skip it for a dispatch-only repo).
+
+It also registers the `AI_PLANNING_DISPATCH_TOKEN` secret it needs (on a refresh,
+already set, it skips that prompt — `ROTATE_PAT=1` to replace it). These are the
+*only* footprint the tooling leaves in a code repo.
+
+> **Refreshing from a local clone.** Run it from inside a clone of the code repo
+> and it infers `DEST_REPO` from that clone's `origin` — and `PLANNING_REPO` from
+> the caller workflow the repo already carries — then writes the two files into
+> your working tree (for you to review, commit and push) instead of pushing them
+> through the API.
 
 ## Tokens
 
@@ -105,9 +133,9 @@ reads issues/PRs across repos and writes the board. Mint a fine-grained PAT at
 - **No `actions` permission** — nothing calls `gh workflow run`.
 
 **`AI_PLANNING_DISPATCH_TOKEN`** — on each onboarded code repo. A separate, much
-narrower PAT: `Contents: write` only, scoped to the planning repo (the least
-privilege needed to `POST /repos/{owner}/{repo}/dispatches`). Mint it **once**, keep
-it in **Bitwarden** under the planning repo's own entry, and `add-new-repo.sh`
+narrower PAT: **`Contents: Read and write`** only, scoped to the planning repo. That
+Contents grant authorises `POST /repos/{owner}/{repo}/dispatches`. Mint it **once**,
+keep it in **Bitwarden** under the planning repo's own entry, and `setup-dest-repo.sh`
 reuses that same token for every code repo it onboards.
 
 > Migration path: both tokens can later be swapped for a **GitHub App** installation
@@ -167,8 +195,9 @@ sweep's run time or API-call budget ever becomes a real problem.
 `dest-repo/docs/agents/issue-tracker.md` is the tracker-adapter profile that makes
 the Matt Pocock engineering skills (`/wayfinder`, `/to-spec`, `/to-tickets`,
 `/triage`, `/implement`) publish to **this** board without forking any vendored
-`SKILL.md`. In a project that uses the board, copy it to
-`docs/agents/issue-tracker.md`; the skills already find it through that project's
+`SKILL.md`. You don't copy it by hand: `setup-dest-repo.sh` stamps it with the
+chosen planning repo and installs it at the code repo's `docs/agents/issue-tracker.md`
+(unless you pass `WITH_ADAPTER=0`). The skills already find it through that project's
 `AGENTS.md` → `docs/agents/*` pointer. It keeps the `wayfinder:` labels the skills
 expect and defines every tracker operation (create/read/list, blocking, frontier,
 claim, resolve, promotion) against this board.
@@ -176,17 +205,17 @@ claim, resolve, promotion) against this board.
 ## Layout
 
 ```
-create-ai-planning-repo.sh            one-pass deploy (repo + project + labels + PAT)
-add-new-repo.sh                       onboard one destination code repo (PR-dispatch
-                                      caller + dispatch-token secret)
-dest-repo/                            templates for a DESTINATION repo, at their exact
-                                      destination-relative paths:
-  docs/agents/issue-tracker.md          planning-skills adapter (copy into a target
-                                        project's docs/agents/issue-tracker.md)
-  .github/workflows/ai-planning-pr.yml  per-repo PR-dispatch caller (installed by
-                                        add-new-repo.sh)
-.github/workflows/board-sync.yml      thin caller: triggers -> the reusable workflow
-                                      (all a deployed planning repo carries)
+setup-ai-planning-repo.sh             one-pass deploy/refresh (repo + project + labels + PAT)
+setup-dest-repo.sh                    add/refresh one destination code repo (PR-dispatch
+                                      caller + skills adapter + dispatch-token secret)
+dest-repo/                            templates applied to a DESTINATION code repo by
+                                      setup-dest-repo.sh, at their destination-relative paths
+                                      (NOT shipped into the planning repo):
+  docs/agents/issue-tracker.md          planning-skills adapter (installed at the code
+                                        repo's docs/agents/issue-tracker.md)
+  .github/workflows/ai-planning-pr.yml  per-repo PR-dispatch caller
+.github/workflows/board-sync.yml      thin caller: triggers -> the sync action
+                                      (the ONLY file a deployed planning repo carries)
 src/ai_planning/                      the sweep: fetch -> sync_status -> write
   sync_status.py                      the pure precedence-ladder function (unit-tested)
   job.py / facts_mapping.py / queries.py / client.py / link_authoring.py / link_authoring_job.py
@@ -194,8 +223,8 @@ tests/                                pytest for the pure function + mappers
 
 # hosted once in this same repo, called by every planning repo and every
 # onboarded destination code repo:
-../gh-actions/ai-planning/action.yaml               the reconcile composite action
-../.github/workflows/ai-planning-pr-dispatch.yaml   the PR-dispatch reusable workflow
+../gh-actions/ai-planning/sync/action.yaml         the reconcile composite action
+../gh-actions/ai-planning/pr-dispatch/action.yaml  the PR-relay composite action
 ```
 
 ## Develop

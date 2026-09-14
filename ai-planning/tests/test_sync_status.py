@@ -5,11 +5,12 @@ precedence ladder and every tie-break in the spec table. No network, no wiring.
 
 Locked precedence (first match wins):
     closed -> Done > open blocker -> Blocked > open non-draft PR -> In review
-    > assigned or >=1 child In progress or open draft PR -> In progress
+    > assigned or >=1 started child or open draft PR -> In progress
     > else -> Ready
 
-The child roll-up only lifts a parent out of Ready into In progress; Done,
-Blocked and In review still win on the parent's own facts.
+The child roll-up only lifts a parent out of Ready into In progress; a child
+counts as "started" once its synced Status is In progress, In review or Done.
+Done, Blocked and In review still win on the parent's own facts.
 
 A map fact is skipped entirely (no work-Status), never forced into a column.
 """
@@ -88,18 +89,18 @@ from ai_planning.sync_status import Status, sync_status, make_facts
             Status.READY,
             id="open+unassigned->Ready",
         ),
-        # Child roll-up: unassigned, no PR, no blocker, but a child is In
-        # progress -> lifted out of Ready into In progress.
+        # Child roll-up: unassigned, no PR, no blocker, but a child has started
+        # (In progress / In review / Done) -> lifted out of Ready into In progress.
         pytest.param(
             make_facts(
                 closed=False,
                 open_blocker_count=0,
                 has_open_non_draft_pr=False,
                 assigned=False,
-                child_in_progress_count=1,
+                child_started_count=1,
             ),
             Status.IN_PROGRESS,
-            id="parent+childInProgress->In progress",
+            id="parent+childStarted->In progress",
         ),
         # The parent's own blocker still beats the child roll-up.
         pytest.param(
@@ -108,10 +109,10 @@ from ai_planning.sync_status import Status, sync_status, make_facts
                 open_blocker_count=1,
                 has_open_non_draft_pr=False,
                 assigned=False,
-                child_in_progress_count=1,
+                child_started_count=1,
             ),
             Status.BLOCKED,
-            id="parent+blocker+childInProgress->Blocked",
+            id="parent+blocker+childStarted->Blocked",
         ),
         # The parent's own open non-draft PR still beats the child roll-up.
         pytest.param(
@@ -120,10 +121,10 @@ from ai_planning.sync_status import Status, sync_status, make_facts
                 open_blocker_count=0,
                 has_open_non_draft_pr=True,
                 assigned=False,
-                child_in_progress_count=1,
+                child_started_count=1,
             ),
             Status.IN_REVIEW,
-            id="parent+pr+childInProgress->In review",
+            id="parent+pr+childStarted->In review",
         ),
         # A map is skipped entirely: no work-Status.
         pytest.param(

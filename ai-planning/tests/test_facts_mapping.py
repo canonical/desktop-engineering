@@ -5,9 +5,10 @@ precedence logic of its own (that lives in `sync_status`). No network: every
 case is a hand-built payload shaped like the GraphQL response.
 
 Every PR-derived fact is sourced solely from `closedByPullRequestsReferences(
-userLinkedOnly: true)` — a deliberate native link. There is no mention/keyword
-fallback and no repo allow-list: a mere mention scores nothing, and a linked
-PR counts whether it's cross-repo or same-repo.
+userLinkedOnly: false)` — a closing link (keyword or manual). There is no bare-
+mention fallback and no repo allow-list: a mere mention scores nothing (only
+closing references appear in the connection), and a linked PR counts whether
+it's cross-repo or same-repo.
 """
 
 from ai_planning.sync_status import make_facts

@@ -7,9 +7,9 @@ It extracts facts only — it holds **no** precedence branching. The ladder
 `sync_status`, here we only read what GitHub reports.
 
 A card scores off exactly one PR read: `closedByPullRequestsReferences(
-userLinkedOnly: true, includeClosedPrs: true)`, GitHub's deliberate-link
+userLinkedOnly: false, includeClosedPrs: true)`, GitHub's closing-link
 connection (a closing keyword or a manually attached link). A mere mention
-scores nothing — there is no mention/keyword-inclusive fallback here.
+scores nothing — only closing references appear in this connection at all.
 
 A Project item whose `content` is null (a draft item, or an issue the token
 cannot see) yields `None`: there is no underlying issue/PR to score, so the job
@@ -18,7 +18,7 @@ skips it rather than inventing facts.
 `item_content_id` and `item_child_content_ids` are read-only structural
 helpers the job uses to correlate a parent with its native sub-issue children
 across Project items. They hold no precedence branching either: the roll-up
-count itself (`Facts.child_in_progress_count`) is computed by the job from
+count itself (`Facts.child_started_count`) is computed by the job from
 each child's already-synced Status, then folded back into `Facts` before the
 parent is synced.
 """
@@ -165,9 +165,9 @@ def item_to_facts(item: dict[str, Any]) -> Facts | None:
 
     Every PR-derived fact (`has_open_non_draft_pr`, `has_open_draft_pr`,
     `has_merged_linked_pr`) is sourced solely from
-    `closedByPullRequestsReferences(userLinkedOnly: true)` — a deliberate
-    native link, cross-repo or same-repo alike. No allow-list or cross-repo
-    guard is needed: the deliberate link itself is the guard.
+    `closedByPullRequestsReferences(userLinkedOnly: false)` — a closing link
+    (keyword or manual), cross-repo or same-repo alike. No allow-list or
+    cross-repo guard is needed: the closing link itself is the guard.
     """
 
     content = item.get("content")

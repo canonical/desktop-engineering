@@ -172,7 +172,7 @@ class DispatchedPR:
     """One `repository_dispatch` `client_payload`'s facts this arm needs.
 
     The payload also carries `baseRefName`/`state`/`isDraft`/`merged` (see
-    `gh-actions/ai-planning/pr-dispatch.yaml`), but those feed only the
+    `gh-actions/ai-planning/pr-dispatch/action.yaml`), but those feed only the
     downstream sweep's own re-read (`item_to_facts`) — this arm cares about
     nothing but the body it parses candidates from and the owner/name/number
     it queries and writes with.

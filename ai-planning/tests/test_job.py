@@ -306,6 +306,24 @@ def test_parents_own_review_pr_beats_child_roll_up():
     assert dict(result.written)["i_parent"] == Status.IN_REVIEW
 
 
+def test_in_review_child_lifts_parent_to_in_progress():
+    """A child in In review (its own open non-draft PR) counts as started, so a
+    parent with no facts of its own is lifted to In progress. The parent's own
+    In review is reserved for the parent's *own* PR, so a child's In review only
+    rolls up to In progress."""
+    child = _issue("i_child", prs=[{"state": "OPEN", "isDraft": False}])  # leaf -> In review
+    parent = _issue("i_parent")  # otherwise Ready
+    parent["content"]["subIssues"] = {"nodes": [{"id": "I_i_child"}]}
+    client = FakeClient(_single_page([child, parent]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert dict(result.written) == {
+        "i_child": Status.IN_REVIEW,
+        "i_parent": Status.IN_PROGRESS,
+    }
+
+
 def test_map_parent_is_still_skipped_regardless_of_children():
     child = _issue("i_child", assignees=1)  # leaf -> In progress
     parent = _issue("i_parent", labels=("wayfinder:map",))
@@ -348,7 +366,8 @@ def test_closed_card_is_never_written_even_when_its_column_is_stale():
 def test_closed_child_is_read_for_roll_up_but_never_written():
     """A closed child still has its (Done) Status computed and is available to
     the parent roll-up, but it is not itself written back; only the parent
-    (still open) is."""
+    (still open) is. A Done child counts as 'started', so it lifts the parent
+    out of Ready into In progress."""
     child = _issue("i_child", state="CLOSED")
     parent = _issue("i_parent")
     parent["content"]["subIssues"] = {"nodes": [{"id": "I_i_child"}]}
@@ -357,9 +376,9 @@ def test_closed_child_is_read_for_roll_up_but_never_written():
     result = run_sync(client, PROJECT_ID)
 
     assert result.skipped_closed == [("i_child", Status.DONE)]
-    # The closed child's Done status does not count as In progress, so the
-    # parent (unassigned, no other children) stays Ready.
-    assert dict(result.written) == {"i_parent": Status.READY}
+    # The closed child's Done status counts as started, so the parent
+    # (unassigned, no PR of its own) is lifted to In progress.
+    assert dict(result.written) == {"i_parent": Status.IN_PROGRESS}
 
 
 PLANNING_REPO = "acme/acme-ai-planning"

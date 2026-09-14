@@ -1,22 +1,11 @@
 # Sync the planning repo's tickets with the board status.
 #
-# Three triggers, one caller: any `issues` event here settles the whole board;
-# a code-repo PR event dispatches straight to this repo (ticket 35) — a single
-# job POSTs `repository_dispatch` at the destination code repo's per-repo
-# caller (`.github/workflows/ai-planning-pr.yml`), which lands here as
-# `on: repository_dispatch`, immediacy end to end within a minute, for both
-# the same-repo spec and the cross-repo implementation-ticket linkage cases.
-#
-# No `schedule` cron: immediacy is event-driven only (`repository_dispatch` +
-# `on: issues`), never a polling floor (#25/#28's cron reconciliation is
-# settled by removing it entirely, not by tightening its interval).
-
+# Two automated triggers:
+# * any `issues` event here settles the whole board;
+# * any impacting PR event from the destination repo dispatches straight
+# to this repo (a single job POSTs `repository_dispatch`)
 name: AI planning board status sync
 
-# One global concurrency group: the sweep is a full-board reconcile, so a burst of
-# triggers (several issue events plus a burst of PR dispatches) needs no more than
-# the one in flight — `cancel-in-progress` collapses the burst to a single run
-# instead of queuing/serialising redundant sweeps of the same board.
 concurrency:
   group: ai-planning-board-sync
   cancel-in-progress: true
@@ -47,7 +36,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Reconcile the planning board
-        uses: canonical/desktop-engineering/gh-actions/ai-planning@ai_planning_board
+        uses: canonical/desktop-engineering/gh-actions/ai-planning/sync@ai_planning_board
         with:
           project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
           token: ${{ secrets.AI_PLANNING_TOKEN }}

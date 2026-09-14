@@ -1,9 +1,4 @@
-# AI planning PR dispatch — per-repo caller (ticket 35).
-#
-# Installed/updated by `add-new-repo.sh` (never hand-edited in place: a
-# re-run of the installer is what keeps this in sync with the template).
-# Non-required, cosmetic check: the real work — authoring the PR's link and
-# scoring its card — runs in the planning repo, dispatched to by this job.
+# Installed/updated by `setup-dest-repo.sh`
 name: AI planning PR dispatch
 
 on:
@@ -15,8 +10,11 @@ permissions: {}
 
 jobs:
   dispatch:
-    uses: canonical/desktop-engineering/.github/workflows/ai-planning-pr-dispatch.yaml@ai_planning_board
-    with:
-      planning-repo: <org>/<planning-repo>
-    secrets:
-      dispatch-token: ${{ secrets.AI_PLANNING_DISPATCH_TOKEN }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Relay this PR's facts to the planning repo
+        uses: canonical/desktop-engineering/gh-actions/ai-planning/pr-dispatch@ai_planning_board
+        with:
+          planning-repo: <org>/<planning-repo>
+          dispatch-token: ${{ secrets.AI_PLANNING_DISPATCH_TOKEN }}

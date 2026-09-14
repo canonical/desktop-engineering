@@ -7,8 +7,8 @@ single edit, not shotgun surgery across two test files.
 
 
 def linked_pr(*, state="OPEN", is_draft=False, merged=False):
-    """One node of the `closedByPullRequestsReferences(userLinkedOnly: true)`
-    connection: a deliberately-linked PR, shaped like the GraphQL response."""
+    """One node of the `closedByPullRequestsReferences(userLinkedOnly: false)`
+    connection: a closing-linked PR, shaped like the GraphQL response."""
 
     return {"state": state, "isDraft": is_draft, "merged": merged}
 

@@ -1,13 +1,15 @@
 # Composite action that reconciles an AI planning board's Status column from live
-# GitHub facts. A **composite action** (not a reusable workflow) so it can live at
-# this path: reusable workflows must be rooted in `.github/workflows`, but an action
-# can be referenced from any directory as
-# `canonical/desktop-engineering/gh-actions/ai-planning@<ref>`.
+# GitHub facts. It is one of the two sibling composite actions under
+# `gh-actions/ai-planning/` — this one (`sync/`) settles the board; `pr-dispatch/`
+# relays a code repo's PR facts here. Both are actions rather than reusable
+# workflows on purpose: an action can be referenced from any directory as
+# `canonical/desktop-engineering/gh-actions/ai-planning/sync@<ref>`, whereas a
+# reusable workflow is forced to live at the repo-root `.github/workflows/`.
 #
 # It runs one idempotent full-board reconcile: reads every Project card's live
 # GitHub facts (issue / PR / dependency state, cross-repo, over a fine-grained PAT)
 # and sets each card's Status from scratch. The `ai_planning` package it drives
-# lives at `../../ai-planning`. See ./README.md.
+# lives at `../../../ai-planning`. See ../README.md.
 name: AI planning board status sync
 description: >-
   Idempotent full-board reconcile of an AI planning board's Status column,

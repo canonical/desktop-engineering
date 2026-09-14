@@ -10,7 +10,7 @@ Precedence (first match wins):
     1. closed OR merged linked PR                                    -> Done
     2. open blocker (>=1)                                            -> Blocked
     3. open non-draft PR                                             -> In review
-    4. assigned OR >=1 child In progress OR open draft PR            -> In progress
+    4. assigned OR >=1 started child OR open draft PR                -> In progress
     5. otherwise                                                     -> Ready
 
 `has_merged_linked_pr` shares the top rung with `closed`: a deliberately-linked
@@ -24,12 +24,15 @@ right whether the read lands before or after that close.
 a draft is not a review, so it lifts a card only as far as In progress, never
 into In review (that rung is reserved for `has_open_non_draft_pr`).
 
-The child roll-up (`child_in_progress_count`) only ever lifts a parent out of
+The child roll-up (`child_started_count`) only ever lifts a parent out of
 Ready into In progress: Done, Blocked and In review still win on the parent's
-own facts regardless of what its children are doing. The job (not this
-function) is responsible for syncing children first and rolling their
-statuses up into this fact; this function stays pure and takes no part in that
-ordering.
+own facts regardless of what its children are doing. A child counts as
+"started" once its own synced Status is In progress, In review or Done — so a
+parent whose sub-issues have begun (or already finished) is at least In
+progress, even when none of them is *currently* In progress (e.g. every child
+is Done but the parent spec has no PR of its own yet). The job (not this
+function) is responsible for syncing children first and rolling their statuses
+up into this fact; this function stays pure and takes no part in that ordering.
 
 A map is skipped unconditionally: it carries no work-Status and is never forced
 into a column.
@@ -61,13 +64,15 @@ class Facts:
     `has_open_draft_pr` is True when a deliberately-linked PR is OPEN and still
     a draft. It lifts a card only into In progress, never In review.
 
-    `child_in_progress_count` is the number of this item's sub-issue children
-    whose own *synced* Status is In progress. It is computed by the job (a
-    two-pass roll-up), never by this function, and it only ever lifts a parent
-    out of Ready into In progress.
+    `child_started_count` is the number of this item's sub-issue children whose
+    own *synced* Status is In progress, In review or Done — i.e. children that
+    have begun or already finished. It is computed by the job (a two-pass
+    roll-up), never by this function, and it only ever lifts a parent out of
+    Ready into In progress (Blocked / In review / Done on the parent's own facts
+    still win).
 
-    `has_merged_linked_pr` is True when the issue has a deliberately-linked PR
-    (`closedByPullRequestsReferences(userLinkedOnly: true)`) that is MERGED. It
+    `has_merged_linked_pr` is True when the issue has a closing-linked PR
+    (`closedByPullRequestsReferences(userLinkedOnly: false)`) that is MERGED. It
     exists because a spec-branch PR's closing keyword is inert, so a merge
     would otherwise never complete the ticket. Like `closed`, it resolves the
     card to Done.
@@ -77,7 +82,7 @@ class Facts:
     open_blocker_count: int
     has_open_non_draft_pr: bool
     assigned: bool
-    child_in_progress_count: int = 0
+    child_started_count: int = 0
     is_map: bool = False
     has_merged_linked_pr: bool = False
     has_open_draft_pr: bool = False
@@ -89,7 +94,7 @@ def make_facts(
     open_blocker_count: int,
     has_open_non_draft_pr: bool,
     assigned: bool,
-    child_in_progress_count: int = 0,
+    child_started_count: int = 0,
     is_map: bool = False,
     has_merged_linked_pr: bool = False,
     has_open_draft_pr: bool = False,
@@ -101,7 +106,7 @@ def make_facts(
         open_blocker_count=open_blocker_count,
         has_open_non_draft_pr=has_open_non_draft_pr,
         assigned=assigned,
-        child_in_progress_count=child_in_progress_count,
+        child_started_count=child_started_count,
         is_map=is_map,
         has_merged_linked_pr=has_merged_linked_pr,
         has_open_draft_pr=has_open_draft_pr,
@@ -123,6 +128,6 @@ def sync_status(facts: Facts) -> Status | None:
         return Status.BLOCKED
     if facts.has_open_non_draft_pr:
         return Status.IN_REVIEW
-    if facts.assigned or facts.child_in_progress_count >= 1 or facts.has_open_draft_pr:
+    if facts.assigned or facts.child_started_count >= 1 or facts.has_open_draft_pr:
         return Status.IN_PROGRESS
     return Status.READY

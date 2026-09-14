@@ -10,12 +10,13 @@ pure function and holds no precedence branching itself:
     read (GraphQL) -> item_to_facts -> sync_status -> write (GraphQL)
 
 The sync runs in **two passes** so a parent's child roll-up (`Facts.
-child_in_progress_count`) reflects its children's *synced* Status, not their
+child_started_count`) reflects its children's *synced* Status, not their
 raw facts:
 
     pass 1: sync every leaf item (no sub-issue children present on the board)
     pass 2: for each parent, count children whose pass-1 Status is In progress,
-            fold that count into the parent's own Facts, then sync the parent
+            In review or Done ("started"), fold that count into the parent's own
+            Facts, then sync the parent
 
 `sync_status` stays pure and knows nothing about passes; the job owns the
 ordering. Results are written back in the Project's original item order,
@@ -469,14 +470,14 @@ def run_sync(
     (eventually-consistent) board list read doesn't return yet is fetched back by
     its item id so it is still synced now. Pass 1 syncs every leaf (an item with
     no sub-issue children present on this board). Pass 2 syncs every parent,
-    first rolling its children's pass-1 Status up into `child_in_progress_count`.
+    first rolling its children's pass-1 Status up into `child_started_count`.
     Writes happen afterwards, in the Project's original item order. Only **open**
     cards are write-candidates: a closed card's Status is still computed (it
     feeds the child roll-up) but never written back, since the native
     "closed -> Done" Project workflow already owns that column.
 
-    Every card scores off `item_to_facts`'s sole PR read — a deliberately-linked
-    PR (`closedByPullRequestsReferences(userLinkedOnly: true)`), cross-repo or
+    Every card scores off `item_to_facts`'s sole PR read — a closing-linked
+    PR (`closedByPullRequestsReferences(userLinkedOnly: false)`), cross-repo or
     same-repo alike, no allow-list required. When a linked PR has merged while
     its issue is still OPEN (e.g. a spec-branch PR, whose closing keyword
     GitHub treats as inert), the job self-closes that issue (COMPLETED) so its
@@ -597,18 +598,24 @@ def run_sync(
             continue
         status_by_item_id[item_id] = sync_status(facts)
 
-    # Pass 2: parents, rolling their children's synced Status up first.
+    # Pass 2: parents, rolling their children's synced Status up first. A child
+    # counts as "started" once its synced Status is In progress, In review or
+    # Done — so a parent whose sub-issues have begun or already finished is at
+    # least In progress, even when none is *currently* In progress (e.g. every
+    # child is Done but the parent spec has no PR of its own yet). Blocked / In
+    # review / Done on the parent's own facts still win over this (see
+    # sync_status's ladder).
+    STARTED = {Status.IN_PROGRESS, Status.IN_REVIEW, Status.DONE}
     for item_id in parent_item_ids:
         facts = facts_by_item_id[item_id]
         child_ids = child_content_ids_by_item_id.get(item_id, [])
-        child_in_progress_count = sum(
+        child_started_count = sum(
             1
             for child_id in child_ids
-            if status_by_item_id.get(item_id_by_content_id.get(child_id))
-            == Status.IN_PROGRESS
+            if status_by_item_id.get(item_id_by_content_id.get(child_id)) in STARTED
         )
         rolled_up_facts = replace(
-            facts, child_in_progress_count=child_in_progress_count
+            facts, child_started_count=child_started_count
         )
         status_by_item_id[item_id] = sync_status(rolled_up_facts)
 

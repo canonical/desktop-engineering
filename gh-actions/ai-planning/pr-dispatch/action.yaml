@@ -1,0 +1,97 @@
+# Composite action (ticket 35): forward one code-repo PR event to the planning
+# repo as a `repository_dispatch`, carrying the PR facts the immediate authoring +
+# detection arm needs. It is the sibling of the reconcile action `../sync/`: this
+# one relays a PR's facts, that one settles the whole board off them.
+#
+# Deliberately dumb: it knows nothing about tickets, links, or Status — it only
+# relays the dispatched PR's own facts. Every decision happens once, in the
+# planning repo, off this payload
+# (`ai_planning.link_authoring_job.author_dispatched_pr_link`).
+#
+# It used to be a reusable workflow stranded at the repo-root `.github/workflows/`
+# (GitHub forbids reusable workflows anywhere else). As a composite action it lives
+# here beside `../sync/`, so both halves of the wiring share one home — at the cost
+# of one extra checkout of this repo on the (cosmetic, non-gating) dispatch job.
+# The per-repo caller a destination code repo installs
+# (`.github/workflows/ai-planning-pr.yml`, stamped by `../../../ai-planning/setup-dest-repo.sh`
+# from `../../../ai-planning/dest-repo/.github/workflows/ai-planning-pr.yml`) is a
+# single `uses:` step. See ../README.md.
+name: AI planning PR dispatch
+description: >-
+  Relay one destination-repo PR event to a planning repo as a
+  `repository_dispatch`, carrying the PR facts for the immediate authoring arm.
+
+inputs:
+  planning-repo:
+    description: The planning repo (`owner/name`) to dispatch to.
+    required: true
+  dispatch-token:
+    description: >-
+      Fine-grained PAT scoped to the planning repo, Contents: Read and write (the
+      permission that authorises `POST /repos/{owner}/{repo}/dispatches`). Minted
+      once, stored in Bitwarden, registered on every destination repo by
+      `setup-dest-repo.sh`.
+    required: true
+  event-type:
+    description: >-
+      The `repository_dispatch` event type the planning repo's board-sync.yml
+      listens for.
+    required: false
+    default: ai-planning-pr
+
+runs:
+  using: composite
+  steps:
+    - name: Dispatch this PR's facts to the planning repo
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.dispatch-token }}
+        PLANNING_REPO: ${{ inputs.planning-repo }}
+        EVENT_TYPE: ${{ inputs.event-type }}
+        # Passed through env, never interpolated into the script directly:
+        # PR title/body/branch names are attacker-controlled strings, and
+        # `${{ }}` interpolation lands them in the shell *before* bash gets
+        # to quote them. `jq --arg`/`env.FOO` below read them safely.
+        REPO_OWNER: ${{ github.repository_owner }}
+        REPO_NAME: ${{ github.event.repository.name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_BODY: ${{ github.event.pull_request.body }}
+        PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        PR_STATE: ${{ github.event.pull_request.state }}
+        PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
+        PR_MERGED: ${{ github.event.pull_request.merged }}
+      run: |
+        set -euo pipefail
+
+        # Fail loud, not with a bare 404: an unstamped caller still carries the
+        # `<org>/<planning-repo>` placeholder, so `POST .../dispatches` hits a repo
+        # that does not exist and GitHub answers 404 (it hides existence). Catch
+        # the placeholder (any `<...>`) and an empty value up front with a message
+        # that names the fix, instead of the opaque "Not Found (HTTP 404)".
+        if [ -z "$PLANNING_REPO" ] || [ "$PLANNING_REPO" != "${PLANNING_REPO#*<}" ]; then
+          echo "::error::planning-repo is unset or still the '<org>/<planning-repo>' placeholder ('$PLANNING_REPO'). This caller was not stamped — re-run ai-planning/setup-dest-repo.sh (or set with.planning-repo to the real owner/name)." >&2
+          exit 1
+        fi
+
+        jq -n \
+          --arg owner "$REPO_OWNER" \
+          --arg name "$REPO_NAME" \
+          --argjson number "$PR_NUMBER" \
+          --arg body "$PR_BODY" \
+          --arg baseRefName "$PR_BASE_REF" \
+          --arg state "$PR_STATE" \
+          --argjson isDraft "$PR_IS_DRAFT" \
+          --argjson merged "$PR_MERGED" \
+          '{
+            event_type: env.EVENT_TYPE,
+            client_payload: {
+              repository: {owner: $owner, name: $name},
+              number: $number,
+              body: $body,
+              baseRefName: $baseRefName,
+              state: $state,
+              isDraft: $isDraft,
+              merged: $merged
+            }
+          }' \
+        | gh api --method POST "repos/$PLANNING_REPO/dispatches" --input -

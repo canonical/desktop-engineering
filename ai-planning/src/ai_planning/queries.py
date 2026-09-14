@@ -23,10 +23,11 @@ query($projectId: ID!) {
 """
 
 # How many linked-PR nodes to read per issue in the per-item embed and per page
-# of the stand-alone pager. A deliberate native link
-# (`closedByPullRequestsReferences(userLinkedOnly: true)`) is already a narrow
-# set, so one page covers all but the most-linked tickets; anything beyond is
-# paged (see `ISSUE_LINKED_PRS_QUERY`).
+# of the stand-alone pager. A closing link
+# (`closedByPullRequestsReferences(userLinkedOnly: false)` — a closing keyword
+# or a manually attached link, never a mere mention) is already a narrow set, so
+# one page covers all but the most-linked tickets; anything beyond is paged (see
+# `ISSUE_LINKED_PRS_QUERY`).
 LINKED_PR_PAGE_SIZE = 50
 
 # The linked-PR node selection, shared verbatim by the per-item embed (below)
@@ -49,13 +50,16 @@ _LINKED_PR_FIELDS = """
 # needs for the parent's child-In-progress roll-up (two-pass sync: leaves
 # first, then parents).
 #
-# `closedByPullRequestsReferences(userLinkedOnly: true, includeClosedPrs: true)`
-# is the **sole** PR read: it is GitHub's deliberate-link connection (a PR body
-# `Closes #n`, or a manually attached link), not a mere mention, so a card only
-# ever scores off a PR someone actually linked to it — cross-repo and
-# same-repo alike, no repo allow-list needed. `pageInfo` lets the job page the
-# rest (via `ISSUE_LINKED_PRS_QUERY`) when an issue carries more linked PRs
-# than one page.
+# `closedByPullRequestsReferences(userLinkedOnly: false, includeClosedPrs: true)`
+# is the **sole** PR read: it is GitHub's closing-link connection (a PR body
+# `Closes #n`, whether same-repo or a manually attached link), not a mere
+# mention, so a card only ever scores off a PR that actually closes it —
+# cross-repo and same-repo alike, no repo allow-list needed. `userLinkedOnly:
+# false` is deliberate: `true` returns ONLY manually attached links and drops a
+# same-repo closing *keyword*, which is exactly the deliberate signal we want to
+# count; `false` still excludes bare mentions (only closing references appear at
+# all). `pageInfo` lets the job page the rest (via `ISSUE_LINKED_PRS_QUERY`)
+# when an issue carries more linked PRs than one page.
 _ITEM_NODE_FIELDS = """
   id
   status: fieldValueByName(name: "Status") {
@@ -74,7 +78,7 @@ _ITEM_NODE_FIELDS = """
       issueDependenciesSummary { blockedBy }
       closedByPullRequestsReferences(
         first: %d
-        userLinkedOnly: true
+        userLinkedOnly: false
         includeClosedPrs: true
       ) {
         pageInfo { hasNextPage endCursor }
@@ -180,7 +184,7 @@ query($issueId: ID!, $pageSize: Int!, $cursor: String) {
       closedByPullRequestsReferences(
         first: $pageSize
         after: $cursor
-        userLinkedOnly: true
+        userLinkedOnly: false
         includeClosedPrs: true
       ) {
         pageInfo { hasNextPage endCursor }
