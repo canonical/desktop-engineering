@@ -252,6 +252,27 @@ def test_graphql_errors_raise():
         client.execute("query {}", {})
 
 
+def test_partial_success_returns_data_despite_field_errors():
+    # GitHub answers `issue(number:N)` on a PR/absent number with the nullable
+    # field nulled *and* a NOT_FOUND error. That is not fatal: the data is
+    # returned so the caller can null-check the field.
+    def transport(_payload):
+        return {
+            "data": {"repository": {"issue": None}},
+            "errors": [
+                {
+                    "type": "NOT_FOUND",
+                    "path": ["repository", "issue"],
+                    "message": "Could not resolve to an Issue with the number of 15.",
+                }
+            ],
+        }
+
+    client = GraphQLClient(transport)
+
+    assert client.execute("query {}", {}) == {"repository": {"issue": None}}
+
+
 def test_parent_syncs_in_progress_from_in_progress_child():
     """Two-pass roll-up: the child (a leaf) syncs first; its In progress
     Status is folded into the parent's facts before the parent syncs."""

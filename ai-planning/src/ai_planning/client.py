@@ -1,7 +1,10 @@
 """A minimal GitHub GraphQL client, stdlib-only and injectable.
 
 The client is a thin transport: it POSTs a query + variables and returns the
-`data` object, raising on transport or GraphQL errors. It carries no board logic.
+`data` object. It raises on a request-level failure (a response with no `data`),
+but tolerates a partial success — valid `data` alongside field-level errors that
+merely nulled a nullable field — returning the data for the caller to null-check.
+It carries no board logic.
 The `transport` seam (a callable `payload -> response dict`) lets the job run
 against a fake in tests with no network; the default transport hits the live
 GitHub GraphQL endpoint with a bearer token.
@@ -19,7 +22,12 @@ Transport = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 class GraphQLError(RuntimeError):
-    """Raised when a GraphQL response carries an `errors` array."""
+    """Raised on a request-level GraphQL failure (a response with no `data`).
+
+    A partial success — valid `data` alongside field-level errors that nulled
+    specific nullable fields — is not fatal: `execute` returns the data and the
+    caller null-checks the field (see `execute`).
+    """
 
 
 class SupportsExecute(Protocol):
@@ -63,7 +71,15 @@ class GraphQLClient:
 
     def execute(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         response = self._transport({"query": query, "variables": variables})
-        errors = response.get("errors")
-        if errors:
-            raise GraphQLError(json.dumps(errors))
-        return response.get("data") or {}
+        # GraphQL can return a partial success: valid `data` *and* an `errors`
+        # array of field-level errors that merely nulled specific nullable
+        # fields (e.g. GitHub answers `issue(number:N)` on a PR/absent number
+        # with `data.repository.issue == null` *plus* a NOT_FOUND error). That
+        # is a normal outcome the callers null-check for (`resolve_candidate`,
+        # the immediate arm's `pr_node is None`), so surface the data and let
+        # them decide. Only a request-level failure — no `data` at all (bad
+        # credentials, an invalid query, a rate limit) — is fatal here.
+        data = response.get("data")
+        if data is None:
+            raise GraphQLError(json.dumps(response.get("errors")))
+        return data
