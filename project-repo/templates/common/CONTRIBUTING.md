@@ -46,6 +46,10 @@ PRs are always welcome if you want to directly contribute a fix or improvement t
 * Include documentation in the repo or on our [docs site](https://github.com/canonical/PROJECT_TODO/wiki).
 * Be accompanied by a complete pull request template (loaded automatically when a PR is created).
 
+For applicable UI changes, complete the visual evidence section with before and after screenshots. Include a video when the change affects interactions, transitions, or animations. Redact personal, private, and security-sensitive information from all uploaded media.
+
+Open the PR as a draft if it is not ready for review. Checklist items may remain incomplete while work is in progress, but each applicable item should be completed or its exception explained before requesting review.
+
 For changes that address core functionality or would require breaking changes (e.g. a major release), it's best to open an issue to discuss your proposal first. This is not required but it can save time during the PR review process.
 
 In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr). To create a PR using this workflow:
