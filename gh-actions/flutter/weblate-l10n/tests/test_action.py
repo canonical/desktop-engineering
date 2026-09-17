@@ -87,8 +87,8 @@ class ActionTests(unittest.TestCase):
             "READ_TOKEN": "test-read-token",
             "BOT_TOKEN": "test-bot-token",
             "COMMIT_MESSAGE": "maint: regenerate l10n",
-            "GENERATED_FILE_PATTERNS": ACTION["inputs"]["generated-file-patterns"]["default"],
-            "TRANSLATED_FILE_PATTERNS": ACTION["inputs"]["translated-file-patterns"]["default"],
+            "GENERATED_FILE_PATTERNS": STEPS["Validate generated files"]["env"]["GENERATED_FILE_PATTERNS"],
+            "TRANSLATED_FILE_PATTERNS": STEPS["Validate pull request files"]["env"]["TRANSLATED_FILE_PATTERNS"],
         }
         self.git("init", "-q")
         self.git("config", "user.name", "Fixture")
@@ -183,6 +183,22 @@ class ActionTests(unittest.TestCase):
                 if "run" in step and "${{" not in step["run"]:
                     subprocess.run(["bash", "-n"], input=step["run"], text=True, check=True)
 
+    def test_fixed_generation_configuration(self):
+        self.assertEqual(set(ACTION["inputs"]), {"github-token", "ssh-signing-private-key"})
+        self.assertEqual(STEPS["Generate localization files"]["run"], "melos gen-l10n")
+        self.assertEqual(
+            STEPS["Validate pull request files"]["env"]["TRANSLATED_FILE_PATTERNS"],
+            r"(^|/)l10n/(?:[^/]+/)*[^/]+\.arb$" "\n" r"\.html$",
+        )
+        self.assertEqual(
+            STEPS["Validate pull request files"]["env"]["GENERATED_FILE_PATTERNS"],
+            r"(^|/)l10n/(?:[^/]+/)*[^/]+\.dart$" "\n" r"\.desktop$",
+        )
+        self.assertIs(
+            STEPS["Validate pull request files"]["env"]["GENERATED_FILE_PATTERNS"],
+            STEPS["Validate generated files"]["env"]["GENERATED_FILE_PATTERNS"],
+        )
+
     def test_event_identity_and_sender_policy(self):
         for action, sender, eligible in (("opened", "weblate", "true"), ("reopened", "maintainer", "true"), ("synchronize", "test-bot", "false"), ("synchronize", "weblate", "true")):
             context = {"eventName": "pull_request_target", "repo": {"owner": "canonical", "repo": "fixture"}, "payload": {"action": action, "sender": {"login": sender}, "pull_request": self.pr}}
@@ -206,16 +222,14 @@ class ActionTests(unittest.TestCase):
                 self.assertIn("error", self.run_step("Validate pull request"))
             self.pr = saved
 
-    def test_allowed_paths_and_overrides(self):
+    def test_allowed_paths(self):
         for filename in ("apps/l10n/nested/app.arb", "l10n/app.dart", "docs/help.html", "assets/app.desktop"):
             self.write(filename, "translation")
         self.commit()
         self.assert_success(self.run_step("Validate pull request files"))
-        self.assertIn("Invalid translated file", self.run_step("Validate pull request files", environment={"TRANSLATED_FILE_PATTERNS": "["})["error"])
         self.write("messages.po", "translation")
         self.commit()
         self.assertIn("Unexpected PR path", self.run_step("Validate pull request files")["error"])
-        self.assert_success(self.run_step("Validate pull request files", environment={"TRANSLATED_FILE_PATTERNS": self.environment["TRANSLATED_FILE_PATTERNS"] + "\n\\.po$"}))
 
     def test_disallowed_generator_and_arb_outside_l10n(self):
         for filename in ("melos.yaml", "scripts/generate.py", "app.arb", "notl10n/app.dart", "l10n/script.sh"):

@@ -8,21 +8,6 @@ inputs:
   ssh-signing-private-key:
     description: Private SSH signing key registered to the bot account
     required: true
-  generation-command:
-    description: Commands that regenerate localization outputs
-    required: true
-  generated-file-patterns:
-    description: Newline-separated regular expressions matching generated files
-    required: false
-    default: |-
-      (^|/)l10n/(?:[^/]+/)*[^/]+\.dart$
-      \.desktop$
-  translated-file-patterns:
-    description: Newline-separated regular expressions matching translated source files
-    required: false
-    default: |-
-      (^|/)l10n/(?:[^/]+/)*[^/]+\.arb$
-      \.html$
 
 runs:
   using: composite
@@ -75,8 +60,12 @@ runs:
       if: steps.pull-request.outputs.eligible == 'true'
       uses: actions/github-script@v9
       env:
-        GENERATED_FILE_PATTERNS: ${{ inputs.generated-file-patterns }}
-        TRANSLATED_FILE_PATTERNS: ${{ inputs.translated-file-patterns }}
+        GENERATED_FILE_PATTERNS: &generated-patterns |-
+          (^|/)l10n/(?:[^/]+/)*[^/]+\.dart$
+          \.desktop$
+        TRANSLATED_FILE_PATTERNS: |-
+          (^|/)l10n/(?:[^/]+/)*[^/]+\.arb$
+          \.html$
         READ_TOKEN: ${{ github.token }}
       with:
         script: |
@@ -162,14 +151,14 @@ runs:
     - name: Generate localization files
       if: steps.pull-request.outputs.eligible == 'true'
       shell: bash --noprofile --norc -euo pipefail {0}
-      run: ${{ inputs.generation-command }}
+      run: melos gen-l10n
 
     - name: Validate generated files
       id: generated
       if: steps.pull-request.outputs.eligible == 'true'
       uses: actions/github-script@v9
       env:
-        GENERATED_FILE_PATTERNS: ${{ inputs.generated-file-patterns }}
+        GENERATED_FILE_PATTERNS: *generated-patterns
         EXISTING_FILES: ${{ steps.generation-state.outputs.directory }}/files
       with:
         script: |

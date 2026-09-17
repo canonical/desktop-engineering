@@ -112,9 +112,6 @@ jobs:
         with:
           github-token: ${{ secrets.DESKTOP_GH_BOT_TOKEN }}
           ssh-signing-private-key: ${{ secrets.DESKTOP_GH_BOT_SSH_SIGNING_PRIVATE_KEY }}
-          generation-command: |
-            melos gen-l10n
-            melos sync-desktop-titles
 ```
 
 #### Setup
@@ -124,18 +121,16 @@ jobs:
    must allow maintainer edits. PAT pushes let normal PR CI run again.
 2. Set `DESKTOP_GH_BOT_SSH_SIGNING_PRIVATE_KEY` to an unencrypted SSH private key.
    Register its public key as a **signing key** on the same bot account.
-3. Adjust `generation-command` for your project. It must not create commits or
-   move `HEAD`.
 
 #### Behavior
 
+- Generation always runs `melos gen-l10n`; it must not create commits or move
+  `HEAD`.
 - Allowed translations: `.arb` beneath any `l10n` directory and `.html` anywhere.
   Allowed generated files: `.dart` beneath `l10n` and `.desktop` anywhere.
 - Other paths, symlinks, submodules, and newly executable files are rejected
-  before setup. Customize paths with newline-separated regular expressions in
-  `translated-file-patterns` and `generated-file-patterns`; never allow generator
-  scripts or configuration. For custom translation formats, also update the
-  workflow's `pull_request_target.paths` filter above (or remove that filter).
+  before setup. Keep the workflow's `pull_request_target.paths` filter aligned
+  with the fixed translated source formats above, or remove that filter.
 - Generation fails if it creates any ignored file, even if force-staged with
   `git add -f`. Ignored artifacts already present after Flutter setup are excluded.
 - No generated changes means no signing or push. If the PR branch changes
