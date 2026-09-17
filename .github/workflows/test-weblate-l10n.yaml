@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - gh-actions/common/weblate-l10n/**
+      - gh-actions/flutter/weblate-l10n/**
       - .github/workflows/test-weblate-l10n.yaml
   pull_request:
     paths:
-      - gh-actions/common/weblate-l10n/**
+      - gh-actions/flutter/weblate-l10n/**
       - .github/workflows/test-weblate-l10n.yaml
 
 permissions:
@@ -33,4 +33,4 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/weblate-tests"
           "$RUNNER_TEMP/weblate-tests/bin/python" -m pip install PyYAML==6.0.2
           "$RUNNER_TEMP/weblate-tests/bin/python" -m unittest discover \
-            -s gh-actions/common/weblate-l10n/tests -p 'test_*.py' -v
+            -s gh-actions/flutter/weblate-l10n/tests -p 'test_*.py' -v
