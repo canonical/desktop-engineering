@@ -30,13 +30,19 @@ A map auto-closes and auto-reopens by `compute_map_cascade`, a pure reducer over
 each map's native sub-issue subtree (any depth), folded into this same sweep —
 no new trigger. See that function's docstring for the predicate.
 
-A **closed card is never written**: only open cards board-wide are write-
-candidates. A closed card's facts are still read and scored — its synced Status
-feeds the child roll-up and the future map-cascade — but the sweep leaves the
-column itself alone; the native "closed → Done" Project workflow already owns
-it, so writing here would just be a wasted mutation, and a finished effort's
-closed cards would otherwise dominate the API-call count of every sweep as N
-grows. See `run_sync`'s final write loop.
+A closed card's facts are still read and scored like any other card — its
+synced Status feeds the child roll-up and the future map-cascade — and it is
+also a normal write-candidate: the sweep is the single source of truth for the
+Status column and does not rely on the Project's own native "Item closed"/
+"Pull request merged" workflows (Set Status -> Done) to settle a closed card.
+Those native workflows are a nice-to-have latency win when enabled (they fire
+the instant an issue closes, ahead of the next sweep), but they ship
+*disabled* on some Projects and are UI-only (no public API to enable them), so
+a sweep that trusted them blindly would leave a closed card stuck on a stale
+column forever whenever they're off. The existing skip-if-unchanged guard
+already keeps this cheap: a closed card whose column already reads Done (via
+the native workflow or a prior sweep) produces no mutation, exactly like an
+open card that's already correct. See `run_sync`'s final write loop.
 
 Nothing is deployed in any code repo: a spec's PR state is reached remotely
 through the same GraphQL client, cross-repo.
@@ -98,7 +104,6 @@ class SyncResult:
     unchanged: list[tuple[str, Status]] = field(default_factory=list)
     skipped_maps: list[str] = field(default_factory=list)
     skipped_contentless: list[str] = field(default_factory=list)
-    skipped_closed: list[tuple[str, Status]] = field(default_factory=list)
     closed_issues: list[str] = field(default_factory=list)
     map_closed: list[str] = field(default_factory=list)
     map_reopened: list[str] = field(default_factory=list)
@@ -471,10 +476,12 @@ def run_sync(
     its item id so it is still synced now. Pass 1 syncs every leaf (an item with
     no sub-issue children present on this board). Pass 2 syncs every parent,
     first rolling its children's pass-1 Status up into `child_started_count`.
-    Writes happen afterwards, in the Project's original item order. Only **open**
-    cards are write-candidates: a closed card's Status is still computed (it
-    feeds the child roll-up) but never written back, since the native
-    "closed -> Done" Project workflow already owns that column.
+    Writes happen afterwards, in the Project's original item order. Every card,
+    closed or open, is a write-candidate: the sweep is authoritative for the
+    Status column and never assumes the Project's own native "Item closed"/
+    "Pull request merged" workflows are enabled. The skip-if-unchanged guard
+    still keeps this cheap — a closed card whose column already reads Done
+    produces no mutation, same as an already-correct open card.
 
     Every card scores off `item_to_facts`'s sole PR read — a closing-linked
     PR (`closedByPullRequestsReferences(userLinkedOnly: false)`), cross-repo or
@@ -622,20 +629,20 @@ def run_sync(
     # Write back in the Project's original item order. A card already showing
     # the synced Status is left untouched: re-writing the same option id is a
     # no-op on GitHub's side, so we skip it to save an API call and avoid any
-    # needless board churn. A closed card is never written at all: its Status
-    # is already owned by the native "closed -> Done" Project workflow, and a
-    # finished effort's closed cards would otherwise dominate every sweep's
-    # write volume as N grows. Its synced Status is still computed above (it
-    # feeds the child roll-up and the future map-cascade), just not written.
+    # needless board churn. Closed cards are not special-cased: they are
+    # write-candidates exactly like open ones, so a closed card whose column
+    # is stale (e.g. because the Project's native "Item closed"/"Pull request
+    # merged" workflows are disabled, or simply haven't fired yet) still gets
+    # settled to its synced Status (Done, via `sync_status`'s top rung) here,
+    # rather than being left to a native automation the sweep can't verify is
+    # even enabled. Its synced Status still feeds the child roll-up and the
+    # map cascade above regardless of whether this loop writes it.
     for item_id in item_order:
         if item_id not in facts_by_item_id:
             continue  # already recorded in skipped_contentless
         status = status_by_item_id[item_id]
         if status is None:  # a map: no work-Status, never forced into a column
             result.skipped_maps.append(item_id)
-            continue
-        if facts_by_item_id[item_id].closed:
-            result.skipped_closed.append((item_id, status))
             continue
         target_option_id = status_field.option_id_for(status)
         if current_option_id_by_item_id.get(item_id) == target_option_id:

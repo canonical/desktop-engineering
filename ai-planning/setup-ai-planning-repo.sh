@@ -195,8 +195,9 @@ WANT_OPTIONS="Blocked·Ready·In progress·In review·Done"
 # Only (re)write the options when they don't already match. Rewriting the
 # single-select options RECREATES their ids, which clears the Status of every
 # card that referenced the old ids — so on a refresh, re-running the mutation
-# would silently wipe the whole board's Status (open cards get re-synced by the
-# next sweep, but closed cards, which the sweep never writes, stay blank). Guard
+# would silently wipe the whole board's Status until the next sweep resyncs
+# every card (open and closed alike — the sweep is authoritative for every
+# card's column, see ai_planning/job.py). Guard
 # it so a settled board is never disturbed.
 if [ "$CURRENT_OPTIONS" = "$WANT_OPTIONS" ]; then
   echo "    Status columns already set: $CURRENT_OPTIONS"
@@ -212,6 +213,27 @@ else
     ]}){projectV2Field{... on ProjectV2SingleSelectField{options{name}}}}}' \
     -f fid="$STATUS_FIELD_ID" --jq '.data.updateProjectV2Field.projectV2Field.options[].name' \
     | paste -sd' · ' -
+fi
+
+# --- verify the native "-> Done" workflows (read-only) -----------------------
+# GitHub's Projects v2 GraphQL API can *read* a project's built-in workflows
+# but, as of writing, has no mutation to enable/target one — only
+# `deleteProjectV2Workflow` exists. So this can only ever be a live check, not
+# an auto-fix; flipping a disabled workflow on is still a one-time UI click
+# (see the follow-up printed below). The sweep itself does not depend on the
+# result: `ai_planning/job.py`'s write loop treats every card, closed or open,
+# as an ordinary write-candidate, so a Project with these off still settles
+# every closed card to Done on its next sweep — these workflows are a
+# latency win when on, never a correctness requirement.
+WORKFLOWS_JSON="$(gh api graphql -f query='
+  query($id:ID!){node(id:$id){... on ProjectV2{workflows(first:20){nodes{name enabled}}}}}' \
+  -f id="$PROJECT_ID" --jq '.data.node.workflows.nodes' 2>/dev/null || echo '[]')"
+ITEM_CLOSED_ON="$(printf '%s' "$WORKFLOWS_JSON" | jq -r '(.[] | select(.name=="Item closed") | .enabled) // false')"
+PR_MERGED_ON="$(printf '%s' "$WORKFLOWS_JSON" | jq -r '(.[] | select(.name=="Pull request merged") | .enabled) // false')"
+if [ "$ITEM_CLOSED_ON" = "true" ] && [ "$PR_MERGED_ON" = "true" ]; then
+  echo "    native \"Item closed\"/\"Pull request merged\" -> Done workflows: already ON"
+else
+  echo "    native \"Item closed\"/\"Pull request merged\" -> Done workflows: OFF (Item closed=$ITEM_CLOSED_ON, Pull request merged=$PR_MERGED_ON) — see follow-up A below"
 fi
 
 # --- 2. build the planning repo's minimal file set, then create OR refresh ------
@@ -322,13 +344,21 @@ gh variable set "$VARIABLE_NAME" --repo "$PLANNING_FULL" --body "$PROJECT_ID"
 echo "    set variable $VARIABLE_NAME on $PLANNING_FULL"
 
 # --- 5. click-only follow-ups ------------------------------------------------
+if [ "$ITEM_CLOSED_ON" = "true" ] && [ "$PR_MERGED_ON" = "true" ]; then
+  NATIVE_WORKFLOWS_STATUS="✅ already ON for both — nothing to do here."
+else
+  NATIVE_WORKFLOWS_STATUS="❌ ACTION NEEDED (checked live: Item closed=$ITEM_CLOSED_ON, Pull request merged=$PR_MERGED_ON)."
+fi
 cat <<EOF
 
-==> Two follow-ups that have no stable API (do them once in the UI):
+==> One click-only follow-up left (no stable API for it) + one recommended:
 
   Board: https://github.com/orgs/$ORG/projects/$PROJECT_NUMBER
 
-  A. Native "-> Done" workflows (so closes/merges settle to Done without the sync job):
+  A. Native "-> Done" workflows (lower-latency: closes/merges settle to Done
+     ahead of the next sync-job sweep, instead of waiting ~a minute for it):
+
+     Live status: $NATIVE_WORKFLOWS_STATUS
 
      1. Open the board:
           https://github.com/orgs/$ORG/projects/$PROJECT_NUMBER
@@ -350,11 +380,21 @@ cat <<EOF
         "Done" as the value from the dropdowns, then flip the toggle to On and
         save.
 
-     Both ship enabled by default on new Projects, so usually this is just a
-     one-glance confirmation — but verify, because a disabled one silently
-     leaves closed cards stuck out of Done.
+     These ship enabled by default on *new* Projects but there is no
+     guarantee they stay that way (an org policy, a prior manual change, or a
+     Project cloned/imported from elsewhere can all leave them off) — this
+     script re-checks them live on every run instead of assuming.
+
+     Not a correctness gap either way: the sync job (\`ai_planning/job.py\`)
+     never assumes these are on. Every card — closed or open — is an ordinary
+     write-candidate in its own sweep, so a card whose native workflow never
+     fired (or fired while it was off) still gets healed to its correct
+     Status the moment the sweep next runs (any \`issues\` event, any onboarded
+     repo's PR dispatch, or \`gh workflow run board-sync.yml\`). Turning these
+     on is purely about shaving the wait down from "next sweep" to "instant".
 
   B. Views:
+
      Board (default):
         - Layout:       Board
         - Column field: Status

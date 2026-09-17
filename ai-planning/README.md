@@ -60,8 +60,11 @@ changes (it syncs only the files that changed, never touching issues). In one pa
    secret, plus the `AI_PLANNING_PROJECT_ID` variable, **on the planning repo**.
    On a refresh the secret is already set, so it skips that prompt (pass
    `ROTATE_PAT=1` to replace the token);
-5. prints two click-only follow-ups for you to finish in the GitHub UI (enable the
-   native "→ Done" workflow; create the Board and Efforts views).
+5. re-checks the native "→ Done" workflows live (there's no API to flip them, only
+   to read them) and prints the result; if they're off it also prints the
+   click-only fix, but the sweep never depends on them either way (see below).
+   It also prints the one remaining click-only follow-up (create the Board and
+   Efforts views).
 
 Repo name and board title come from `TEAM`; override with `PLANNING_REPO` /
 `BOARD_TITLE` if you want different names.
@@ -160,8 +163,13 @@ The sweep is **event-driven only — there is no `schedule` cron**. It runs from
 2. **`repository_dispatch` from an onboarded code repo** — that repo's PR events are
    relayed here and drive the same sweep, so a code-repo PR moves its planning card
    almost immediately.
-3. **Native Project "→ Done" workflows** — GitHub's own settings-only automation
-   flips closed/merged items to Done with no sweep needed.
+3. **Native Project "→ Done" workflows**, when enabled — GitHub's own
+   settings-only automation flips closed/merged items to Done ahead of the next
+   sweep, for the lowest possible latency. The sweep does **not** depend on
+   these being on: every card, closed or open, is an ordinary write-candidate
+   in the sweep's own pass (see `run_sync`'s write loop), so a Project where
+   these ship disabled — or get switched off later — still settles every
+   closed card to Done on the very next sweep, not never.
 
 A `workflow_dispatch` is also wired for manual runs.
 
