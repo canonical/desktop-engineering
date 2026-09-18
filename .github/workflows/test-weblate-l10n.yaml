@@ -1,0 +1,36 @@
+name: Test Weblate localization action
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - gh-actions/flutter/weblate-l10n/**
+      - .github/workflows/test-weblate-l10n.yaml
+  pull_request:
+    paths:
+      - gh-actions/flutter/weblate-l10n/**
+      - .github/workflows/test-weblate-l10n.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Weblate l10n tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Test inline scripts
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/weblate-tests"
+          "$RUNNER_TEMP/weblate-tests/bin/python" -m pip install PyYAML==6.0.2
+          "$RUNNER_TEMP/weblate-tests/bin/python" -m unittest discover \
+            -s gh-actions/flutter/weblate-l10n/tests -p 'test_*.py' -v

@@ -1,0 +1,381 @@
+name: Regenerate Weblate localizations
+description: Regenerates derived localization files and commits them to a trusted Weblate PR branch
+
+inputs:
+  github-token:
+    description: Token with permission to update the Weblate fork branch
+    required: true
+  ssh-signing-private-key:
+    description: Private SSH signing key registered to the bot account
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate pull request
+      id: pull-request
+      uses: actions/github-script@v9
+      with:
+        script: |
+          const pullRequest = context.payload.pull_request;
+          if (context.eventName !== 'pull_request_target' || !pullRequest) {
+            core.setFailed('This action must run from a pull_request_target workflow.');
+            return;
+          }
+
+          if (
+            pullRequest.user?.login !== 'weblate' ||
+            pullRequest.head?.repo?.owner?.login !== 'weblate' ||
+            pullRequest.base?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`
+          ) {
+            core.setFailed('Expected a Weblate pull request targeting this repository.');
+            return;
+          }
+
+          if (
+            pullRequest.state !== 'open' ||
+            !['opened', 'reopened', 'synchronize'].includes(context.payload.action) ||
+            !/^[0-9a-f]{40}$/.test(pullRequest.head.sha) ||
+            !/^[0-9a-f]{40}$/.test(pullRequest.base.sha)
+          ) {
+            core.setFailed('Expected an open pull request with immutable base and head commits.');
+            return;
+          }
+
+          core.setOutput('eligible',
+            context.payload.action !== 'synchronize' || context.payload.sender?.login === 'weblate',
+          );
+
+    - name: Check out Weblate branch
+      if: steps.pull-request.outputs.eligible == 'true'
+      uses: actions/checkout@v6
+      with:
+        repository: ${{ github.event.pull_request.head.repo.full_name }}
+        ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 0
+        allow-unsafe-pr-checkout: true
+        persist-credentials: false
+
+    - name: Validate pull request files
+      if: steps.pull-request.outputs.eligible == 'true'
+      uses: actions/github-script@v9
+      env:
+        GENERATED_FILE_PATTERNS: &generated-patterns |-
+          (^|/)l10n/(?:[^/]+/)*[^/]+\.dart$
+          \.desktop$
+        TRANSLATED_FILE_PATTERNS: |-
+          (^|/)l10n/(?:[^/]+/)*[^/]+\.arb$
+          \.html$
+        READ_TOKEN: ${{ github.token }}
+      with:
+        script: |
+          const childProcess = require('node:child_process');
+          const pullRequest = context.payload.pull_request;
+          const git = (args, options = {}) => childProcess.execFileSync('git', args, {
+            encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options,
+          });
+          if (git(['rev-parse', 'HEAD']).trim() !== pullRequest.head.sha) {
+            throw new Error('Checkout does not match the event head.');
+          }
+
+          const parsePatterns = (value, name) =>
+            value
+              .split('\n')
+              .map((pattern) => pattern.trim())
+              .filter(Boolean)
+              .map((pattern) => {
+                try {
+                  return new RegExp(pattern);
+                } catch (error) {
+                  throw new Error(`Invalid ${name} regular expression "${pattern}": ${error.message}`);
+                }
+              });
+          const translatedPatterns = parsePatterns(
+            process.env.TRANSLATED_FILE_PATTERNS,
+            'translated file',
+          );
+          const generatedPatterns = parsePatterns(
+            process.env.GENERATED_FILE_PATTERNS,
+            'generated file',
+          );
+          const isAllowed = (path) =>
+            [...translatedPatterns, ...generatedPatterns].some((pattern) => pattern.test(path));
+
+          const authorization = Buffer.from(`x-access-token:${process.env.READ_TOKEN}`).toString('base64');
+          core.setSecret(authorization);
+          git(['fetch', '--no-tags', '--no-recurse-submodules',
+            `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}.git`,
+            pullRequest.base.sha,
+          ], {
+            env: {
+              ...process.env,
+              GIT_CONFIG_COUNT: '1',
+              GIT_CONFIG_KEY_0: `http.${process.env.GITHUB_SERVER_URL}/.extraheader`,
+              GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${authorization}`,
+              GIT_TERMINAL_PROMPT: '0',
+            },
+          });
+          const mergeBases = git(['merge-base', '--all', pullRequest.base.sha, pullRequest.head.sha])
+            .trim().split('\n');
+          if (mergeBases.length !== 1 || !mergeBases[0]) {
+            throw new Error('Could not establish a unique PR comparison base.');
+          }
+          const changes = git(['diff', '--raw', '--no-renames', '-z',
+            mergeBases[0], pullRequest.head.sha, '--',
+          ]).split('\0').filter(Boolean);
+          for (let index = 0; index < changes.length; index += 2) {
+            const [oldMode, newMode] = changes[index].slice(1).split(' ');
+            const path = changes[index + 1];
+            const regular = (mode) => ['000000', '100644', '100755'].includes(mode);
+            if (!isAllowed(path) || !regular(oldMode) || !regular(newMode) ||
+                (newMode === '100755' && oldMode !== newMode)) {
+              throw new Error(`Unexpected PR path or file type: ${JSON.stringify(path)}`);
+            }
+          }
+
+    - name: Set up Flutter
+      if: steps.pull-request.outputs.eligible == 'true'
+      uses: canonical/desktop-engineering/gh-actions/flutter/setup@d308164fb6465ed98925bcef36c87475438d1fad
+      with:
+        checkout: 'false'
+
+    - name: Record existing files
+      id: generation-state
+      if: steps.pull-request.outputs.eligible == 'true'
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        directory=$(mktemp -d "$RUNNER_TEMP/weblate-generation-XXXXXXXX")
+        echo "directory=$directory" >> "$GITHUB_OUTPUT"
+        git ls-files --cached --others -z > "$directory/files"
+
+    - name: Generate localization files
+      if: steps.pull-request.outputs.eligible == 'true'
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: melos gen-l10n
+
+    - name: Validate generated files
+      id: generated
+      if: steps.pull-request.outputs.eligible == 'true'
+      uses: actions/github-script@v9
+      env:
+        GENERATED_FILE_PATTERNS: *generated-patterns
+        EXISTING_FILES: ${{ steps.generation-state.outputs.directory }}/files
+      with:
+        script: |
+          const childProcess = require('node:child_process');
+          const fs = require('node:fs');
+          const expectedHead = context.payload.pull_request.head.sha;
+          const git = (args, options = {}) => childProcess.execFileSync('git', args, {
+            encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options,
+          });
+          if (git(['rev-parse', 'HEAD']).trim() !== expectedHead) {
+            throw new Error('Generation must not create commits or move HEAD.');
+          }
+          const paths = (args) => git(args).split('\0').filter(Boolean);
+          const existingFiles = new Set(fs.readFileSync(process.env.EXISTING_FILES, 'utf8').split('\0'));
+          const newFiles = [...new Set([
+            ...paths(['ls-files', '--cached', '--others', '-z']).filter((path) => !existingFiles.has(path)),
+            ...paths(['diff', '--cached', '--diff-filter=A', '--name-only', '-z', expectedHead, '--']),
+          ])].filter((path) => fs.lstatSync(path, { throwIfNoEntry: false }));
+          if (newFiles.length > 0) {
+            let ignoredFiles = '';
+            try {
+              ignoredFiles = git(['check-ignore', '--no-index', '--stdin', '-z'], {
+                input: `${newFiles.map((path) => `./${path}`).join('\0')}\0`,
+              });
+            } catch (error) {
+              if (error.status !== 1) throw error;
+            }
+            if (ignoredFiles) {
+              throw new Error(`Generation created an ignored file: ${JSON.stringify(ignoredFiles.split('\0')[0].slice(2))}. Update the ignore rules or generation command.`);
+            }
+          }
+          const patterns = process.env.GENERATED_FILE_PATTERNS
+            .split('\n')
+            .map((pattern) => pattern.trim())
+            .filter(Boolean)
+            .map((pattern) => new RegExp(pattern));
+          const validatePath = (path) => {
+            if (!patterns.some((pattern) => pattern.test(path))) {
+              throw new Error(`Generation changed an unexpected path: ${JSON.stringify(path)}`);
+            }
+          };
+          const validateDiff = (args) => {
+            const changes = paths(['diff', '--raw', '--no-renames', '-z', ...args, '--']);
+            const changedPaths = [];
+            for (let index = 0; index < changes.length; index += 2) {
+              const [oldMode, newMode] = changes[index].slice(1).split(' ');
+              const path = changes[index + 1];
+              validatePath(path);
+              const regular = (mode) => ['000000', '100644', '100755'].includes(mode);
+              if (!regular(oldMode) || !regular(newMode) ||
+                  (newMode === '100755' && oldMode !== newMode)) {
+                throw new Error(`Generation changed an unsupported file type: ${JSON.stringify(path)}`);
+              }
+              changedPaths.push(path);
+            }
+            return changedPaths;
+          };
+          const untracked = () => paths(['ls-files', '--others', '--exclude-standard', '-z']);
+          const changedPaths = new Set([
+            ...validateDiff(['--cached', expectedHead]), ...validateDiff([]), ...untracked(),
+          ]);
+          for (const path of changedPaths) {
+            validatePath(path);
+            const stat = fs.lstatSync(path, { throwIfNoEntry: false });
+            if (stat && !stat.isFile()) {
+              throw new Error(`Generation produced a non-regular file: ${JSON.stringify(path)}`);
+            }
+          }
+
+          git(['read-tree', expectedHead]);
+          const generatedFiles = [...new Set([...validateDiff([expectedHead]), ...untracked()])];
+          if (generatedFiles.length > 0) {
+            git(['--literal-pathspecs', 'add', '--pathspec-from-file=-', '--pathspec-file-nul'], {
+              input: `${generatedFiles.join('\0')}\0`,
+            });
+          }
+          const stagedFiles = validateDiff(['--cached', expectedHead]);
+
+          if (stagedFiles.length === 0) {
+            core.setOutput('changed', 'false');
+            return;
+          }
+
+          core.setOutput('tree', git(['write-tree']).trim());
+          core.setOutput('changed', 'true');
+
+    - name: Check pull request before publishing
+      if: steps.generated.outputs.changed == 'true'
+      uses: actions/github-script@v9
+      with:
+        script: |
+          const pullRequest = context.payload.pull_request;
+          const { data: currentPR } = await github.rest.pulls.get({
+            ...context.repo, pull_number: pullRequest.number,
+          });
+          if (currentPR.state !== 'open' || currentPR.head.sha !== pullRequest.head.sha ||
+              currentPR.head.ref !== pullRequest.head.ref ||
+              currentPR.head.repo?.full_name !== pullRequest.head.repo.full_name ||
+              currentPR.base.ref !== pullRequest.base.ref || currentPR.user.login !== 'weblate') {
+            throw new Error('The Weblate PR changed or closed; run again for the current revision.');
+          }
+
+    - name: Commit and push generated files
+      id: publish
+      if: steps.generated.outputs.changed == 'true'
+      uses: actions/github-script@v9
+      env:
+        BOT_TOKEN: ${{ inputs.github-token }}
+        SSH_SIGNING_PRIVATE_KEY: ${{ inputs.ssh-signing-private-key }}
+        COMMIT_MESSAGE: 'maint: regenerate l10n'
+        EXPECTED_TREE: ${{ steps.generated.outputs.tree }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const childProcess = require('node:child_process');
+          const fs = require('node:fs');
+          const pullRequest = context.payload.pull_request;
+          const owner = pullRequest.head.repo.owner.login;
+          const repo = pullRequest.head.repo.name;
+          const branch = pullRequest.head.ref;
+          const expectedHead = pullRequest.head.sha;
+
+          const gitEnvironment = {
+            ...Object.fromEntries(Object.entries(process.env)
+              .filter(([name]) => !name.startsWith('GIT_'))),
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_NO_REPLACE_OBJECTS: '1',
+            GIT_TERMINAL_PROMPT: '0',
+          };
+          if (!fs.lstatSync('.git').isDirectory() ||
+              fs.lstatSync('.git/commondir', { throwIfNoEntry: false })) {
+            throw new Error('Expected a standalone checkout with a regular .git directory.');
+          }
+          fs.rmSync('.git/config', { force: true });
+          fs.writeFileSync('.git/config',
+            '[core]\nrepositoryformatversion = 0\nbare = false\nfilemode = true\nlogallrefupdates = true\n',
+            { flag: 'wx', mode: 0o600 },
+          );
+
+          const git = (args, options = {}) =>
+            childProcess.execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
+              encoding: 'utf8',
+              maxBuffer: 64 * 1024 * 1024,
+              ...options,
+              env: { ...gitEnvironment, ...options.env },
+            });
+          const validateIndex = () => {
+            if (git(['rev-parse', 'HEAD']).trim() !== expectedHead ||
+                git(['write-tree']).trim() !== process.env.EXPECTED_TREE) {
+              throw new Error('HEAD or the staged tree changed after validation.');
+            }
+          };
+          validateIndex();
+
+          const directory = fs.mkdtempSync(`${process.env.RUNNER_TEMP}/weblate-l10n-`);
+          core.setOutput('directory', directory);
+          try {
+            const signingKey = `${directory}/signing-key`;
+            fs.writeFileSync(signingKey, `${process.env.SSH_SIGNING_PRIVATE_KEY.trim()}\n`, { mode: 0o600 });
+            const publicKey = childProcess.execFileSync(
+              'ssh-keygen', ['-y', '-P', '', '-f', signingKey], { encoding: 'utf8' },
+            ).trim();
+            const { data: bot } = await github.rest.users.getAuthenticated();
+            const botEmail = `${bot.id}+${bot.login}@users.noreply.github.com`;
+            const normalize = (key) => key.trim().split(/\s+/).slice(0, 2).join(' ');
+            const signingKeys = await github.paginate(
+              'GET /users/{username}/ssh_signing_keys', { username: bot.login, per_page: 100 },
+            );
+            if (!signingKeys.some(({ key }) => normalize(key) === normalize(publicKey))) {
+              throw new Error(`The supplied SSH key is not registered as a signing key on ${bot.login}.`);
+            }
+            const allowedSigners = `${directory}/allowed-signers`;
+            fs.writeFileSync(allowedSigners, `${botEmail} ${publicKey}\n`, { mode: 0o600 });
+
+            validateIndex();
+            git([
+              '-c', `user.name=${bot.login}`, '-c', `user.email=${botEmail}`,
+              '-c', 'gpg.format=ssh', '-c', `user.signingkey=${signingKey}`,
+              'commit', '-S', '--no-verify', '-m', process.env.COMMIT_MESSAGE,
+            ]);
+            const commit = git(['rev-parse', 'HEAD']).trim();
+            if (git(['show', '-s', '--format=%P', commit]).trim() !== expectedHead ||
+                git(['rev-parse', `${commit}^{tree}`]).trim() !== process.env.EXPECTED_TREE) {
+              throw new Error('The generated commit does not match the validated tree and parent.');
+            }
+            git(['-c', 'gpg.format=ssh', '-c', `gpg.ssh.allowedSignersFile=${allowedSigners}`,
+              'verify-commit', commit,
+            ]);
+
+            const authorization = Buffer.from(`x-access-token:${process.env.BOT_TOKEN}`).toString('base64');
+            core.setSecret(authorization);
+            try {
+              git(['push', `--force-with-lease=refs/heads/${branch}:${expectedHead}`,
+                `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}.git`, `${commit}:refs/heads/${branch}`,
+              ], {
+                env: {
+                  GIT_CONFIG_COUNT: '1',
+                  GIT_CONFIG_KEY_0: `http.${process.env.GITHUB_SERVER_URL}/.extraheader`,
+                  GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${authorization}`,
+                  GIT_TERMINAL_PROMPT: '0',
+                },
+              });
+            } catch {
+              throw new Error('Push rejected: the branch may have changed, or the bot lacks upstream push access / PR maintainer-edit permission.');
+            }
+            core.info(`Updated ${owner}/${repo}:${branch}`);
+          } finally {
+            fs.rmSync(directory, { recursive: true, force: true });
+          }
+
+    - name: Clean up temporary files
+      if: always()
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        shopt -s nullglob
+        directories=("$RUNNER_TEMP"/weblate-l10n-* "$RUNNER_TEMP"/weblate-generation-*)
+        if ((${#directories[@]} > 0)); then
+          rm -rf -- "${directories[@]}"
+        fi
