@@ -184,6 +184,11 @@ class ActionTests(unittest.TestCase):
                     subprocess.run(["bash", "-n"], input=step["run"], text=True, check=True)
 
     def test_fixed_generation_configuration(self):
+        unsupported_tokens = (yaml.tokens.AliasToken, yaml.tokens.AnchorToken)
+        self.assertFalse(any(
+            isinstance(token, unsupported_tokens)
+            for token in yaml.scan(ACTION_PATH.read_text())
+        ))
         self.assertEqual(set(ACTION["inputs"]), {"github-token", "ssh-signing-private-key"})
         self.assertEqual(STEPS["Generate localization files"]["run"], "melos gen-l10n")
         self.assertEqual(
@@ -194,7 +199,7 @@ class ActionTests(unittest.TestCase):
             STEPS["Validate pull request files"]["env"]["GENERATED_FILE_PATTERNS"],
             r"(^|/)l10n/(?:[^/]+/)*[^/]+\.dart$" "\n" r"\.desktop$",
         )
-        self.assertIs(
+        self.assertEqual(
             STEPS["Validate pull request files"]["env"]["GENERATED_FILE_PATTERNS"],
             STEPS["Validate generated files"]["env"]["GENERATED_FILE_PATTERNS"],
         )

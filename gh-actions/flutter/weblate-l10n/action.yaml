@@ -60,7 +60,7 @@ runs:
       if: steps.pull-request.outputs.eligible == 'true'
       uses: actions/github-script@v9
       env:
-        GENERATED_FILE_PATTERNS: &generated-patterns |-
+        GENERATED_FILE_PATTERNS: |-
           (^|/)l10n/(?:[^/]+/)*[^/]+\.dart$
           \.desktop$
         TRANSLATED_FILE_PATTERNS: |-
@@ -158,7 +158,9 @@ runs:
       if: steps.pull-request.outputs.eligible == 'true'
       uses: actions/github-script@v9
       env:
-        GENERATED_FILE_PATTERNS: *generated-patterns
+        GENERATED_FILE_PATTERNS: |-
+          (^|/)l10n/(?:[^/]+/)*[^/]+\.dart$
+          \.desktop$
         EXISTING_FILES: ${{ steps.generation-state.outputs.directory }}/files
       with:
         script: |
