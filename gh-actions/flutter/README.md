@@ -62,6 +62,37 @@ commit the resulting `.fvmrc`. The Flutter version is always the one pinned in
 FVM is installed to `$HOME/fvm/bin` (FVM 4.x layout) and that directory is
 appended to `$GITHUB_PATH`.
 
+FVM defaults to version `4.3.1`. Override it when deliberately testing an FVM
+upgrade:
+
+```yaml
+- uses: canonical/desktop-engineering/gh-actions/flutter/setup@main
+  with:
+    fvm-version: '4.3.1'
+```
+
+#### Cache behavior
+
+Caching is enabled by default. The action caches these independent paths:
+
+- `$HOME/fvm/bin`, keyed by the FVM version, runner OS, and architecture.
+- `$HOME/fvm/versions/<version>`, keyed by the Flutter version from `.fvmrc`,
+  runner OS, and architecture.
+- `$HOME/.pub-cache`, keyed by the Flutter version and the hash of every
+  `pubspec.lock`, with a same-Flutter-version fallback for changed lockfiles.
+
+The action still runs `fvm install`, Melos activation, and `melos bootstrap` on
+cache hits. These commands validate the restored SDK and recreate project-local
+state while reusing the cached downloads.
+
+Disable all three caches for troubleshooting:
+
+```yaml
+- uses: canonical/desktop-engineering/gh-actions/flutter/setup@main
+  with:
+    cache: 'false'
+```
+
 #### Melos behavior
 
 Melos is only set up when the repository contains a `melos.yaml`, and the setup
