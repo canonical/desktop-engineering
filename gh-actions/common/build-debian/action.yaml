@@ -273,7 +273,7 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Install build dependencies"
-          apt build-dep .
+          apt build-dep . --build-profiles=nocheck
 
           GITHUB_TOKEN="${{ inputs.token }}"
 
@@ -307,7 +307,7 @@ runs:
           fi
 
           echo "::group::Build debian source package"
-          dpkg-buildpackage -D -S --sanitize-env
+          dpkg-buildpackage -D -S --sanitize-env --build-profiles=nocheck
           echo "::endgroup::"
 
           mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
