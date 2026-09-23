@@ -139,6 +139,40 @@ jobs:
           lintian: skip
 
 
+  build_source_deb_gbp:
+    name: Test build source package with git-buildpackage
+    runs-on: ubuntu-latest
+    env:
+      UBUNTU_IMAGE: ubuntu:devel
+    steps:
+      - uses: canonical/desktop-engineering/gh-actions/common/dpkg-install-speedup@main
+      - name: Install git-buildpackage
+        run: |
+          set -eu
+          sudo apt update
+          sudo apt install git-buildpackage
+
+      - name: Clone a package that uses git-buildpackage
+        run: |
+          set -eu
+          gbp clone https://salsa.debian.org/gnome-team/gsettings-desktop-schemas.git \
+            pkg-src --debian-branch=ubuntu/latest
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          path: .source
+
+      - name: Build source package
+        uses: ./.source/gh-actions/common/build-debian
+        with:
+          docker-image: ${{ env.UBUNTU_IMAGE }}
+          sources-only: true
+          source-dir: pkg-src
+          use-gbp: 'true'
+          lintian: skip
+
+
   build_source_deb:
     name: Test build quilt debian package binaries
     needs: build_source_deb_source
