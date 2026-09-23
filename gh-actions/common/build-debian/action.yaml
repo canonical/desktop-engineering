@@ -33,9 +33,16 @@ inputs:
     description: |
       A script to run to prepare the source build machine.
       This happens after the dependencies have been installed, but before
-      running `dpkg-buildpackage -S`.
+      building the source package.
     required: false
     default: ''
+
+  use-gbp:
+    description: |
+      Build the source package with git-buildpackage instead of
+      dpkg-buildpackage. This also runs the repository's prebuild hook.
+    required: false
+    default: 'false'
 
   sources-only:
     description: Whether to build the package sources only.
@@ -275,6 +282,10 @@ runs:
           echo "::group::Install build dependencies"
           apt build-dep . --build-profiles=nocheck
 
+          if [ "${{ inputs.use-gbp }}" = 'true' ]; then
+            apt install git-buildpackage
+          fi
+
           GITHUB_TOKEN="${{ inputs.token }}"
 
           if [ -n "${{ inputs.extra-source-build-deps != '' && 'true' || '' }}" ]; then
@@ -291,6 +302,7 @@ runs:
 
           if command -v git &> /dev/null; then
             git config --system --add safe.directory "${{ github.workspace }}"
+            git config --system --add safe.directory "${{ env.SOURCE_DIR }}"
           fi
 
           if [ -n "${GITHUB_TOKEN}" ]; then
@@ -307,10 +319,17 @@ runs:
           fi
 
           echo "::group::Build debian source package"
-          dpkg-buildpackage -D -S --sanitize-env --build-profiles=nocheck
+          if [ "${{ inputs.use-gbp }}" = 'true' ]; then
+            git -c user.name="${{ env.DEBFULLNAME }}" \
+              -c user.email="${{ env.DEBEMAIL }}" \
+              commit debian -m "Update changelog"
+            gbp buildpackage --git-export-dir="${{ env.SOURCE_OUTPUT_DIR }}" \
+              --git-ignore-branch -S --no-sign --build-profiles=nocheck
+          else
+            dpkg-buildpackage -D -S --sanitize-env --build-profiles=nocheck
+            mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
+          fi
           echo "::endgroup::"
-
-          mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
 
     - name: Uploading source packages
       if: ${{ inputs.from-sources-file == '' }}
