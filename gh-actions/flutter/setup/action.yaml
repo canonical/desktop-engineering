@@ -6,6 +6,14 @@ inputs:
     description: Whether to check out the event repository before setup
     required: false
     default: 'true'
+  cache:
+    description: Whether to cache FVM, Flutter, and Dart packages
+    required: false
+    default: 'true'
+  fvm-version:
+    description: FVM version to install
+    required: false
+    default: '4.3.1'
 
 outputs:
   fvm:
@@ -16,7 +24,7 @@ outputs:
     value: ${{ steps.detect-files.outputs.melos }}
   flutter-version:
     description: The Flutter version that was setup
-    value: ${{ steps.install-flutter.outputs.flutter-version }}
+    value: ${{ steps.detect-files.outputs.flutter-version }}
 
 runs:
   using: "composite"
@@ -26,35 +34,89 @@ runs:
 
     - name: Detect FVM and Melos
       id: detect-files
+      env:
+        CACHE_ENABLED: ${{ inputs.cache }}
+        FVM_VERSION: ${{ inputs.fvm-version }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
+        if [[ "$CACHE_ENABLED" != "true" && "$CACHE_ENABLED" != "false" ]]; then
+          echo "::error::The cache input must be either 'true' or 'false'."
+          exit 1
+        fi
+        if [[ ! "$FVM_VERSION" =~ ^[A-Za-z0-9._+-]+$ ]]; then
+          echo "::error::The fvm-version input contains unsupported characters."
+          exit 1
+        fi
         if [[ ! -f "./.fvmrc" ]]; then
           echo "::error::No .fvmrc found at the repository root."
           echo "::error::Pin a Flutter version with FVM ('fvm use <version>') and commit .fvmrc."
           exit 1
         fi
+
+        FLUTTER_VERSION=$(jq -er '.flutter | select(type == "string" and length > 0)' .fvmrc) || {
+          echo "::error::No valid Flutter version found in .fvmrc."
+          exit 1
+        }
+        if [[ ! "$FLUTTER_VERSION" =~ ^[A-Za-z0-9._+-]+$ ]]; then
+          echo "::error::The Flutter version in .fvmrc contains unsupported characters."
+          exit 1
+        fi
+
         echo "fvm=true" >> "$GITHUB_OUTPUT"
+        echo "flutter-version=$FLUTTER_VERSION" >> "$GITHUB_OUTPUT"
         if [[ -f "./melos.yaml" ]]; then
           echo "Melos detected"
           echo "melos=true" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Install FVM Flutter
-      id: install-flutter
+    - name: Cache FVM
+      id: cache-fvm
+      if: inputs.cache == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/fvm/bin
+        key: flutter-setup-v1-fvm-${{ runner.os }}-${{ runner.arch }}-${{ inputs.fvm-version }}
+
+    - name: Cache Flutter SDK
+      if: inputs.cache == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/fvm/versions/${{ steps.detect-files.outputs.flutter-version }}
+        key: flutter-setup-v1-sdk-${{ runner.os }}-${{ runner.arch }}-${{ steps.detect-files.outputs.flutter-version }}
+
+    - name: Cache Dart packages
+      if: inputs.cache == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/.pub-cache
+        key: flutter-setup-v1-pub-${{ runner.os }}-${{ runner.arch }}-${{ steps.detect-files.outputs.flutter-version }}-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: |
+          flutter-setup-v1-pub-${{ runner.os }}-${{ runner.arch }}-${{ steps.detect-files.outputs.flutter-version }}-
+
+    - name: Install FVM
+      if: inputs.cache != 'true' || steps.cache-fvm.outputs.cache-hit != 'true'
+      env:
+        FVM_VERSION: ${{ inputs.fvm-version }}
       shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        curl -fsSL https://fvm.app/install.sh | bash
+        curl -fsSL https://fvm.app/install.sh | bash -s -- "$FVM_VERSION"
 
+    - name: Install Flutter
+      env:
+        FVM_VERSION: ${{ inputs.fvm-version }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
         export PATH="$HOME/fvm/bin:$PATH"
         echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
-        fvm --version
+        INSTALLED_FVM_VERSION=$(fvm --version)
+        if [[ "$INSTALLED_FVM_VERSION" != "$FVM_VERSION" ]]; then
+          echo "::error::Expected FVM $FVM_VERSION, but found $INSTALLED_FVM_VERSION."
+          exit 1
+        fi
 
         # Installs the Flutter SDK pinned in .fvmrc and creates the local
         # .fvm/flutter_sdk symlink
         fvm install
-
-        FLUTTER_VERSION=$(jq -r '.flutter' .fvmrc)
-        echo "flutter-version=$FLUTTER_VERSION" >> "$GITHUB_OUTPUT"
 
         # Put the FVM-pinned SDK on PATH so bare `flutter` and `dart` resolve
         # to the exact same SDK that `fvm flutter` / `fvm dart` use
