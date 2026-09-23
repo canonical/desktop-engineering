@@ -44,7 +44,7 @@ inputs:
 
   from-sources-file:
     description: |
-      The path to the source .dsc or .changes file.
+      The path to the source .dsc file.
       The the rest of the source files are expected to be in the same directory.
       If this is provided, then the source package won't be prepared from the repository code.
     required: false
