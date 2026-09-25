@@ -33,9 +33,16 @@ inputs:
     description: |
       A script to run to prepare the source build machine.
       This happens after the dependencies have been installed, but before
-      running `dpkg-buildpackage -S`.
+      building the source package.
     required: false
     default: ''
+
+  use-gbp:
+    description: |
+      Build the source package with git-buildpackage instead of
+      dpkg-buildpackage. This also runs the repository's prebuild hook.
+    required: false
+    default: 'false'
 
   sources-only:
     description: Whether to build the package sources only.
@@ -44,7 +51,7 @@ inputs:
 
   from-sources-file:
     description: |
-      The path to the source .dsc or .changes file.
+      The path to the source .dsc file.
       The the rest of the source files are expected to be in the same directory.
       If this is provided, then the source package won't be prepared from the repository code.
     required: false
@@ -273,7 +280,11 @@ runs:
           echo "::endgroup::"
 
           echo "::group::Install build dependencies"
-          apt build-dep .
+          apt build-dep . --build-profiles=nocheck
+
+          if [ "${{ inputs.use-gbp }}" = 'true' ]; then
+            apt install git-buildpackage
+          fi
 
           GITHUB_TOKEN="${{ inputs.token }}"
 
@@ -291,6 +302,7 @@ runs:
 
           if command -v git &> /dev/null; then
             git config --system --add safe.directory "${{ github.workspace }}"
+            git config --system --add safe.directory "${{ env.SOURCE_DIR }}"
           fi
 
           if [ -n "${GITHUB_TOKEN}" ]; then
@@ -307,13 +319,19 @@ runs:
           fi
 
           echo "::group::Build debian source package"
-          dpkg-buildpackage -D -S --sanitize-env
+          if [ "${{ inputs.use-gbp }}" = 'true' ]; then
+            git -c user.name="${{ env.DEBFULLNAME }}" \
+              -c user.email="${{ env.DEBEMAIL }}" \
+              commit debian -m "Update changelog"
+            gbp buildpackage --git-export-dir="${{ env.SOURCE_OUTPUT_DIR }}" \
+              --git-ignore-branch -S --no-sign --build-profiles=nocheck
+          else
+            dpkg-buildpackage -D -S --sanitize-env --build-profiles=nocheck
+            mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
+          fi
           echo "::endgroup::"
 
-          mv -v ../"${{ env.PKG_NAME }}_"* "${{ env.SOURCE_OUTPUT_DIR }}"
-
     - name: Uploading source packages
-      if: ${{ inputs.from-sources-file == '' }}
       uses: actions/upload-artifact@v7
       id: build-debian-source-package-upload-step
       with:
