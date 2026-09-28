@@ -140,7 +140,7 @@ runs:
 
         dart pub global activate melos "$VERSION"
         echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
-        dart pub global run melos bootstrap
+        dart pub global run melos bootstrap --enforce-lockfile
 
     - name: Flutter Doctor
       shell: bash --noprofile --norc -euo pipefail {0}
