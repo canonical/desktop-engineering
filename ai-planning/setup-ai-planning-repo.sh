@@ -410,6 +410,11 @@ cat <<EOF
                         column (same "Fields" menu) so each map row shows its
                         chip.
 
+     The sync job manages negative parent-issue filters on Board: descendants
+     of a closed map are hidden, and reappear if the map reopens. Leave the
+     existing -label:wayfinder:map filter in place; do not add manual negative
+     parent-issue terms to this view.
+
      Enabling "Labels" is per-view, so do it on BOTH views — a view without it
      shows no colour.
 
@@ -417,12 +422,13 @@ Then verify the reconcile workflow:
   gh workflow run board-sync.yml --repo $PLANNING_FULL
   # or just open/close a test issue in $PLANNING_FULL and watch the card settle.
 
-Next, onboard each destination code repo so its PR events dispatch here too:
+Next, onboard each destination code repo so its PR and issue lifecycle events
+dispatch here too:
   DEST_REPO=<org>/<code-repo> PLANNING_REPO=$PLANNING_FULL ./setup-dest-repo.sh
 
 Done. This repo is the planning repo; file planning issues here and the workflow
-reconciles the board on every issues event and every onboarded repo's PR dispatch —
-event-driven only, no schedule cron.
+reconciles the board on every planning issue event and every onboarded repo's PR
+or issue lifecycle dispatch — event-driven only, no schedule cron.
 
 Board: https://github.com/orgs/$ORG/projects/$PROJECT_NUMBER
 EOF

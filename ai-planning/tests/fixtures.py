@@ -23,6 +23,8 @@ def issue_item(
     prs=(),
     content_id=None,
     child_content_ids=(),
+    repository="canonical/test",
+    number=None,
     status_option_id=None,
     prs_has_next=False,
     prs_cursor=None,
@@ -32,6 +34,8 @@ def issue_item(
     `content_id` is the underlying issue's own node id (defaults to a value
     computed from `item_id` so tests don't have to invent one unless they need
     a specific id to correlate a parent with its children).
+    `repository` and `number` identify the issue for the Board's parent-issue
+    filters; `number` is optional for tests that do not exercise those filters.
     `child_content_ids` lists the content ids of this item's native sub-issue
     children, for the two-pass roll-up.
     `status_option_id` is the Status single-select option id already set on the
@@ -50,6 +54,8 @@ def issue_item(
         "content": {
             "__typename": "Issue",
             "id": content_id if content_id is not None else f"I_{item_id}",
+            "number": number,
+            "repository": {"nameWithOwner": repository},
             "state": state,
             "assignees": {"totalCount": assignees},
             "labels": {"nodes": [{"name": name} for name in labels]},

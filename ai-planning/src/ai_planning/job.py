@@ -30,6 +30,11 @@ A map auto-closes and auto-reopens by `compute_map_cascade`, a pure reducer over
 each map's native sub-issue subtree (any depth), folded into this same sweep —
 no new trigger. See that function's docstring for the predicate.
 
+After the cascade settles, the sweep reconciles only the Board view's negative
+`parent-issue` filters: descendants of closed maps disappear; when a map
+reopens, those exclusions are removed. Closed children under an open map remain
+visible, and other Project views are untouched.
+
 A closed card's facts are still read and scored like any other card — its
 synced Status feeds the child roll-up and the future map-cascade — and it is
 also a normal write-candidate: the sweep is the single source of truth for the
@@ -67,12 +72,14 @@ from ai_planning.facts_mapping import (
     extend_item_linked_prs,
     item_child_content_ids,
     item_content_id,
+    item_content_reference,
     item_current_status_option_id,
     linked_prs_page_info,
     item_to_facts,
 )
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
+    BOARD_VIEWS_QUERY,
     CLOSE_ISSUE_MUTATION,
     ISSUE_LINKED_PRS_QUERY,
     PROJECT_ITEM_QUERY,
@@ -80,8 +87,16 @@ from ai_planning.queries import (
     REOPEN_ISSUE_MUTATION,
     REPO_ISSUES_QUERY,
     STATUS_FIELD_QUERY,
+    UPDATE_PROJECT_VIEW_FILTER_MUTATION,
     UPDATE_STATUS_MUTATION,
 )
+from ai_planning.view_filters import (
+    board_filter_for_closed_maps,
+    closed_map_parent_issue_refs,
+)
+
+
+BOARD_VIEW_NAME = "Board"
 
 
 @dataclass(frozen=True)
@@ -107,6 +122,8 @@ class SyncResult:
     closed_issues: list[str] = field(default_factory=list)
     map_closed: list[str] = field(default_factory=list)
     map_reopened: list[str] = field(default_factory=list)
+    board_filter_updated: bool = False
+    board_view_missing: bool = False
 
 
 def fetch_status_field(client: SupportsExecute, project_id: str) -> StatusField:
@@ -118,6 +135,42 @@ def fetch_status_field(client: SupportsExecute, project_id: str) -> StatusField:
         option["name"]: option["id"] for option in field_node.get("options", [])
     }
     return StatusField(field_id=field_node["id"], option_ids=option_ids)
+
+
+def update_board_map_filter(
+    client: SupportsExecute,
+    project_id: str,
+    parent_issue_refs: set[str],
+) -> bool | None:
+    """Reconcile the Board view's Map exclusions; ``None`` means no Board view.
+
+    Negative ``parent-issue`` terms on this view are owned by the map lifecycle
+    sync. Other filters (including ``-label:wayfinder:map``) are preserved. The
+    Efforts view is never modified.
+    """
+
+    data = client.execute(BOARD_VIEWS_QUERY, {"projectId": project_id})
+    views = ((data.get("node") or {}).get("views") or {}).get("nodes", [])
+    board_views = [
+        view
+        for view in views
+        if view.get("name") == BOARD_VIEW_NAME
+        and view.get("layout") == "BOARD_LAYOUT"
+    ]
+    if len(board_views) != 1:
+        return None
+
+    board_view = board_views[0]
+    current_filter = board_view.get("filter") or ""
+    target_filter = board_filter_for_closed_maps(current_filter, parent_issue_refs)
+    if target_filter == current_filter:
+        return False
+
+    client.execute(
+        UPDATE_PROJECT_VIEW_FILTER_MUTATION,
+        {"viewId": board_view["id"], "filter": target_filter},
+    )
+    return True
 
 
 def iter_project_items(
@@ -496,6 +549,12 @@ def run_sync(
     (>=1 descendant, zero open) and reopens one whose subtree gained an open
     descendant back, cross-repo, via the same `AI_PLANNING_TOKEN`. No separate
     trigger — this sweep is the only mechanism.
+
+    Once the cascade settles, the Board view's generated `parent-issue`
+    exclusions are reconciled from the currently closed Map subtrees. This
+    preserves closed-item progress under open Maps while hiding completed
+    subtrees under closed Maps. Only the view filter changes; issue state,
+    labels, Status, project membership, and other views do not.
     """
 
     seeded_items: dict[str, str] = {}
@@ -513,6 +572,7 @@ def run_sync(
     facts_by_item_id: dict[str, Facts] = {}
     current_option_id_by_item_id: dict[str, str | None] = {}
     item_id_by_content_id: dict[str, str] = {}
+    issue_ref_by_item_id: dict[str, str] = {}
     child_content_ids_by_item_id: dict[str, list[str]] = {}
     # Issue node ids to close: a merged, deliberately-linked PR completed the
     # ticket, but the issue is still OPEN (its closing keyword was inert, e.g. a
@@ -540,6 +600,9 @@ def run_sync(
             item_id_by_content_id[content_id] = item_id
             if facts.has_merged_linked_pr and not facts.closed:
                 issue_ids_to_close[item_id] = content_id
+        issue_ref = item_content_reference(item)
+        if issue_ref is not None:
+            issue_ref_by_item_id[item_id] = issue_ref
         child_content_ids_by_item_id[item_id] = item_child_content_ids(item)
 
     for item in items:
@@ -575,18 +638,33 @@ def run_sync(
     # decisions into cross-repo mutations, updating `facts_by_item_id` in step
     # so any later read of a map's `closed` fact this run (e.g. an ancestor
     # map's own subtree) already reflects it.
-    for action in compute_map_cascade(
+    closed_map_item_ids = {
+        item_id
+        for item_id, facts in facts_by_item_id.items()
+        if facts.is_map and (facts.closed or facts.has_merged_linked_pr)
+    }
+    map_actions = compute_map_cascade(
         facts_by_item_id, item_id_by_content_id, child_content_ids_by_item_id
-    ):
+    )
+    for action in map_actions:
         if action.close:
             close_issue(client, action.content_id)
             result.map_closed.append(action.content_id)
+            closed_map_item_ids.add(action.item_id)
         else:
             reopen_issue(client, action.content_id)
             result.map_reopened.append(action.content_id)
+            closed_map_item_ids.discard(action.item_id)
         facts_by_item_id[action.item_id] = replace(
             facts_by_item_id[action.item_id], closed=action.close
         )
+
+    closed_map_parent_refs = closed_map_parent_issue_refs(
+        closed_map_item_ids,
+        item_id_by_content_id,
+        child_content_ids_by_item_id,
+        issue_ref_by_item_id,
+    )
 
     # A "parent" is any item with at least one sub-issue child that is itself
     # a Project item on this board; everything else syncs as a leaf in
@@ -650,5 +728,13 @@ def run_sync(
             continue
         write_status(client, project_id, item_id, status_field, status)
         result.written.append((item_id, status))
+
+    filter_updated = update_board_map_filter(
+        client, project_id, closed_map_parent_refs
+    )
+    if filter_updated is None:
+        result.board_view_missing = True
+    else:
+        result.board_filter_updated = filter_updated
 
     return result

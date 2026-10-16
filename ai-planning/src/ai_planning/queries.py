@@ -22,6 +22,28 @@ query($projectId: ID!) {
 }
 """
 
+# The Board is the only view whose filter is augmented by map lifecycle. Other
+# views (notably Efforts) are deliberately left alone.
+BOARD_VIEWS_QUERY = """
+query($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      views(first: 100) {
+        nodes { id name layout filter }
+      }
+    }
+  }
+}
+"""
+
+UPDATE_PROJECT_VIEW_FILTER_MUTATION = """
+mutation($viewId: ID!, $filter: String!) {
+  updateProjectV2View(input: { viewId: $viewId, filter: $filter }) {
+    projectV2View { id filter }
+  }
+}
+"""
+
 # How many linked-PR nodes to read per issue in the per-item embed and per page
 # of the stand-alone pager. A closing link
 # (`closedByPullRequestsReferences(userLinkedOnly: false)` — a closing keyword
@@ -73,6 +95,7 @@ _ITEM_NODE_FIELDS = """
       id
       number
       state
+      repository { nameWithOwner }
       assignees { totalCount }
       labels(first: 50) { nodes { name } }
       issueDependenciesSummary { blockedBy }

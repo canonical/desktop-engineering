@@ -1,7 +1,8 @@
-# Composite action that reconciles an AI planning board's Status column from live
-# GitHub facts. It is one of the two sibling composite actions under
-# `gh-actions/ai-planning/` — this one (`sync/`) settles the board; `pr-dispatch/`
-# relays a code repo's PR facts here. Both are actions rather than reusable
+# Composite action that reconciles an AI planning board's Status column and
+# Map-aware Board filter from live GitHub facts. It is one of the sibling
+# composite actions under `gh-actions/ai-planning/` — this one (`sync/`) settles
+# the board; `pr-dispatch/` relays PR facts and `issue-dispatch/` relays issue
+# lifecycle events. All are actions rather than reusable
 # workflows on purpose: an action can be referenced from any directory as
 # `canonical/desktop-engineering/gh-actions/ai-planning/sync@<ref>`, whereas a
 # reusable workflow is forced to live at the repo-root `.github/workflows/`.
@@ -12,8 +13,9 @@
 # lives at `../../../ai-planning`. See ../README.md.
 name: AI planning board status sync
 description: >-
-  Idempotent full-board reconcile of an AI planning board's Status column,
-  driven by the ai_planning package in canonical/desktop-engineering.
+  Idempotent full-board reconcile of an AI planning board's Status column and
+  the Board view's Map-aware parent-issue filter, driven by ai_planning in
+  canonical/desktop-engineering.
 
 inputs:
   project-id:

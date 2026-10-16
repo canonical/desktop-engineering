@@ -7,9 +7,10 @@
 # It asks which planning repo the code repo should talk to, then installs (or
 # refreshes) two stamped files on the code repo's default branch, plus one secret:
 #
-#   1. `.github/workflows/ai-planning-pr.yml` — the PR-dispatch caller: a small
-#      workflow that relays this repo's PR events to the planning repo. It is a
-#      **non-required, cosmetic** check; the real work runs in the planning repo.
+#   1. `.github/workflows/ai-planning-pr.yml` — the event-dispatch caller: a small
+#      workflow that relays this repo's PR facts and issue lifecycle events to
+#      the planning repo. It is a **non-required, cosmetic** check; the real
+#      work runs in the planning repo.
 #   2. `docs/agents/issue-tracker.md` — the **skills adapter**: the tracker profile
 #      that points the planning skills (`/wayfinder`, `/to-spec`, …) at THIS board.
 #      Skip it with `WITH_ADAPTER=0` for a dispatch-only repo.
@@ -220,7 +221,7 @@ EOF
 fi
 
 echo
-echo "Done. $DEST_REPO now dispatches its PR events to $PLANNING_REPO,"
+echo "Done. $DEST_REPO now dispatches its PR and issue lifecycle events to $PLANNING_REPO,"
 if [ "$WITH_ADAPTER" != "0" ]; then
   echo "and carries the planning-skills adapter pointing at that board."
 fi

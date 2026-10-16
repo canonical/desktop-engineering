@@ -1,9 +1,9 @@
 # Sync the planning repo's tickets with the board status.
 #
-# Two automated triggers:
+# Automated triggers:
 # * any `issues` event here settles the whole board;
-# * any impacting PR event from the destination repo dispatches straight
-# to this repo (a single job POSTs `repository_dispatch`)
+# * PR and issue lifecycle events from destination repos dispatch straight
+#   to this repo (a single job POSTs `repository_dispatch`)
 name: AI planning board status sync
 
 concurrency:
@@ -24,7 +24,7 @@ on:
         edited,
       ]
   repository_dispatch:
-    types: [ai-planning-pr]
+    types: [ai-planning-pr, ai-planning-issue]
   workflow_dispatch: {}
 
 permissions:
@@ -40,8 +40,7 @@ jobs:
         with:
           project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
           token: ${{ secrets.AI_PLANNING_TOKEN }}
-          # Forwarded only on the dispatch trigger: the immediate arm authors
-          # this one PR's link before the same sweep scores it. Every other
-          # trigger passes '' (falsy in Python — see ai_planning.__main__),
-          # running exactly the reconcile sweep it always has.
-          dispatched-pr: ${{ github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload) || '' }}
+          # Forwarded only for PR dispatches: the immediate arm authors this
+          # one PR's link before the same sweep scores it. Issue dispatches and
+          # all other triggers pass '' and run only the reconcile sweep.
+          dispatched-pr: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'ai-planning-pr' && toJSON(github.event.client_payload) || '' }}

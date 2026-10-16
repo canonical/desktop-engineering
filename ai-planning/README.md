@@ -21,7 +21,9 @@ Running the deploy script (below) stands up three things for a team:
 - **An org-level Project board.** One **Status** field with five columns —
   **Blocked · Ready · In progress · In review · Done**. There are no custom fields:
   the board reuses GitHub's native **Parent issue** field for hierarchy and the
-  native **Repository** field to show which code repo a spec belongs to.
+  native **Repository** field to show which code repo a spec belongs to. On the
+  Board view, closed descendants remain visible while their Map is open and are
+  hidden only while that Map is closed; the Efforts view is unaffected.
 - **A shared label vocabulary** the planning skills expect (`wayfinder:*` and the
   triage labels).
 
@@ -64,7 +66,7 @@ changes (it syncs only the files that changed, never touching issues). In one pa
    to read them) and prints the result; if they're off it also prints the
    click-only fix, but the sweep never depends on them either way (see below).
    It also prints the one remaining click-only follow-up (create the Board and
-   Efforts views).
+   Efforts views, with Board's base filter `-label:wayfinder:map`).
 
 Repo name and board title come from `TEAM`; override with `PLANNING_REPO` /
 `BOARD_TITLE` if you want different names.
@@ -89,7 +91,8 @@ gh workflow run board-sync.yml --repo <org>/<team-slug>-ai-planning
 
 The planning repo works on its own. To also have a **code repo's pull requests
 move planning cards** (draft PR → In progress, ready for review → In review,
-merged → Done), wire that code repo in:
+merged → Done) and issue lifecycle events immediately reconcile Map state and
+visibility, wire that code repo in:
 
 ```bash
 DEST_REPO=<org>/<code-repo> PLANNING_REPO=<org>/<team-slug>-ai-planning ./setup-dest-repo.sh
@@ -100,9 +103,10 @@ it any time to refresh whatever drifted after a template change — it stamps th
 chosen planning repo into and installs two files on the code repo's default
 branch:
 
-- **`.github/workflows/ai-planning-pr.yml`** — the PR-dispatch caller that relays
-  PR events to the planning repo (a non-required, cosmetic check — the real work
-  happens back in the planning repo, so it never gates a merge); and
+- **`.github/workflows/ai-planning-pr.yml`** — the event-dispatch caller that relays
+  PR facts and issue opened/edited/closed/reopened events to the planning repo
+  (non-required, cosmetic checks — the real work happens back in the planning
+  repo, so they never gate a merge); and
 - **`docs/agents/issue-tracker.md`** — the planning-skills adapter pointing at this
   board (pass `WITH_ADAPTER=0` to skip it for a dispatch-only repo).
 
@@ -160,9 +164,10 @@ The sweep is **event-driven only — there is no `schedule` cron**. It runs from
 1. **`issues` events in the planning repo** — any issue activity settles the whole
    board within about a minute (GitHub's best-effort delay applies to `schedule`,
    not to issue or dispatch events).
-2. **`repository_dispatch` from an onboarded code repo** — that repo's PR events are
-   relayed here and drive the same sweep, so a code-repo PR moves its planning card
-   almost immediately.
+2. **`repository_dispatch` from an onboarded code repo** — PR events relay the PR
+   facts needed by the link/status sync; issue opened/edited/closed/reopened events
+   trigger the same reconcile sweep. This keeps Map closure/reopening and the
+   Board's Map-aware filter current for cross-repository issues as well.
 3. **Native Project "→ Done" workflows**, when enabled — GitHub's own
    settings-only automation flips closed/merged items to Done ahead of the next
    sweep, for the lowest possible latency. The sweep does **not** depend on
@@ -172,6 +177,14 @@ The sweep is **event-driven only — there is no `schedule` cron**. It runs from
    closed card to Done on the very next sweep, not never.
 
 A `workflow_dispatch` is also wired for manual runs.
+
+The sweep manages only the Board view's negative `parent-issue` filter clauses.
+When a Map is closed, it adds exclusions for the Map and every nested parent in
+its sub-issue tree, hiding all descendants from that view. When the Map reopens,
+those exclusions are removed. Closed children of an open Map therefore remain
+visible as progress. The existing `-label:wayfinder:map` filter still keeps Map
+cards themselves out of Board, and the Efforts view is never changed. No issue
+state, labels, Status values, or project membership are changed for visibility.
 
 ### Self-close on merge (cross-repo tickets)
 
@@ -186,9 +199,11 @@ which the sweep reads as its sole PR signal. When it sees that linked PR has mer
 while the issue is still open, it **closes the issue itself**. Closing clears the
 native `blocked_by` edges, so dependent tickets unblock, and the card lands on Done.
 
-Why not webhooks, a GitHub App, or a workflow inside the code repo? Each needs
-org-owner rights, a hosted receiver, or a bigger footprint in the code repo — all
-deliberately out of scope here.
+The destination repo keeps only a thin event relay; all project reads/writes and
+the Map cascade stay in the planning repo's sync. Putting that logic in each code
+repo would require broader Project permissions and duplicate the reconciliation
+logic. A webhook receiver or org-wide GitHub App would need a hosted receiver or
+org-owner setup, respectively.
 
 ### A scaling lever for later
 
@@ -214,14 +229,14 @@ claim, resolve, promotion) against this board.
 
 ```
 setup-ai-planning-repo.sh             one-pass deploy/refresh (repo + project + labels + PAT)
-setup-dest-repo.sh                    add/refresh one destination code repo (PR-dispatch
-                                      caller + skills adapter + dispatch-token secret)
+setup-dest-repo.sh                    add/refresh one destination code repo (event-dispatch
+                                       caller + skills adapter + dispatch-token secret)
 dest-repo/                            templates applied to a DESTINATION code repo by
                                       setup-dest-repo.sh, at their destination-relative paths
                                       (NOT shipped into the planning repo):
   docs/agents/issue-tracker.md          planning-skills adapter (installed at the code
                                         repo's docs/agents/issue-tracker.md)
-  .github/workflows/ai-planning-pr.yml  per-repo PR-dispatch caller
+  .github/workflows/ai-planning-pr.yml  per-repo PR + issue-event dispatcher
 .github/workflows/board-sync.yml      thin caller: triggers -> the sync action
                                       (the ONLY file a deployed planning repo carries)
 src/ai_planning/                      the sweep: fetch -> sync_status -> write
@@ -233,6 +248,7 @@ tests/                                pytest for the pure function + mappers
 # onboarded destination code repo:
 ../gh-actions/ai-planning/sync/action.yaml         the reconcile composite action
 ../gh-actions/ai-planning/pr-dispatch/action.yaml  the PR-relay composite action
+../gh-actions/ai-planning/issue-dispatch/action.yaml  the issue-event relay
 ```
 
 ## Develop

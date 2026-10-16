@@ -1,7 +1,7 @@
 # Composite action (ticket 35): forward one code-repo PR event to the planning
 # repo as a `repository_dispatch`, carrying the PR facts the immediate authoring +
-# detection arm needs. It is the sibling of the reconcile action `../sync/`: this
-# one relays a PR's facts, that one settles the whole board off them.
+# detection arm needs. It is the PR-specific sibling of the reconcile action
+# `../sync/` and issue relay `../issue-dispatch/`.
 #
 # Deliberately dumb: it knows nothing about tickets, links, or Status — it only
 # relays the dispatched PR's own facts. Every decision happens once, in the
@@ -10,7 +10,7 @@
 #
 # It used to be a reusable workflow stranded at the repo-root `.github/workflows/`
 # (GitHub forbids reusable workflows anywhere else). As a composite action it lives
-# here beside `../sync/`, so both halves of the wiring share one home — at the cost
+# here beside the other planning actions, so all wiring shares one home — at the cost
 # of one extra checkout of this repo on the (cosmetic, non-gating) dispatch job.
 # The per-repo caller a destination code repo installs
 # (`.github/workflows/ai-planning-pr.yml`, stamped by `../../../ai-planning/setup-dest-repo.sh`
