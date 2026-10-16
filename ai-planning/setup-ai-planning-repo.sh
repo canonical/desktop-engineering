@@ -254,7 +254,12 @@ cat > "$STAGE/README.md" <<EOF
 # $BOARD_TITLE
 
 Private planning board for the **$TEAM** squad. File planning issues here; the
-board's **Status** column reconciles automatically on every issue and PR event.
+board's **Status** column and Map-aware Board filter reconcile on planning issue
+events and dispatched PR/issue events from destination repos.
+
+Closed descendants stay visible while their Map is open and disappear from the
+Board when the Map closes. Reopening the Map restores them; the Efforts view is
+unchanged.
 
 This repo carries almost nothing on purpose — only its board-sync workflow. All
 tooling, templates and sync code live once in
