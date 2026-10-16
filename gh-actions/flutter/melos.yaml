@@ -12,7 +12,7 @@ jobs:
   analyze:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./gh-actions/flutter/setup
       - run: melos generate
       - run: melos gen-l10n
@@ -21,7 +21,7 @@ jobs:
   format:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./gh-actions/flutter/setup
       - run: melos generate
       - run: melos gen-l10n
@@ -30,7 +30,7 @@ jobs:
   l10n:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./gh-actions/flutter/setup
       - run: melos generate
       - run: melos gen-l10n
@@ -38,7 +38,7 @@ jobs:
   test:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./gh-actions/flutter/setup
       - run: sudo apt update && sudo apt install -y lcov
       - run: melos generate

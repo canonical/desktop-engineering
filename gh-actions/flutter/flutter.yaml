@@ -16,7 +16,7 @@ jobs:
   analyze:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./gh-actions/flutter/setup
       - run: |
           DIRS="."
@@ -34,7 +34,7 @@ jobs:
   format:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./gh-actions/flutter/setup
       - run: |
           DIRS="."
@@ -52,7 +52,7 @@ jobs:
   test:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./gh-actions/flutter/setup
       - run: |
           DIRS="."
