@@ -3,7 +3,9 @@
 # Automated triggers:
 # * any `issues` event here settles the whole board;
 # * PR and issue lifecycle events from destination repos dispatch straight
-#   to this repo (a single job POSTs `repository_dispatch`)
+#   to this repo (a single job POSTs `repository_dispatch`);
+# * a 4-hourly `schedule` sweep catches what raises no event, such as a Map
+#   card archived or restored in the Project UI.
 name: AI planning board status sync
 
 concurrency:
@@ -25,6 +27,8 @@ on:
       ]
   repository_dispatch:
     types: [ai-planning-pr, ai-planning-issue]
+  schedule:
+    - cron: "17 */4 * * *"
   workflow_dispatch: {}
 
 permissions:

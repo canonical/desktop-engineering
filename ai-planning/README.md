@@ -85,8 +85,8 @@ gh workflow run board-sync.yml --repo <org>/<team-slug>-ai-planning
 ```
 
 > The planning repo is private, so it's exempt from GitHub's 60-day
-> scheduled-workflow auto-disable (a public-repo rule). That's moot here anyway —
-> this board runs no `schedule` cron at all (see "How the board stays in sync").
+> scheduled-workflow auto-disable (a public-repo rule), which would otherwise
+> pause the 4-hourly sweep (see "How the board stays in sync").
 
 ### Onboarding a destination code repo
 
@@ -160,7 +160,7 @@ assignee or open draft PR → In progress, open blocker → Blocked, open non-dr
 it recomputes from scratch, a dropped or delayed trigger simply settles on the next
 one; nothing is ever permanently wrong.
 
-The sweep is **event-driven only — there is no `schedule` cron**. It runs from:
+The sweep is **event-driven, plus a 4-hourly `schedule` safety net**. It runs from:
 
 1. **`issues` events in the planning repo** — any issue activity settles the whole
    board within about a minute (GitHub's best-effort delay applies to `schedule`,
@@ -177,6 +177,10 @@ The sweep is **event-driven only — there is no `schedule` cron**. It runs from
    these ship disabled — or get switched off later — still settles every
    closed card to Done on the very next sweep, not never.
 
+4. **A `schedule` every 4 hours** (`17 */4 * * *`) — for changes that raise no
+   event, chiefly a Map card archived or restored in the Project UI (see below).
+   GitHub may delay a scheduled run by several minutes.
+
 A `workflow_dispatch` is also wired for manual runs.
 
 The sweep never edits a view's filter. Board's `-label:wayfinder:map` filter,
@@ -189,8 +193,8 @@ GitHub raises no event when a Project card is archived or restored, so the sweep
 works it out from the active cards it can see, plus one marker on the Map issue,
 the **`wayfinder:archived`** label ("the sweep archived this Map's tree"). Each
 rule applies to the next sweep, so a change takes effect on the next sweep (any
-planning-repo issue event, a code-repo dispatch, or **Run workflow** on
-`board-sync`), not instantly.
+planning-repo issue event, a code-repo dispatch, the 4-hourly schedule, or
+**Run workflow** on `board-sync`), not instantly.
 
 | What the sweep sees on a Map | What it does |
 | --- | --- |

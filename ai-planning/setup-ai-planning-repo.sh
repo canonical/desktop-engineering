@@ -437,7 +437,8 @@ dispatch here too:
 
 Done. This repo is the planning repo; file planning issues here and the workflow
 reconciles the board on every planning issue event and every onboarded repo's PR
-or issue lifecycle dispatch — event-driven only, no schedule cron.
+or issue lifecycle dispatch, plus a sweep every 4 hours for changes that raise no
+event (a Map card archived or restored in the Project UI).
 
 Board: https://github.com/orgs/$ORG/projects/$PROJECT_NUMBER
 EOF
