@@ -139,22 +139,6 @@ def item_content_id(item: dict[str, Any]) -> str | None:
     return content.get("id")
 
 
-def item_content_reference(item: dict[str, Any]) -> str | None:
-    """The stable ``owner/repo#number`` reference for issue content.
-
-    The Board view's map lifecycle filter uses GitHub's native
-    ``parent-issue`` qualifier, which requires this cross-repository reference.
-    """
-
-    content = item.get("content") or {}
-    repository = content.get("repository") or {}
-    repo_name = repository.get("nameWithOwner")
-    number = content.get("number")
-    if not repo_name or number is None:
-        return None
-    return f"{repo_name}#{number}"
-
-
 def item_child_content_ids(item: dict[str, Any]) -> list[str]:
     """The content ids of this item's native sub-issue children, if any.
 

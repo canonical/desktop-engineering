@@ -21,9 +21,9 @@ Running the deploy script (below) stands up three things for a team:
 - **An org-level Project board.** One **Status** field with five columns —
   **Blocked · Ready · In progress · In review · Done**. There are no custom fields:
   the board reuses GitHub's native **Parent issue** field for hierarchy and the
-  native **Repository** field to show which code repo a spec belongs to. On the
-  Board view, closed descendants remain visible while their Map is open and are
-  hidden only while that Map is closed; the Efforts view is unaffected.
+  native **Repository** field to show which code repo a spec belongs to. A
+  finished Map's tree is hidden on demand by archiving its cards (see
+  [Hiding a finished Map](#hiding-a-finished-map-archive-mapyml)).
 - **A shared label vocabulary** the planning skills expect (`wayfinder:*` and the
   triage labels).
 
@@ -167,7 +167,7 @@ The sweep is **event-driven only — there is no `schedule` cron**. It runs from
 2. **`repository_dispatch` from an onboarded code repo** — PR events relay the PR
    facts needed by the link/status sync; issue opened/edited/closed/reopened events
    trigger the same reconcile sweep. This keeps Map closure/reopening and the
-   Board's Map-aware filter current for cross-repository issues as well.
+   board settled for cross-repository issues as well.
 3. **Native Project "→ Done" workflows**, when enabled — GitHub's own
    settings-only automation flips closed/merged items to Done ahead of the next
    sweep, for the lowest possible latency. The sweep does **not** depend on
@@ -178,13 +178,27 @@ The sweep is **event-driven only — there is no `schedule` cron**. It runs from
 
 A `workflow_dispatch` is also wired for manual runs.
 
-The sweep manages only the Board view's negative `parent-issue` filter clauses.
-When a Map is closed, it adds exclusions for the Map and every nested parent in
-its sub-issue tree, hiding all descendants from that view. When the Map reopens,
-those exclusions are removed. Closed children of an open Map therefore remain
-visible as progress. The existing `-label:wayfinder:map` filter still keeps Map
-cards themselves out of Board, and the Efforts view is never changed. No issue
-state, labels, Status values, or project membership are changed for visibility.
+The sweep never edits a view's filter. Board's `-label:wayfinder:map` filter,
+which keeps Map cards out of Board, is set by hand and stays as it is.
+
+### Hiding a finished Map: `archive-map.yml`
+
+To hide a finished Map's tree, run the planning repo's **`archive-map.yml`**
+workflow by hand (Actions tab, or
+`gh workflow run archive-map.yml -f map=10 -f dry-run=false`). It walks the Map's
+sub-issue tree at any depth, cross-repo (specs in code repos included), and
+**archives the Project card of every descendant, open or closed**, so it leaves
+every view. Nothing changes on the issues. It needs no new token permission:
+archiving is covered by `AI_PLANNING_TOKEN`'s org `Projects: Read and write`.
+
+- The issue must carry `wayfinder:map` and be **closed**; otherwise nothing runs.
+- The Map's own card is untouched, and `dry-run` (the default) only lists the cards.
+- Choose `mode: unarchive` to restore the whole tree (the Map may be open).
+- Archived cards leave the Efforts view too, not just the Board.
+- By hand in the Project UI: a card's "⋯" menu -> **Archive**, or select several
+  rows in a table view and archive them together. Archived cards are listed with
+  the filter `is:archived`, and restored from the Project's "⋯" -> **Archived
+  items** (or the card's own menu).
 
 ### Self-close on merge (cross-repo tickets)
 

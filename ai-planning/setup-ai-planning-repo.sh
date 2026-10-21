@@ -248,20 +248,21 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/.github/workflows"
 cp "$SCRIPT_DIR/.github/workflows/board-sync.yml" "$STAGE/.github/workflows/board-sync.yml"
+cp "$SCRIPT_DIR/.github/workflows/archive-map.yml" "$STAGE/.github/workflows/archive-map.yml"
 # board-sync.yml needs no stamping: it references the board by the PROJECT_ID
 # variable and the token secret, not by the repo name.
 cat > "$STAGE/README.md" <<EOF
 # $BOARD_TITLE
 
 Private planning board for the **$TEAM** squad. File planning issues here; the
-board's **Status** column and Map-aware Board filter reconcile on planning issue
-events and dispatched PR/issue events from destination repos.
+board's **Status** column reconciles on planning issue events and dispatched
+PR/issue events from destination repos.
 
-Closed descendants stay visible while their Map is open and disappear from the
-Board when the Map closes. Reopening the Map restores them; the Efforts view is
-unchanged.
+To hide a finished Map's whole tree from the board, run the **archive-map**
+workflow (Actions tab) on the closed Map; run it with \`unarchive\` to restore.
 
-This repo carries almost nothing on purpose — only its board-sync workflow. All
+This repo carries almost nothing on purpose — its board-sync and archive-map
+workflows. All
 tooling, templates and sync code live once in
 **[canonical/desktop-engineering/ai-planning](https://github.com/canonical/desktop-engineering/tree/$REF/ai-planning)**
 (run \`setup-ai-planning-repo.sh\` / \`setup-dest-repo.sh\` from there).
@@ -415,10 +416,9 @@ cat <<EOF
                         column (same "Fields" menu) so each map row shows its
                         chip.
 
-     The sync job manages negative parent-issue filters on Board: descendants
-     of a closed map are hidden, and reappear if the map reopens. Leave the
-     existing -label:wayfinder:map filter in place; do not add manual negative
-     parent-issue terms to this view.
+     Hide a finished map's tree by running the archive-map workflow on the
+     closed map (Actions tab). The sync never edits a view's filter; leave the
+     -label:wayfinder:map filter in place.
 
      Enabling "Labels" is per-view, so do it on BOTH views — a view without it
      shows no colour.

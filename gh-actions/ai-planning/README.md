@@ -1,13 +1,16 @@
 # AI planning board — composite actions
 
-This directory is the **single home** of the AI planning board wiring. It holds two
-sibling composite actions; every squad's planning repo and every onboarded code
+This directory is the **single home** of the AI planning board wiring. It holds sibling
+composite actions; every squad's planning repo and every onboarded code
 repo references one of them instead of carrying its own copy of the code:
 
 - [`sync/`](sync/action.yaml) — the **status-reconcile** action. Reads every
   Project card's live GitHub facts and sets each card's **Status** from scratch.
   Called by a planning repo's `board-sync.yml`. Drives the `ai_planning` package at
   [`../../ai-planning`](../../ai-planning).
+- [`archive/`](archive/action.yaml) — the **archive-Map** action. Archives (or
+  restores) the Project cards of every descendant of a closed Map. Called by a
+  planning repo's manually-run `archive-map.yml`. Drives `ai_planning.archive`.
 - [`pr-dispatch/`](pr-dispatch/action.yaml) — the **PR-relay** action. Forwards one
   destination-repo PR event to the planning repo as a `repository_dispatch`. Called
   by the per-repo `ai-planning-pr.yml` that `setup-dest-repo.sh` installs.

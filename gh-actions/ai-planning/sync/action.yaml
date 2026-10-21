@@ -1,5 +1,5 @@
-# Composite action that reconciles an AI planning board's Status column and
-# Map-aware Board filter from live GitHub facts. It is one of the sibling
+# Composite action that reconciles an AI planning board's Status column from
+# live GitHub facts. It is one of the sibling
 # composite actions under `gh-actions/ai-planning/` — this one (`sync/`) settles
 # the board; `pr-dispatch/` relays PR facts and `issue-dispatch/` relays issue
 # lifecycle events. All are actions rather than reusable
@@ -13,9 +13,8 @@
 # lives at `../../../ai-planning`. See ../README.md.
 name: AI planning board status sync
 description: >-
-  Idempotent full-board reconcile of an AI planning board's Status column and
-  the Board view's Map-aware parent-issue filter, driven by ai_planning in
-  canonical/desktop-engineering.
+  Idempotent full-board reconcile of an AI planning board's Status column,
+  driven by ai_planning in canonical/desktop-engineering.
 
 inputs:
   project-id:

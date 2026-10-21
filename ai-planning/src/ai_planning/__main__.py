@@ -90,22 +90,13 @@ def main(argv: list[str] | None = None) -> int:
 
     for item_id, status in result.written:
         print(f"{item_id} -> {status.value}")
-    if result.board_filter_updated:
-        print("updated Board filter for closed Map subtree(s)")
-    if result.board_view_missing:
-        print(
-            "warning: no unique Board view with board layout found; "
-            "Map filter unchanged",
-            file=sys.stderr,
-        )
     print(
         f"seeded={len(result.seeded)} "
         f"written={len(result.written)} "
         f"unchanged={len(result.unchanged)} "
         f"skipped_maps={len(result.skipped_maps)} "
         f"skipped_contentless={len(result.skipped_contentless)} "
-        f"closed_issues={len(result.closed_issues)} "
-        f"board_filter_updated={int(result.board_filter_updated)}",
+        f"closed_issues={len(result.closed_issues)}",
         file=sys.stderr,
     )
     return 0

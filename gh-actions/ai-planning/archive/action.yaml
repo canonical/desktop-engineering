@@ -1,0 +1,63 @@
+# Composite action that archives (or restores) the Project cards under a closed
+# Map, recursively, so they leave every view of the board. One of the sibling
+# composite actions under `gh-actions/ai-planning/`; the planning repo's
+# `archive-map.yml` calls it on demand. It drives the `ai_planning.archive`
+# module at `../../../ai-planning`. See ../README.md.
+name: AI planning board archive Map
+description: >-
+  Archive (or unarchive) the Project cards of every descendant of a closed Map,
+  driven by ai_planning in canonical/desktop-engineering.
+
+inputs:
+  project-id:
+    description: The org Project (v2) node id (PVT_...) holding the cards.
+    required: true
+  token:
+    description: Fine-grained PAT (Issues:read, org Projects:write).
+    required: true
+  map:
+    description: The Map issue, as a number in the caller repo or `owner/repo#number`.
+    required: true
+  mode:
+    description: "`archive` (default) or `unarchive`."
+    required: false
+    default: archive
+  dry-run:
+    description: When "true", only report what would change.
+    required: false
+    default: "false"
+  ref:
+    description: Ref of canonical/desktop-engineering providing the ai_planning package.
+    required: false
+    default: ai_planning_board
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the ai_planning tooling
+      uses: actions/checkout@v4
+      with:
+        repository: canonical/desktop-engineering
+        ref: ${{ inputs.ref }}
+        sparse-checkout: ai-planning
+        path: desktop-engineering-ai-planning
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install the ai_planning package
+      shell: bash
+      run: python -m pip install ./desktop-engineering-ai-planning/ai-planning
+
+    - name: Archive the Map's descendants
+      shell: bash
+      env:
+        AI_PLANNING_TOKEN: ${{ inputs.token }}
+        AI_PLANNING_PROJECT_ID: ${{ inputs.project-id }}
+        AI_PLANNING_REPO: ${{ github.repository }}
+        AI_PLANNING_MAP: ${{ inputs.map }}
+        AI_PLANNING_ARCHIVE_MODE: ${{ inputs.mode }}
+        AI_PLANNING_DRY_RUN: ${{ inputs.dry-run }}
+      run: python -m ai_planning.archive

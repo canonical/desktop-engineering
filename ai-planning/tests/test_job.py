@@ -19,7 +19,6 @@ from ai_planning.job import (
 )
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
-    BOARD_VIEWS_QUERY,
     CLOSE_ISSUE_MUTATION,
     ISSUE_LINKED_PRS_QUERY,
     PROJECT_ITEM_QUERY,
@@ -27,7 +26,6 @@ from ai_planning.queries import (
     REOPEN_ISSUE_MUTATION,
     REPO_ISSUES_QUERY,
     STATUS_FIELD_QUERY,
-    UPDATE_PROJECT_VIEW_FILTER_MUTATION,
     UPDATE_STATUS_MUTATION,
 )
 
@@ -52,8 +50,7 @@ STATUS_FIELD_RESPONSE = {
 
 
 def _issue(item_id, *, state="OPEN", assignees=0, labels=(), blocked_by=0, prs=(),
-           status_option_id=None, repository="canonical/test", number=1,
-           child_content_ids=()):
+           status_option_id=None, child_content_ids=()):
     return issue_item(
         item_id,
         state=state,
@@ -61,8 +58,6 @@ def _issue(item_id, *, state="OPEN", assignees=0, labels=(), blocked_by=0, prs=(
         labels=labels,
         blocked_by=blocked_by,
         prs=prs,
-        repository=repository,
-        number=number,
         child_content_ids=child_content_ids,
         status_option_id=status_option_id,
     )
@@ -71,33 +66,16 @@ def _issue(item_id, *, state="OPEN", assignees=0, labels=(), blocked_by=0, prs=(
 class FakeClient:
     """Serves the Status field, one or more item pages, and records mutations."""
 
-    def __init__(self, item_pages, *, board_filter="-label:wayfinder:map", board_views=None):
+    def __init__(self, item_pages):
         self._item_pages = list(item_pages)
         self._page_index = 0
         self.mutations = []
         self.closed = []
         self.reopened = []
-        self.board_filter_mutations = []
-        self.board_views = board_views if board_views is not None else [
-            {
-                "id": "PVTV_board",
-                "name": "Board",
-                "layout": "BOARD_LAYOUT",
-                "filter": board_filter,
-            },
-            {
-                "id": "PVTV_efforts",
-                "name": "Efforts",
-                "layout": "TABLE_LAYOUT",
-                "filter": "label:wayfinder:map",
-            },
-        ]
 
     def execute(self, query, variables):
         if query == STATUS_FIELD_QUERY:
             return STATUS_FIELD_RESPONSE
-        if query == BOARD_VIEWS_QUERY:
-            return {"node": {"views": {"nodes": self.board_views}}}
         if query == PROJECT_ITEMS_QUERY:
             nodes, has_next = self._item_pages[self._page_index]
             end_cursor = f"cursor{self._page_index}"
@@ -116,20 +94,6 @@ class FakeClient:
         if query == UPDATE_STATUS_MUTATION:
             self.mutations.append(variables)
             return {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "x"}}}
-        if query == UPDATE_PROJECT_VIEW_FILTER_MUTATION:
-            self.board_filter_mutations.append(variables)
-            for view in self.board_views:
-                if view["id"] == variables["viewId"]:
-                    view["filter"] = variables["filter"]
-                    break
-            return {
-                "updateProjectV2View": {
-                    "projectV2View": {
-                        "id": variables["viewId"],
-                        "filter": variables["filter"],
-                    }
-                }
-            }
         if query == CLOSE_ISSUE_MUTATION:
             self.closed.append(variables["issueId"])
             return {"closeIssue": {"issue": {"id": variables["issueId"],
@@ -187,16 +151,6 @@ def test_fully_settled_board_writes_nothing():
     assert client.mutations == []
     assert [item_id for item_id, _ in result.unchanged] == ["i_ready", "i_done"]
     assert result.written == []
-
-
-def test_missing_board_view_does_not_block_status_sync():
-    client = FakeClient(_single_page([_issue("i_ready")]), board_views=[])
-
-    result = run_sync(client, PROJECT_ID)
-
-    assert result.board_view_missing is True
-    assert result.board_filter_updated is False
-    assert client.board_filter_mutations == []
 
 
 def test_syncs_and_writes_each_status():
@@ -472,21 +426,6 @@ class SeedingFakeClient:
         self.on_board = list(dict.fromkeys(on_board))
         self.added = []
         self.status_writes = []
-        self.board_filter_mutations = []
-        self.board_views = [
-            {
-                "id": "PVTV_board",
-                "name": "Board",
-                "layout": "BOARD_LAYOUT",
-                "filter": "-label:wayfinder:map",
-            },
-            {
-                "id": "PVTV_efforts",
-                "name": "Efforts",
-                "layout": "TABLE_LAYOUT",
-                "filter": "label:wayfinder:map",
-            },
-        ]
         # When True, a content added via ADD_ITEM does NOT appear in the
         # PROJECT_ITEMS list read (models Projects v2 eventual consistency),
         # but is still readable directly by its item id via PROJECT_ITEM_QUERY.
@@ -504,16 +443,12 @@ class SeedingFakeClient:
             prs=spec.get("prs", ()),
             content_id=content_id,
             child_content_ids=spec.get("child_content_ids", ()),
-            repository=spec.get("repository", "canonical/test"),
-            number=spec.get("number", 1),
             status_option_id=spec.get("status_option_id"),
         )
 
     def execute(self, query, variables):
         if query == STATUS_FIELD_QUERY:
             return STATUS_FIELD_RESPONSE
-        if query == BOARD_VIEWS_QUERY:
-            return {"node": {"views": {"nodes": self.board_views}}}
         if query == REPO_ISSUES_QUERY:
             return {
                 "repository": {
@@ -549,20 +484,6 @@ class SeedingFakeClient:
         if query == UPDATE_STATUS_MUTATION:
             self.status_writes.append(variables)
             return {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "x"}}}
-        if query == UPDATE_PROJECT_VIEW_FILTER_MUTATION:
-            self.board_filter_mutations.append(variables)
-            for view in self.board_views:
-                if view["id"] == variables["viewId"]:
-                    view["filter"] = variables["filter"]
-                    break
-            return {
-                "updateProjectV2View": {
-                    "projectV2View": {
-                        "id": variables["viewId"],
-                        "filter": variables["filter"],
-                    }
-                }
-            }
         raise AssertionError(f"unexpected query: {query!r}")
 
 
@@ -757,25 +678,8 @@ def test_merged_pr_found_only_on_a_paged_linked_pr_tail():
 # --- the map auto-close cascade ----------------------------------------------
 
 
-def _map(
-    item_id,
-    *,
-    state="OPEN",
-    child_content_ids=(),
-    repository="canonical/planning",
-    number=None,
-):
-    if number is None:
-        number = {"i_map": 10, "i_inner_map": 11, "i_outer_map": 12}.get(
-            item_id, 1
-        )
-    item = _issue(
-        item_id,
-        state=state,
-        labels=("wayfinder:map",),
-        repository=repository,
-        number=number,
-    )
+def _map(item_id, *, state="OPEN", child_content_ids=()):
+    item = _issue(item_id, state=state, labels=("wayfinder:map",))
     item["content"]["subIssues"] = {
         "nodes": [{"id": cid} for cid in child_content_ids]
     }
@@ -794,15 +698,6 @@ def test_map_whose_entire_subtree_is_closed_auto_closes():
     assert client.closed == ["I_i_map"]
     assert result.map_closed == ["I_i_map"]
     assert client.reopened == []
-    assert client.board_filter_mutations == [
-        {
-            "viewId": "PVTV_board",
-            "filter": (
-                '-label:wayfinder:map '
-                '-parent-issue:"canonical/planning#10"'
-            ),
-        }
-    ]
 
 
 def test_map_with_an_open_descendant_does_not_auto_close():
@@ -831,91 +726,13 @@ def test_childless_map_never_auto_closes():
 def test_closed_map_auto_reopens_when_a_descendant_reopens():
     child = _issue("i_child")  # OPEN
     map_item = _map("i_map", state="CLOSED", child_content_ids=("I_i_child",))
-    client = FakeClient(
-        _single_page([child, map_item]),
-        board_filter=(
-            '-label:wayfinder:map -parent-issue:"canonical/planning#10"'
-        ),
-    )
+    client = FakeClient(_single_page([child, map_item]))
 
     result = run_sync(client, PROJECT_ID)
 
     assert client.reopened == ["I_i_map"]
     assert result.map_reopened == ["I_i_map"]
     assert client.closed == []
-    assert client.board_filter_mutations == [
-        {"viewId": "PVTV_board", "filter": "-label:wayfinder:map"}
-    ]
-
-
-def test_closed_children_stay_visible_while_their_map_is_open():
-    closed_map_direct_child = _issue(
-        "i_closed_map_direct_child", state="CLOSED", number=2
-    )
-    closed_map_spec = _issue(
-        "i_closed_map_spec",
-        state="CLOSED",
-        repository="canonical/warty-whisperer",
-        number=459,
-        child_content_ids=("I_i_closed_map_ticket",),
-    )
-    closed_map_ticket = _issue(
-        "i_closed_map_ticket", state="CLOSED", number=11
-    )
-    closed_map = _map(
-        "i_map",
-        state="CLOSED",
-        child_content_ids=(
-            "I_i_closed_map_direct_child",
-            "I_i_closed_map_spec",
-        ),
-    )
-
-    closed_child_under_open_map = _issue(
-        "i_closed_child_under_open_map", state="CLOSED", number=20
-    )
-    open_child_under_open_map = _issue("i_open_child_under_open_map", number=21)
-    open_map = _map(
-        "i_inner_map",
-        child_content_ids=(
-            "I_i_closed_child_under_open_map",
-            "I_i_open_child_under_open_map",
-        ),
-    )
-    unrelated_closed_issue = _issue("i_unrelated_closed", state="CLOSED", number=30)
-    client = FakeClient(
-        _single_page(
-            [
-                closed_map_direct_child,
-                closed_map_spec,
-                closed_map_ticket,
-                closed_map,
-                closed_child_under_open_map,
-                open_child_under_open_map,
-                open_map,
-                unrelated_closed_issue,
-            ]
-        )
-    )
-
-    run_sync(client, PROJECT_ID)
-
-    # Closed Map #10's direct work and its Spec's implementation child are
-    # hidden; closed work under the still-open Map and unrelated closed work
-    # remain visible. The Efforts view and issue states are untouched.
-    assert client.board_filter_mutations == [
-        {
-            "viewId": "PVTV_board",
-            "filter": (
-                '-label:wayfinder:map '
-                '-parent-issue:"canonical/planning#10" '
-                '-parent-issue:"canonical/warty-whisperer#459"'
-            ),
-        }
-    ]
-    assert client.board_views[1]["filter"] == "label:wayfinder:map"
-    assert client.closed == []
-    assert client.reopened == []
 
 
 def test_map_auto_close_is_reason_agnostic():

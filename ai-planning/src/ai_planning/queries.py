@@ -22,28 +22,6 @@ query($projectId: ID!) {
 }
 """
 
-# The Board is the only view whose filter is augmented by map lifecycle. Other
-# views (notably Efforts) are deliberately left alone.
-BOARD_VIEWS_QUERY = """
-query($projectId: ID!) {
-  node(id: $projectId) {
-    ... on ProjectV2 {
-      views(first: 100) {
-        nodes { id name layout filter }
-      }
-    }
-  }
-}
-"""
-
-UPDATE_PROJECT_VIEW_FILTER_MUTATION = """
-mutation($viewId: ID!, $filter: String!) {
-  updateProjectV2View(input: { viewId: $viewId, filter: $filter }) {
-    projectV2View { id filter }
-  }
-}
-"""
-
 # How many linked-PR nodes to read per issue in the per-item embed and per page
 # of the stand-alone pager. A closing link
 # (`closedByPullRequestsReferences(userLinkedOnly: false)` — a closing keyword
@@ -93,9 +71,7 @@ _ITEM_NODE_FIELDS = """
     __typename
     ... on Issue {
       id
-      number
       state
-      repository { nameWithOwner }
       assignees { totalCount }
       labels(first: 50) { nodes { name } }
       issueDependenciesSummary { blockedBy }
@@ -338,6 +314,67 @@ mutation($issueId: ID!, $pullRequestId: ID!) {
     input: { issueId: $issueId, pullRequestIds: [$pullRequestId] }
   ) {
     issue { id }
+  }
+}
+"""
+
+# Resolve an issue by repo + number to its node id, state and labels. The
+# manual archive workflow starts from a Map named by the operator, so it needs
+# the id to walk down from and the state/label to refuse anything that is not a
+# closed Map. A missing issue resolves to a null `issue`.
+ISSUE_ROOT_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      id
+      number
+      state
+      repository { nameWithOwner }
+      labels(first: 50) { nodes { name } }
+    }
+  }
+}
+"""
+
+# One level of an issue's sub-issue tree, keyed by the issue's node id:
+# its own facts, every Project item it has (so the caller can pick this
+# Project's by `project.id`, with `isArchived` telling whether it is already
+# hidden), and a page of its direct children. `$subCursor` is null on page one.
+ISSUE_SUBTREE_QUERY = """
+query($issueId: ID!, $subCursor: String) {
+  node(id: $issueId) {
+    ... on Issue {
+      id
+      number
+      state
+      repository { nameWithOwner }
+      projectItems(first: 50) {
+        nodes { id isArchived project { id } }
+      }
+      subIssues(first: 50, after: $subCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  }
+}
+"""
+
+# Hide / restore one Project item. Archiving removes the card from every view
+# (it stays in the Project and can be restored); it changes nothing on the
+# underlying issue. Covered by the PAT's existing org `Projects: write`.
+ARCHIVE_ITEM_MUTATION = """
+mutation($projectId: ID!, $itemId: ID!) {
+  archiveProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+    item { id }
+  }
+}
+"""
+
+UNARCHIVE_ITEM_MUTATION = """
+mutation($projectId: ID!, $itemId: ID!) {
+  unarchiveProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+    item { id }
   }
 }
 """

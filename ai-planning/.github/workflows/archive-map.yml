@@ -1,0 +1,41 @@
+# Manually hide a finished Map's whole tree from the board.
+#
+# Run it from the Actions tab (or `gh workflow run archive-map.yml -f map=10`).
+# Every descendant of the Map, open or closed, at any depth and in any repo, has
+# its Project card archived; nothing on the issues changes. Choose `unarchive` to
+# bring the cards back. The Map must be closed to archive.
+name: AI planning archive Map
+
+on:
+  workflow_dispatch:
+    inputs:
+      map:
+        description: Map issue number (or owner/repo#number)
+        required: true
+        type: string
+      mode:
+        description: archive or unarchive
+        type: choice
+        options: [archive, unarchive]
+        default: archive
+      dry-run:
+        description: Only list what would change
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Archive the Map's descendants
+        uses: canonical/desktop-engineering/gh-actions/ai-planning/archive@ai_planning_board
+        with:
+          project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
+          token: ${{ secrets.AI_PLANNING_TOKEN }}
+          map: ${{ inputs.map }}
+          mode: ${{ inputs.mode }}
+          dry-run: ${{ inputs.dry-run }}
