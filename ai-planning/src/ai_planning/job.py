@@ -30,6 +30,11 @@ A map auto-closes and auto-reopens by `compute_map_cascade`, a pure reducer over
 each map's native sub-issue subtree (any depth), folded into this same sweep —
 no new trigger. See that function's docstring for the predicate.
 
+After the Status writes, every card still on the board under a closed map (open
+or closed, any depth, cross-repo) is archived and the map's own card stays; see
+`archive.subtree_item_ids`. A child of a closed map is also archived when the
+map's card is itself already archived.
+
 A closed card's facts are still read and scored like any other card — its
 synced Status feeds the child roll-up and the future map-cascade — and it is
 also a normal write-candidate: the sweep is the single source of truth for the
@@ -61,11 +66,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from ai_planning.archive import archive_item, subtree_item_ids
 from ai_planning.client import SupportsExecute
 from ai_planning.sync_status import Facts, Status, sync_status
 from ai_planning.facts_mapping import (
     extend_item_linked_prs,
     item_child_content_ids,
+    item_has_closed_map_parent,
     item_content_id,
     item_current_status_option_id,
     linked_prs_page_info,
@@ -107,6 +114,7 @@ class SyncResult:
     closed_issues: list[str] = field(default_factory=list)
     map_closed: list[str] = field(default_factory=list)
     map_reopened: list[str] = field(default_factory=list)
+    archived: list[str] = field(default_factory=list)
 
 
 def fetch_status_field(client: SupportsExecute, project_id: str) -> StatusField:
@@ -520,6 +528,8 @@ def run_sync(
     # spec-branch PR). Closing it clears the native blocked_by edges so
     # dependents unblock.
     issue_ids_to_close: dict[str, str] = {}
+    # Cards whose direct parent is a closed Map (it may already be archived).
+    children_of_closed_maps: set[str] = set()
 
     def ingest(item: dict[str, Any]) -> None:
         item_id: str = item["id"]
@@ -542,6 +552,8 @@ def run_sync(
             if facts.has_merged_linked_pr and not facts.closed:
                 issue_ids_to_close[item_id] = content_id
         child_content_ids_by_item_id[item_id] = item_child_content_ids(item)
+        if item_has_closed_map_parent(item):
+            children_of_closed_maps.add(item_id)
 
     for item in items:
         ingest(item)
@@ -576,6 +588,11 @@ def run_sync(
     # decisions into cross-repo mutations, updating `facts_by_item_id` in step
     # so any later read of a map's `closed` fact this run (e.g. an ancestor
     # map's own subtree) already reflects it.
+    closed_map_item_ids = {
+        item_id
+        for item_id, facts in facts_by_item_id.items()
+        if facts.is_map and (facts.closed or facts.has_merged_linked_pr)
+    }
     map_actions = compute_map_cascade(
         facts_by_item_id, item_id_by_content_id, child_content_ids_by_item_id
     )
@@ -583,9 +600,11 @@ def run_sync(
         if action.close:
             close_issue(client, action.content_id)
             result.map_closed.append(action.content_id)
+            closed_map_item_ids.add(action.item_id)
         else:
             reopen_issue(client, action.content_id)
             result.map_reopened.append(action.content_id)
+            closed_map_item_ids.discard(action.item_id)
         facts_by_item_id[action.item_id] = replace(
             facts_by_item_id[action.item_id], closed=action.close
         )
@@ -652,5 +671,18 @@ def run_sync(
             continue
         write_status(client, project_id, item_id, status_field, status)
         result.written.append((item_id, status))
+
+    # Hide finished work: every card still visible under a closed Map (open or
+    # closed, any depth, cross-repo) is archived, once its Status has settled.
+    # The Map's own card stays. Archived cards leave the board read, so a settled
+    # tree costs nothing on later sweeps.
+    for item_id in subtree_item_ids(
+        closed_map_item_ids,
+        children_of_closed_maps,
+        item_id_by_content_id,
+        child_content_ids_by_item_id,
+    ):
+        archive_item(client, project_id, item_id)
+        result.archived.append(item_id)
 
     return result

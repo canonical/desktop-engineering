@@ -258,8 +258,9 @@ Private planning board for the **$TEAM** squad. File planning issues here; the
 board's **Status** column reconciles on planning issue events and dispatched
 PR/issue events from destination repos.
 
-To hide a finished Map's whole tree from the board, run the **archive-map**
-workflow (Actions tab) on the closed Map; run it with \`unarchive\` to restore.
+When a Map closes, the sync archives every card under it, so a finished Map's
+tree leaves the board. The **archive-map** workflow (Actions tab) does the same
+for one Map on demand, or restores it with \`unarchive\`.
 
 This repo carries almost nothing on purpose — its board-sync and archive-map
 workflows. All
@@ -416,9 +417,9 @@ cat <<EOF
                         column (same "Fields" menu) so each map row shows its
                         chip.
 
-     Hide a finished map's tree by running the archive-map workflow on the
-     closed map (Actions tab). The sync never edits a view's filter; leave the
-     -label:wayfinder:map filter in place.
+     The sync archives every card under a closed map on its own (the
+     archive-map workflow does it on demand and can restore). It never edits a
+     view's filter; leave the -label:wayfinder:map filter in place.
 
      Enabling "Labels" is per-view, so do it on BOTH views — a view without it
      shows no colour.

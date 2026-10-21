@@ -19,6 +19,7 @@ from ai_planning.job import (
 )
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
+    ARCHIVE_ITEM_MUTATION,
     CLOSE_ISSUE_MUTATION,
     ISSUE_LINKED_PRS_QUERY,
     PROJECT_ITEM_QUERY,
@@ -72,6 +73,7 @@ class FakeClient:
         self.mutations = []
         self.closed = []
         self.reopened = []
+        self.archived = []
 
     def execute(self, query, variables):
         if query == STATUS_FIELD_QUERY:
@@ -98,6 +100,9 @@ class FakeClient:
             self.closed.append(variables["issueId"])
             return {"closeIssue": {"issue": {"id": variables["issueId"],
                                              "state": "CLOSED"}}}
+        if query == ARCHIVE_ITEM_MUTATION:
+            self.archived.append(variables["itemId"])
+            return {"archiveProjectV2Item": {"item": {"id": variables["itemId"]}}}
         if query == REOPEN_ISSUE_MUTATION:
             self.reopened.append(variables["issueId"])
             return {"reopenIssue": {"issue": {"id": variables["issueId"],
@@ -733,6 +738,84 @@ def test_closed_map_auto_reopens_when_a_descendant_reopens():
     assert client.reopened == ["I_i_map"]
     assert result.map_reopened == ["I_i_map"]
     assert client.closed == []
+
+
+def test_closed_map_with_an_open_descendant_is_reopened_not_archived():
+    ticket = _issue("i_ticket", state="CLOSED")
+    spec = _issue(
+        "i_spec", state="CLOSED", child_content_ids=("I_i_ticket",)
+    )
+    still_open = _issue("i_open")
+    unrelated = _issue("i_unrelated", state="CLOSED")
+    map_item = _map(
+        "i_map",
+        state="CLOSED",
+        child_content_ids=("I_i_spec", "I_i_open"),
+    )
+    client = FakeClient(_single_page([ticket, spec, still_open, unrelated, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    # The open child reopens the map first, so nothing is hidden this sweep.
+    assert result.map_reopened == ["I_i_map"]
+    assert client.archived == []
+
+
+def test_closed_map_tree_is_archived_in_the_same_sweep_it_closes():
+    ticket = _issue("i_ticket", state="CLOSED")
+    spec = _issue("i_spec", state="CLOSED", child_content_ids=("I_i_ticket",))
+    sibling = _issue("i_sibling", state="CLOSED")
+    unrelated = _issue("i_unrelated", state="CLOSED")
+    map_item = _map(
+        "i_map", child_content_ids=("I_i_spec", "I_i_sibling")
+    )
+    client = FakeClient(_single_page([ticket, spec, sibling, unrelated, map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert result.map_closed == ["I_i_map"]
+    assert sorted(client.archived) == ["i_sibling", "i_spec", "i_ticket"]
+    assert sorted(result.archived) == ["i_sibling", "i_spec", "i_ticket"]
+
+
+def test_open_map_archives_nothing():
+    child = _issue("i_child", state="CLOSED")
+    other = _issue("i_other")
+    map_item = _map("i_map", child_content_ids=("I_i_child", "I_i_other"))
+    client = FakeClient(_single_page([child, other, map_item]))
+
+    run_sync(client, PROJECT_ID)
+
+    assert client.archived == []
+
+
+def test_children_of_an_already_archived_closed_map_are_still_archived():
+    """The Map's own card is gone from the board read; its children carry the
+    closed-Map parent, so they and their descendants are still hidden."""
+    parent = {"state": "CLOSED", "labels": {"nodes": [{"name": "wayfinder:map"}]}}
+    ticket = _issue("i_ticket", state="CLOSED")
+    spec = _issue(
+        "i_spec",
+        state="CLOSED",
+        child_content_ids=("I_i_ticket",),
+    )
+    spec["content"]["parent"] = parent
+    client = FakeClient(_single_page([spec, ticket]))
+
+    run_sync(client, PROJECT_ID)
+
+    assert sorted(client.archived) == ["i_spec", "i_ticket"]
+
+
+def test_a_closed_non_map_parent_does_not_archive_its_children():
+    parent = {"state": "CLOSED", "labels": {"nodes": [{"name": "wayfinder:spec"}]}}
+    child = _issue("i_child", state="CLOSED")
+    child["content"]["parent"] = parent
+    client = FakeClient(_single_page([child]))
+
+    run_sync(client, PROJECT_ID)
+
+    assert client.archived == []
 
 
 def test_map_auto_close_is_reason_agnostic():

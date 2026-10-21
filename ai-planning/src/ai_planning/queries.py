@@ -72,6 +72,7 @@ _ITEM_NODE_FIELDS = """
     ... on Issue {
       id
       state
+      parent { state labels(first: 50) { nodes { name } } }
       assignees { totalCount }
       labels(first: 50) { nodes { name } }
       issueDependenciesSummary { blockedBy }

@@ -54,6 +54,47 @@ class ArchivePlan:
     off_board: list[TreeIssue] = field(default_factory=list)
 
 
+def subtree_item_ids(
+    root_item_ids: set[str],
+    included_item_ids: set[str],
+    item_id_by_content_id: dict[str, str],
+    child_content_ids_by_item_id: dict[str, list[str]],
+) -> list[str]:
+    """Project item ids to archive for the given closed Maps, from board data.
+
+    `root_item_ids` are closed Maps whose own card stays; `included_item_ids`
+    are children of an already-archived closed Map, archived along with their
+    own descendants. Only cards still on the board can be reached, which is all
+    that is left to hide. The result keeps first-visit order and has no repeats.
+    """
+
+    found: dict[str, None] = {}
+    stack = list(included_item_ids)
+    for root in root_item_ids:
+        stack.extend(
+            item_id_by_content_id[child]
+            for child in child_content_ids_by_item_id.get(root, [])
+            if child in item_id_by_content_id
+        )
+    while stack:
+        item_id = stack.pop()
+        if item_id in found or item_id in root_item_ids:
+            continue
+        found[item_id] = None
+        stack.extend(
+            item_id_by_content_id[child]
+            for child in child_content_ids_by_item_id.get(item_id, [])
+            if child in item_id_by_content_id
+        )
+    return list(found)
+
+
+def archive_item(client: SupportsExecute, project_id: str, item_id: str) -> None:
+    client.execute(
+        ARCHIVE_ITEM_MUTATION, {"projectId": project_id, "itemId": item_id}
+    )
+
+
 def parse_map_ref(value: str, default_repo: str) -> tuple[str, str, int]:
     """Accept `123`, `#123` or `owner/repo#123`; bare numbers use `default_repo`."""
 
