@@ -1,4 +1,5 @@
-# Sync the planning repo's tickets with the board status.
+# Sync the planning repo's tickets with the board status of every board (the
+# `all` board and one per squad).
 #
 # Automated triggers:
 # * any `issues` event here settles the whole board;
@@ -42,7 +43,7 @@ jobs:
       - name: Reconcile the planning board
         uses: canonical/desktop-engineering/gh-actions/ai-planning/sync@ai_planning_board
         with:
-          project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
+          boards: ${{ vars.AI_PLANNING_BOARDS }}
           token: ${{ secrets.AI_PLANNING_TOKEN }}
           # Forwarded only for PR dispatches: the immediate arm authors this
           # one PR's link before the same sweep scores it. Issue dispatches and

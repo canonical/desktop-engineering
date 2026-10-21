@@ -33,7 +33,8 @@ no new trigger. See that function's docstring for the predicate.
 After the Status writes, `map_visibility.reconcile_map_visibility` keeps each
 map's tree hidden or visible in step with the map's own card: a map that just
 closed is archived with its tree, a restored map has its tree restored, and the
-`wayfinder:archived` label on the map is the marker that tells the two apart.
+board's own `wayfinder:archived:<board>` label on the map is the marker that
+tells the two apart.
 
 A closed card's facts are still read and scored like any other card — its
 synced Status feeds the child roll-up and the future map-cascade — and it is
@@ -76,7 +77,7 @@ from ai_planning.facts_mapping import (
     linked_prs_page_info,
     item_to_facts,
 )
-from ai_planning.map_visibility import reconcile_map_visibility
+from ai_planning.map_visibility import ARCHIVED_LABEL, reconcile_map_visibility
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
     CLOSE_ISSUE_MUTATION,
@@ -168,15 +169,27 @@ def write_status(
 
 
 def iter_repo_open_issue_ids(
-    client: SupportsExecute, owner: str, name: str, *, page_size: int = 50
+    client: SupportsExecute,
+    owner: str,
+    name: str,
+    *,
+    label: str | None = None,
+    page_size: int = 50,
 ) -> Iterator[str]:
-    """Yield the content node id of every OPEN issue in `owner/name`."""
+    """Yield the content node id of every OPEN issue in `owner/name`, only those
+    carrying `label` when one is given."""
 
     cursor: str | None = None
     while True:
         data = client.execute(
             REPO_ISSUES_QUERY,
-            {"owner": owner, "name": name, "pageSize": page_size, "cursor": cursor},
+            {
+                "owner": owner,
+                "name": name,
+                "pageSize": page_size,
+                "cursor": cursor,
+                "labels": [label] if label else None,
+            },
         )
         issues = (data.get("repository") or {}).get("issues") or {}
         for node in issues.get("nodes", []):
@@ -430,12 +443,14 @@ def seed_board(
     project_id: str,
     planning_repo: str,
     *,
+    seed_label: str | None = None,
     page_size: int = 50,
 ) -> dict[str, str]:
     """Pass 0: ensure every effort issue is a card, so no agent runs `item-add`.
 
     First seed the planning repo's own OPEN issues (maps, tasks, research,
-    implementation tickets). Then take the **transitive closure over native
+    implementation tickets) — only those carrying `seed_label` for a squad
+    board, all of them when it is None (the `all` board). Then take the **transitive closure over native
     sub-issues**: a map's child that lives in another repo — a spec — is only
     visible once the map itself is on the board, so re-scan the board's
     sub-issue edges and pull in any child not yet carded, repeating until a
@@ -453,7 +468,7 @@ def seed_board(
     added: dict[str, str] = {}
 
     for content_id in iter_repo_open_issue_ids(
-        client, owner, name, page_size=page_size
+        client, owner, name, label=seed_label, page_size=page_size
     ):
         if content_id not in on_board:
             added[content_id] = add_item(client, project_id, content_id)
@@ -478,13 +493,17 @@ def run_sync(
     project_id: str,
     *,
     planning_repo: str | None = None,
+    seed_label: str | None = None,
+    archived_label: str = ARCHIVED_LABEL,
     page_size: int = 50,
 ) -> SyncResult:
     """Score every card and write each synced Status back, two passes deep.
 
     When `planning_repo` is given, pass 0 seeds the board first (every
     planning-repo issue plus their transitive sub-issue children), so the sweep
-    reconciles a board it also keeps populated. Any card seeded this run that the
+    reconciles a board it also keeps populated (`seed_label` narrows the planning
+    repo's issues to one squad's; `archived_label` is this board's own
+    archived-Map marker). Any card seeded this run that the
     (eventually-consistent) board list read doesn't return yet is fetched back by
     its item id so it is still synced now. Pass 1 syncs every leaf (an item with
     no sub-issue children present on this board). Pass 2 syncs every parent,
@@ -515,7 +534,11 @@ def run_sync(
     seeded_items: dict[str, str] = {}
     if planning_repo:
         seeded_items = seed_board(
-            client, project_id, planning_repo, page_size=page_size
+            client,
+            project_id,
+            planning_repo,
+            seed_label=seed_label,
+            page_size=page_size,
         )
 
     status_field = fetch_status_field(client, project_id)
@@ -690,6 +713,7 @@ def run_sync(
         },
         item_id_by_content_id=item_id_by_content_id,
         child_content_ids_by_item_id=child_content_ids_by_item_id,
+        archived_label=archived_label,
     )
     result.archived = visibility.archived
     result.restored = visibility.restored

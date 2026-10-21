@@ -17,6 +17,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from ai_planning.boards import BoardsError, parse_boards, select_board
 from ai_planning.client import GraphQLClient, SupportsExecute
 from ai_planning.queries import (
     ARCHIVE_ITEM_MUTATION,
@@ -234,17 +235,24 @@ def run_archive(
 
 def main() -> int:
     token = os.environ.get("AI_PLANNING_TOKEN")
-    project_id = os.environ.get("AI_PLANNING_PROJECT_ID")
+    board_slug = os.environ.get("AI_PLANNING_BOARD")
     planning_repo = os.environ.get("AI_PLANNING_REPO")
     map_value = os.environ.get("AI_PLANNING_MAP")
     mode = os.environ.get("AI_PLANNING_ARCHIVE_MODE", ARCHIVE)
     dry_run = os.environ.get("AI_PLANNING_DRY_RUN", "").lower() in {"1", "true"}
-    if not (token and project_id and planning_repo and map_value):
+    if not (token and board_slug and planning_repo and map_value):
         print(
-            "set AI_PLANNING_TOKEN, AI_PLANNING_PROJECT_ID, AI_PLANNING_REPO "
-            "and AI_PLANNING_MAP",
+            "set AI_PLANNING_TOKEN, AI_PLANNING_BOARDS, AI_PLANNING_BOARD, "
+            "AI_PLANNING_REPO and AI_PLANNING_MAP",
             file=sys.stderr,
         )
+        return 2
+    try:
+        project_id = select_board(
+            parse_boards(os.environ.get("AI_PLANNING_BOARDS")), board_slug
+        ).project_id
+    except BoardsError as error:
+        print(f"error: {error}", file=sys.stderr)
         return 2
     if mode not in {ARCHIVE, UNARCHIVE}:
         print(f"unknown mode {mode!r} (archive|unarchive)", file=sys.stderr)

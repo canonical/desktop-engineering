@@ -4,7 +4,9 @@ An archived Map card means "this effort is hidden", so its whole tree is
 archived with it; restoring the Map card restores the tree. GitHub raises no
 event when a Project card is archived or restored, so the sweep infers it from
 what it can see — only active cards — plus one marker on the Map issue, the
-`wayfinder:archived` label, meaning "this Map's tree was archived by the sweep".
+board's archived label (`wayfinder:archived:<board>`, one per board because every
+board is archived and restored independently), meaning "this Map's tree was
+archived on this board by the sweep".
 
 For each Map the sweep can see (its card is active):
 
@@ -33,7 +35,7 @@ from ai_planning.queries import (
     REMOVE_LABEL_MUTATION,
 )
 
-ARCHIVED_LABEL = "wayfinder:archived"
+ARCHIVED_LABEL = "wayfinder:archived"  # default marker; boards pass their own
 MAP_LABEL = "wayfinder:map"
 
 
@@ -74,15 +76,16 @@ def closed_archived_map_parent(
 class _Marker:
     """Adds/removes the marker label, caching each repo's label id."""
 
-    def __init__(self, client: SupportsExecute) -> None:
+    def __init__(self, client: SupportsExecute, label: str) -> None:
         self._client = client
+        self._label = label
         self._ids: dict[str, str | None] = {}
 
     def label_id(self, repo: str) -> str | None:
         if repo not in self._ids:
             owner, _, name = repo.partition("/")
             data = self._client.execute(
-                LABEL_ID_QUERY, {"owner": owner, "name": name, "label": ARCHIVED_LABEL}
+                LABEL_ID_QUERY, {"owner": owner, "name": name, "label": self._label}
             )
             label = (data.get("repository") or {}).get("label")
             self._ids[repo] = label["id"] if label else None
@@ -110,9 +113,10 @@ def reconcile_map_visibility(
     open_map_item_ids: set[str],
     item_id_by_content_id: dict[str, str],
     child_content_ids_by_item_id: dict[str, list[str]],
+    archived_label: str = ARCHIVED_LABEL,
 ) -> VisibilityResult:
     result = VisibilityResult()
-    marker = _Marker(client)
+    marker = _Marker(client, archived_label)
     done: set[str] = set()
 
     def content(item_id: str) -> dict[str, Any]:
@@ -122,7 +126,7 @@ def reconcile_map_visibility(
         return (content(item_id).get("repository") or {}).get("nameWithOwner", "")
 
     def has_marker(item_id: str) -> bool:
-        return ARCHIVED_LABEL in _label_names(content(item_id).get("labels"))
+        return archived_label in _label_names(content(item_id).get("labels"))
 
     def archive_all(item_ids: list[str]) -> None:
         for item_id in item_ids:
@@ -159,7 +163,7 @@ def reconcile_map_visibility(
 
         if not marker.label_id(repo):
             print(
-                f"warning: label {ARCHIVED_LABEL!r} missing in {repo}; "
+                f"warning: label {archived_label!r} missing in {repo}; "
                 f"not archiving the tree of {map_issue_id}",
                 file=sys.stderr,
             )

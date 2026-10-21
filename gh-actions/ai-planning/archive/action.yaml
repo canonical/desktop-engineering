@@ -1,5 +1,5 @@
 # Composite action that archives (or restores) the Project cards under a closed
-# Map, recursively, so they leave every view of the board. One of the sibling
+# Map, recursively, so they leave every view of one board. One of the sibling
 # composite actions under `gh-actions/ai-planning/`; the planning repo's
 # `archive-map.yml` calls it on demand. It drives the `ai_planning.archive`
 # module at `../../../ai-planning`. See ../README.md.
@@ -9,8 +9,11 @@ description: >-
   driven by ai_planning in canonical/desktop-engineering.
 
 inputs:
-  project-id:
-    description: The org Project (v2) node id (PVT_...) holding the cards.
+  boards:
+    description: JSON object mapping each board slug to its org Project (v2) node id.
+    required: true
+  board:
+    description: The slug of the board (a key of `boards`) whose cards to archive or restore.
     required: true
   token:
     description: Fine-grained PAT (Issues:read, org Projects:write).
@@ -55,7 +58,8 @@ runs:
       shell: bash
       env:
         AI_PLANNING_TOKEN: ${{ inputs.token }}
-        AI_PLANNING_PROJECT_ID: ${{ inputs.project-id }}
+        AI_PLANNING_BOARDS: ${{ inputs.boards }}
+        AI_PLANNING_BOARD: ${{ inputs.board }}
         AI_PLANNING_REPO: ${{ github.repository }}
         AI_PLANNING_MAP: ${{ inputs.map }}
         AI_PLANNING_ARCHIVE_MODE: ${{ inputs.mode }}

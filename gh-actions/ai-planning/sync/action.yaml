@@ -1,5 +1,7 @@
-# Composite action that reconciles an AI planning board's Status column from
-# live GitHub facts, and archives or restores closed Maps and their trees. It is one of the sibling
+# Composite action that reconciles the AI planning boards' Status column from
+# live GitHub facts, and archives or restores closed Maps and their trees. The
+# planning repo feeds several boards (an `all` board plus one per squad), all
+# swept in one run. It is one of the sibling
 # composite actions under `gh-actions/ai-planning/` — this one (`sync/`) settles
 # the board; `pr-dispatch/` relays PR facts and `issue-dispatch/` relays issue
 # lifecycle events. All are actions rather than reusable
@@ -13,13 +15,16 @@
 # lives at `../../../ai-planning`. See ../README.md.
 name: AI planning board status sync
 description: >-
-  Idempotent full-board reconcile of an AI planning board's Status column
+  Idempotent full reconcile of every AI planning board's Status column
   (and archiving/restoring closed Maps with their trees), driven by ai_planning in
   canonical/desktop-engineering.
 
 inputs:
-  project-id:
-    description: The org Project (v2) node id (PVT_...) whose board to reconcile.
+  boards:
+    description: >-
+      JSON object mapping each board slug to its org Project (v2) node id
+      (PVT_...), e.g. {"all": "PVT_...", "apps": "PVT_..."}. `all` carries every
+      planning issue; any other slug carries the issues labelled `squad:<slug>`.
     required: true
   token:
     description: Fine-grained PAT (Issues:read, PRs:read, org Projects:write).
@@ -60,9 +65,9 @@ runs:
       shell: bash
       env:
         AI_PLANNING_TOKEN: ${{ inputs.token }}
-        AI_PLANNING_PROJECT_ID: ${{ inputs.project-id }}
+        AI_PLANNING_BOARDS: ${{ inputs.boards }}
         # The caller repo IS the planning repo; passing it seeds its issues (and
-        # their sub-issue children) onto the board.
+        # their sub-issue children) onto each board.
         AI_PLANNING_REPO: ${{ github.repository }}
         # Forwarded verbatim to the immediate authoring arm; empty is falsy in
         # Python, so an empty string here is the same as the variable being

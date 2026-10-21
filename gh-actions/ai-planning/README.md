@@ -1,21 +1,26 @@
 # AI planning board — composite actions
 
-This directory is the **single home** of the AI planning board wiring. It holds sibling
-composite actions; every squad's planning repo and every onboarded code
-repo references one of them instead of carrying its own copy of the code:
+This directory is the **single home** of the AI planning boards' wiring. It holds
+sibling composite actions; the one planning repo (`canonical/desktop-ai-planning`,
+which feeds an `all` board and one board per squad) and every onboarded code repo
+reference one of them instead of carrying its own copy of the code:
 
-- [`sync/`](sync/action.yaml) — the **status-reconcile** action. Reads every
-  Project card's live GitHub facts and sets each card's **Status** from scratch.
+- [`sync/`](sync/action.yaml) — the **status-reconcile** action. For each board,
+  reads every Project card's live GitHub facts and sets each card's **Status** from
+  scratch.
   Called by a planning repo's `board-sync.yml`. Drives the `ai_planning` package at
   [`../../ai-planning`](../../ai-planning).
 - [`archive/`](archive/action.yaml) — the **archive-Map** action. Archives (or
-  restores) the Project cards of every descendant of a closed Map. Called by a
+  restores) the Project cards of every descendant of a closed Map, on one board. Called by a
   planning repo's manually-run `archive-map.yml`. Drives `ai_planning.archive`.
 - [`pr-dispatch/`](pr-dispatch/action.yaml) — the **PR-relay** action. Forwards one
   destination-repo PR event to the planning repo as a `repository_dispatch`. Called
   by the per-repo `ai-planning-pr.yml` that `setup-dest-repo.sh` installs.
+- [`issue-dispatch/`](issue-dispatch/action.yaml) — the **issue-relay** action.
+  Forwards one destination-repo issue lifecycle event the same way (event type
+  `ai-planning-issue`), so a code-repo issue reconciles the boards too.
 
-Both are **composite actions, not reusable workflows**, on purpose: GitHub requires
+All are **composite actions, not reusable workflows**, on purpose: GitHub requires
 reusable workflows (`uses: …/foo.yaml`) to be rooted in the repo-root
 `.github/workflows` (subdirectories are not supported), but an action can be
 referenced from any directory
@@ -26,10 +31,13 @@ cosmetic non-gating PR check).
 
 ## `sync/` — reconcile the board
 
-It runs one idempotent **full-board reconcile**: it reads every Project card's live
-GitHub facts (issue / PR / dependency state, cross-repo, over a fine-grained PAT)
-and sets each card's **Status** from scratch. Cards already in the right column are
-left untouched, so a resync never churns the board.
+It runs one idempotent **full reconcile of every board**: for each one it reads every
+Project card's live GitHub facts (issue / PR / dependency state, cross-repo, over a
+fine-grained PAT) and sets each card's **Status** from scratch. Cards already in the
+right column are left untouched, so a resync never churns a board. The `all` board
+is seeded with every open planning issue, a squad board with those labelled
+`squad:<slug>`; each board has its own archived-Map marker label
+`wayfinder:archived:<slug>`.
 
 ### Example usage (in a planning repo)
 
@@ -43,7 +51,9 @@ on:
   issues:
     types: [opened, closed, reopened, assigned, unassigned, labeled, unlabeled, edited]
   repository_dispatch:
-    types: [ai-planning-pr]
+    types: [ai-planning-pr, ai-planning-issue]
+  schedule:
+    - cron: "17 */4 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -61,24 +71,24 @@ jobs:
       - name: Reconcile the planning board
         uses: canonical/desktop-engineering/gh-actions/ai-planning/sync@ai_planning_board
         with:
-          project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
+          boards: ${{ vars.AI_PLANNING_BOARDS }}
           token: ${{ secrets.AI_PLANNING_TOKEN }}
-          dispatched-pr: ${{ github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload) || '' }}
+          dispatched-pr: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'ai-planning-pr' && toJSON(github.event.client_payload) || '' }}
 ```
 
-`setup-ai-planning-repo.sh` (in `../../ai-planning`) stands up the repo, org
-Project, labels, and stores the two things this action needs on the planning
+`setup-ai-planning-repo.sh` (in `../../ai-planning`) stands up the repo, the org
+Projects, labels, and stores the two things this action needs on the planning
 repo:
 
 - secret **`AI_PLANNING_TOKEN`** — the fine-grained PAT, passed in as `token`;
-- variable **`AI_PLANNING_PROJECT_ID`** — the Project node id, passed in as
-  `project-id`.
+- variable **`AI_PLANNING_BOARDS`** — a JSON object of board slug to Project node id
+  (`{"all": "PVT_…", "apps": "PVT_…", …}`), passed in as `boards`.
 
 ### Inputs
 
 | name             | required | default              | description                                                                 |
 | ---------------- | -------- | -------------------- | --------------------------------------------------------------------------- |
-| `project-id`     | yes      | —                    | The org Project (v2) node id (`PVT_...`) whose board to reconcile.          |
+| `boards`         | yes      | —                    | JSON object mapping each board slug to its org Project (v2) node id (`PVT_...`). `all` carries every planning issue, any other slug the issues labelled `squad:<slug>`. |
 | `token`          | yes      | —                    | Fine-grained PAT (Issues:read/write, PRs:read, org Projects:write).         |
 | `ref`            | no       | `ai_planning_board`  | Ref of `canonical/desktop-engineering` providing the `ai_planning` package. |
 | `dispatched-pr`  | no       | `""`                 | JSON `repository_dispatch` `client_payload` (ticket 35), forwarded by the caller only when it ran `on: repository_dispatch`; the immediate arm authors that one PR's link before this same sweep scores it. |
@@ -116,6 +126,12 @@ jobs:
 
 The caller job sets `permissions: {}` — this action uses only the passed-in
 `dispatch-token`, never the workflow's `GITHUB_TOKEN`.
+
+## `archive/` — hide or restore one Map's tree
+
+Called by the planning repo's manually-run `archive-map.yml`. Inputs: `boards`
+(same JSON as above), `board` (the slug to act on), `token`, `map`, `mode`
+(`archive` | `unarchive`) and `dry-run`.
 
 ## The immediacy path (ticket 35)
 

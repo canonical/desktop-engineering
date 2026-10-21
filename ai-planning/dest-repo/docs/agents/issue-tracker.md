@@ -2,10 +2,14 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
-Two repos, referenced by symbol throughout:
+Two repos, referenced by symbol throughout (plus the squad that owns this repo):
 
 - `<owner>/<repo>` = the **destination code repo** — the clone you're in; `gh` infers it from `git remote -v`.
-- `<planning-repo>` = `<org>/<planning-repo>` — the **planning repo** holding every artifact (map, `research`/`prototype`/`grilling`/`task` tickets, a spec's implementation tickets) **except a spec**, which is created directly in `<owner>/<repo>`.
+- `<planning-repo>` = `<org>/<planning-repo>` — the **planning repo** holding every artifact (map, `research`/`prototype`/`grilling`/`task` tickets, a spec's implementation tickets) **except a spec**, which is created directly in `<owner>/<repo>`. It is shared by every squad.
+
+Squad: `squad:<squad>`
+
+**Every issue you create in the planning repo carries the `squad:<squad>` label** (add `--label squad:<squad>` to the `gh issue create`). The label is what puts it on this squad's board; the shared `all` board carries every issue regardless. An effort that spans squads also carries the other squad's `squad:*` label. A spec created in `<owner>/<repo>` needs no squad label: it follows its map onto the boards.
 
 Pass `--repo` accordingly on every `gh` call.
 
@@ -36,7 +40,7 @@ GitHub shares one number space across issues and PRs, so a bare `#42` may be eit
 
 ## When a skill says "publish to the issue tracker"
 
-Create a planning-repo issue.
+Create a planning-repo issue, labelled `squad:<squad>`.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -46,8 +50,8 @@ Run `gh issue view <number> --comments`, against whichever repo the bare `#n` re
 
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
 
-- **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --repo <planning-repo> --label wayfinder:map`.
-- **Child ticket**: an issue linked to the map as a GitHub sub-issue (`gh api` on the sub-issues endpoint). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
+- **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --repo <planning-repo> --label wayfinder:map --label squad:<squad>`.
+- **Child ticket**: an issue linked to the map as a GitHub sub-issue (`gh api` on the sub-issues endpoint). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`) and `squad:<squad>`. Once claimed, the ticket is assigned to the driving dev.
 - **Blocking**: GitHub's **native issue dependencies** — the canonical, UI-visible representation. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only — the live gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write, of **any** skill that starts work on a ticket (`/implement`, `/tdd`, `/code-review`, a bare `#n`), not only `/wayfinder`.

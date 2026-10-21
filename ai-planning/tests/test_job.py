@@ -444,6 +444,7 @@ class SeedingFakeClient:
     """
 
     def __init__(self, world, repo_open, on_board=(), *, list_lag=False):
+        self.repo_issue_labels = []
         self.world = world
         self.repo_open = list(repo_open)
         self.on_board = list(dict.fromkeys(on_board))
@@ -473,11 +474,18 @@ class SeedingFakeClient:
         if query == STATUS_FIELD_QUERY:
             return STATUS_FIELD_RESPONSE
         if query == REPO_ISSUES_QUERY:
+            wanted = variables.get("labels")
+            self.repo_issue_labels.append(wanted)
             return {
                 "repository": {
                     "issues": {
                         "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "nodes": [{"id": cid} for cid in self.repo_open],
+                        "nodes": [
+                            {"id": cid}
+                            for cid in self.repo_open
+                            if not wanted
+                            or set(wanted) <= set(self.world[cid].get("labels", ()))
+                        ],
                     }
                 }
             }
@@ -546,6 +554,46 @@ def test_seed_transitively_adds_a_cross_repo_spec_via_the_maps_subissues():
 
     assert "C_spec" in added  # reached transitively, not from the repo list
     assert set(client.on_board) == {"C_map", "C_spec", "C_ticket"}
+
+
+def test_all_board_seeds_every_open_issue_without_a_label_filter():
+    world = {
+        "C_apps": {"labels": ("squad:apps",)},
+        "C_core": {"labels": ("squad:core",)},
+        "C_none": {},
+    }
+    client = SeedingFakeClient(world=world, repo_open=list(world))
+
+    added = seed_board(client, PROJECT_ID, PLANNING_REPO)
+
+    assert set(added) == {"C_apps", "C_core", "C_none"}
+    assert client.repo_issue_labels == [None]
+
+
+def test_squad_board_seeds_only_issues_with_its_squad_label():
+    world = {
+        "C_apps": {"labels": ("squad:apps",)},
+        "C_core": {"labels": ("squad:core",)},
+        "C_none": {},
+    }
+    client = SeedingFakeClient(world=world, repo_open=list(world))
+
+    added = seed_board(client, PROJECT_ID, PLANNING_REPO, seed_label="squad:apps")
+
+    assert set(added) == {"C_apps"}
+    assert client.repo_issue_labels == [["squad:apps"]]
+
+
+def test_squad_board_still_pulls_in_cross_squad_subissues_of_its_maps():
+    world = {
+        "C_map": {"labels": ("squad:apps",), "child_content_ids": ("C_core_child",)},
+        "C_core_child": {"labels": ("squad:core",)},
+    }
+    client = SeedingFakeClient(world=world, repo_open=list(world))
+
+    added = seed_board(client, PROJECT_ID, PLANNING_REPO, seed_label="squad:apps")
+
+    assert set(added) == {"C_map", "C_core_child"}
 
 
 def test_run_sync_seeds_then_syncs_the_newly_carded_issue():
@@ -809,6 +857,41 @@ def test_map_that_just_closed_archives_its_tree_then_itself_and_gets_the_marker(
     assert client.archived[-1] == "i_map"  # the Map's card goes last
     assert client.labels_added == ["I_i_map"]
     assert "i_unrelated" not in client.archived
+
+
+def test_a_board_only_honours_its_own_archived_marker():
+    """Another board's marker on the Map must not count as this board's: the
+    Map is archived on this board (its own marker is added) even though the
+    `all` board already archived it."""
+    child = _issue("i_child", state="CLOSED")
+    map_item = _map(
+        "i_map",
+        state="CLOSED",
+        labels=("wayfinder:archived:all",),
+        child_content_ids=("I_i_child",),
+    )
+    client = FakeClient(_single_page([child, map_item]))
+
+    run_sync(client, PROJECT_ID, archived_label="wayfinder:archived:apps")
+
+    assert sorted(client.archived) == ["i_child", "i_map"]
+    assert client.labels_added == ["I_i_map"]
+
+
+def test_a_board_leaves_a_map_alone_when_its_own_marker_is_present():
+    child = _issue("i_child", state="CLOSED")
+    map_item = _map(
+        "i_map",
+        state="CLOSED",
+        labels=("wayfinder:archived:apps",),
+        child_content_ids=("I_i_child",),
+    )
+    client = FakeClient(_single_page([child, map_item]))
+
+    run_sync(client, PROJECT_ID, archived_label="wayfinder:archived:apps")
+
+    assert client.archived == []
+    assert client.labels_added == []
 
 
 def test_closed_map_whose_label_is_missing_is_left_visible():

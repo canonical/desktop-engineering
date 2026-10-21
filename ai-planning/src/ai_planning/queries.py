@@ -156,11 +156,13 @@ mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
 # add any not yet carded. Open-only by design — closed cards already on the board
 # stay and go Done via the sweep; seeding the full closed history would grow the
 # board unboundedly. Returns each issue's own content node id (what the board
-# stores and what `addProjectV2ItemById` takes). `$cursor` is null on page one.
+# stores and what `addProjectV2ItemById` takes). `$cursor` is null on page one;
+# `$labels` is null for no label filter (the `all` board) or `["squad:<slug>"]`
+# to keep one squad's issues (GraphQL ANDs the labels).
 REPO_ISSUES_QUERY = """
-query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
+query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String, $labels: [String!]) {
   repository(owner: $owner, name: $name) {
-    issues(first: $pageSize, after: $cursor, states: [OPEN]) {
+    issues(first: $pageSize, after: $cursor, states: [OPEN], labels: $labels) {
       pageInfo { hasNextPage endCursor }
       nodes { id }
     }
@@ -388,8 +390,9 @@ mutation($projectId: ID!, $itemId: ID!) {
 """
 
 # Resolve a label by name in one repo, and add/remove it on an issue. The sweep
-# marks a Map whose tree it has archived with `wayfinder:archived`, so a Map the
-# user later restores is recognised and its tree restored too.
+# marks a Map whose tree it has archived on a board with that board's
+# `wayfinder:archived:<board>` label, so a Map the user later restores is
+# recognised and its tree restored too.
 LABEL_ID_QUERY = """
 query($owner: String!, $name: String!, $label: String!) {
   repository(owner: $owner, name: $name) {

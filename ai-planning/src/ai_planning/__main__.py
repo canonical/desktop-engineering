@@ -6,9 +6,12 @@ It holds no board logic — every decision is in `sync_status`.
 
 Environment:
     AI_PLANNING_TOKEN   fine-grained PAT (Issues:read/write, PRs:read, Projects:write)
-    AI_PLANNING_PROJECT_ID      the Project v2 node id (PVT_...)
+    AI_PLANNING_BOARDS  JSON object `{"<slug>": "<Project v2 node id>"}`: the `all`
+                        board plus one board per squad (see `boards`)
     AI_PLANNING_REPO    the planning repo as `owner/name` (pass 0 seeds its issues
-                        onto the board, and their sub-issue children transitively)
+                        onto each board — all of them on `all`, those labelled
+                        `squad:<slug>` on a squad board — and their sub-issue
+                        children transitively)
     AI_PLANNING_LINK_SCAN_REPOS    optional comma-separated `owner/name` list of
                         destination repos the link-authoring reconcile arm scans
                         for PRs missing their deliberate ticket link (ticket 33).
@@ -32,6 +35,7 @@ import json
 import os
 import sys
 
+from ai_planning.boards import BoardsError, parse_boards
 from ai_planning.client import GraphQLClient
 from ai_planning.job import run_sync
 from ai_planning.link_authoring_job import (
@@ -43,13 +47,17 @@ from ai_planning.link_authoring_job import (
 
 def main(argv: list[str] | None = None) -> int:
     token = os.environ.get("AI_PLANNING_TOKEN")
-    project_id = os.environ.get("AI_PLANNING_PROJECT_ID")
     planning_repo = os.environ.get("AI_PLANNING_REPO")
-    if not token or not project_id or not planning_repo:
+    if not token or not planning_repo:
         print(
-            "set AI_PLANNING_TOKEN, AI_PLANNING_PROJECT_ID and AI_PLANNING_REPO",
+            "set AI_PLANNING_TOKEN, AI_PLANNING_BOARDS and AI_PLANNING_REPO",
             file=sys.stderr,
         )
+        return 2
+    try:
+        boards = parse_boards(os.environ.get("AI_PLANNING_BOARDS"))
+    except BoardsError as error:
+        print(f"error: {error}", file=sys.stderr)
         return 2
 
     client = GraphQLClient.with_token(token)
@@ -82,25 +90,40 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    result = run_sync(
-        client,
-        project_id,
-        planning_repo=planning_repo,
-    )
+    # One board failing (a revoked Project, an API hiccup) must not starve the
+    # others: sweep them all, then fail the run if any did.
+    failed: list[str] = []
+    for board in boards:
+        print(f"== board {board.slug}", file=sys.stderr)
+        try:
+            result = run_sync(
+                client,
+                board.project_id,
+                planning_repo=planning_repo,
+                seed_label=board.seed_label,
+                archived_label=board.archived_label,
+            )
+        except Exception as error:  # noqa: BLE001 - reported, then isolated
+            print(f"error: board {board.slug} failed: {error}", file=sys.stderr)
+            failed.append(board.slug)
+            continue
 
-    for item_id, status in result.written:
-        print(f"{item_id} -> {status.value}")
-    print(
-        f"seeded={len(result.seeded)} "
-        f"written={len(result.written)} "
-        f"unchanged={len(result.unchanged)} "
-        f"skipped_maps={len(result.skipped_maps)} "
-        f"skipped_contentless={len(result.skipped_contentless)} "
-        f"closed_issues={len(result.closed_issues)} "
-        f"archived={len(result.archived)} "
-        f"restored={len(result.restored)}",
-        file=sys.stderr,
-    )
+        for item_id, status in result.written:
+            print(f"[{board.slug}] {item_id} -> {status.value}")
+        print(
+            f"[{board.slug}] seeded={len(result.seeded)} "
+            f"written={len(result.written)} "
+            f"unchanged={len(result.unchanged)} "
+            f"skipped_maps={len(result.skipped_maps)} "
+            f"skipped_contentless={len(result.skipped_contentless)} "
+            f"closed_issues={len(result.closed_issues)} "
+            f"archived={len(result.archived)} "
+            f"restored={len(result.restored)}",
+            file=sys.stderr,
+        )
+    if failed:
+        print(f"boards failed: {', '.join(failed)}", file=sys.stderr)
+        return 1
     return 0
 
 

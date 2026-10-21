@@ -1,14 +1,20 @@
-# Manually hide a finished Map's whole tree from the board.
+# Manually hide a finished Map's whole tree from one board.
 #
-# Run it from the Actions tab (or `gh workflow run archive-map.yml -f map=10`).
-# Every descendant of the Map, open or closed, at any depth and in any repo, has
-# its Project card archived; nothing on the issues changes. Choose `unarchive` to
-# bring the cards back. The Map must be closed to archive.
+# Run it from the Actions tab (or
+# `gh workflow run archive-map.yml -f board=apps -f map=10`). Every descendant of
+# the Map, open or closed, at any depth and in any repo, has its Project card
+# archived on the chosen board; nothing on the issues changes. Choose `unarchive`
+# to bring the cards back. The Map must be closed to archive.
 name: AI planning archive Map
 
 on:
   workflow_dispatch:
     inputs:
+      board:
+        description: Board to change (all, or a squad)
+        type: choice
+        options: [all, apps, gaming, core, gnome, integration, enterprise, wsl]
+        default: all
       map:
         description: Map issue number (or owner/repo#number)
         required: true
@@ -34,7 +40,8 @@ jobs:
       - name: Archive the Map's descendants
         uses: canonical/desktop-engineering/gh-actions/ai-planning/archive@ai_planning_board
         with:
-          project-id: ${{ vars.AI_PLANNING_PROJECT_ID }}
+          boards: ${{ vars.AI_PLANNING_BOARDS }}
+          board: ${{ inputs.board }}
           token: ${{ secrets.AI_PLANNING_TOKEN }}
           map: ${{ inputs.map }}
           mode: ${{ inputs.mode }}

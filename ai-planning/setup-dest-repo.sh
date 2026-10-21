@@ -4,8 +4,12 @@
 # footprint, idempotently (ticket 35). Run from THIS folder in a clone of
 # canonical/desktop-engineering — the single home of every template.
 #
-# It asks which planning repo the code repo should talk to, then installs (or
-# refreshes) two stamped files on the code repo's default branch, plus one secret:
+# Every squad shares ONE planning repo (canonical/desktop-ai-planning by default).
+# It asks which squad owns the code repo (apps, gaming, core, gnome, integration,
+# enterprise, wsl) — the squad's label, `squad:<squad>`, is what the skills adapter
+# tells agents to put on every planning issue so it lands on that squad's board.
+# It installs (or refreshes) two stamped files on the code repo's default branch,
+# plus one secret:
 #
 #   1. `.github/workflows/ai-planning-pr.yml` — the event-dispatch caller: a small
 #      workflow that relays this repo's PR facts and issue lifecycle events to
@@ -16,7 +20,8 @@
 #      Skip it with `WITH_ADAPTER=0` for a dispatch-only repo.
 #   3. secret `AI_PLANNING_DISPATCH_TOKEN` — the dispatch-token PAT.
 #
-# Both files are stamped with the chosen planning repo (`<org>/<planning-repo>`).
+# Both files are stamped with the planning repo (`<org>/<planning-repo>`) and the
+# squad (`<squad>`).
 # By default they're written via the Contents API — no local clone of the code
 # repo, no PR: a direct, idempotent commit per file, skipped when the destination
 # already carries byte-identical content. But if you run this from inside a local
@@ -30,11 +35,14 @@
 # The PAT itself (fine-grained, scoped to the **planning** repo, Contents:write
 # only — least privilege for `POST /repos/{owner}/{repo}/dispatches`) is minted
 # once in the browser and kept in Bitwarden under a location named after the
-# planning repo (e.g. `desktop-apps-ai-planning`); this script never mints it,
+# planning repo (`desktop-ai-planning`); this script never mints it,
 # only pastes+stores the same value on each destination repo in turn.
 #
 # Run once per destination code repo to add it, or again any time to refresh it,
 # after the planning repo exists (see `./setup-ai-planning-repo.sh`).
+#
+# Usage:
+#   SQUAD=apps DEST_REPO=canonical/some-app ./setup-dest-repo.sh
 #
 # Prereqs: `gh` authenticated with `repo` scope on the destination repo, jq.
 
@@ -44,13 +52,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INVOCATION_DIR="$PWD"   # where the user ran us from (SCRIPT_DIR is where WE live)
 CALLER_PATH=".github/workflows/ai-planning-pr.yml"
 ADAPTER_PATH="docs/agents/issue-tracker.md"
+DEFAULT_PLANNING_REPO="canonical/desktop-ai-planning"
 CALLER_TEMPLATE="$SCRIPT_DIR/dest-repo/$CALLER_PATH"
 ADAPTER_TEMPLATE="$SCRIPT_DIR/dest-repo/$ADAPTER_PATH"
 SECRET_NAME="AI_PLANNING_DISPATCH_TOKEN"
 
 # --- config (env-overridable) ------------------------------------------------
 DEST_REPO="${DEST_REPO:-}"           # the code repo to onboard, e.g. acme/some-app
-PLANNING_REPO="${PLANNING_REPO:-}"   # the planning repo the caller dispatches to
+PLANNING_REPO="${PLANNING_REPO:-}"   # the planning repo the caller dispatches to (default: $DEFAULT_PLANNING_REPO)
+SQUAD="${SQUAD:-}"                   # the squad owning this repo: apps|gaming|core|gnome|integration|enterprise|wsl
 REF="${REF:-ai_planning_board}"      # ref of desktop-engineering providing the pr-dispatch action
 WITH_ADAPTER="${WITH_ADAPTER:-1}"    # also place docs/agents/issue-tracker.md (0 = dispatch-only)
 
@@ -88,14 +98,15 @@ write_local() {
   fi
 }
 
-# Stamp a template with the chosen planning repo (and the action ref) into a temp
-# file, echoing its path. The `<org>/<planning-repo>` symbol is the only stamped
-# value; every other reference stays symbolic.
+# Stamp a template with the chosen planning repo, squad and action ref into a temp
+# file, echoing its path. `<org>/<planning-repo>` and `<squad>` are the only
+# stamped symbols; every other reference stays symbolic.
 stamp() {
   local template="$1" out
   out="$(mktemp)"
   sed \
     -e "s|<org>/<planning-repo>|$PLANNING_REPO|g" \
+    -e "s|<squad>|$SQUAD|g" \
     -e "s|@ai_planning_board|@$REF|g" \
     "$template" > "$out"
   printf '%s' "$out"
@@ -169,11 +180,29 @@ if [ -z "$PLANNING_REPO" ]; then
   PLANNING_REPO="$(printf '%s' "$caller_body" | sed -nE 's/^[[:space:]]*planning-repo:[[:space:]]*([^[:space:]]+).*/\1/p' | head -n1)"
   [ -n "$PLANNING_REPO" ] && echo "    inferred planning repo: $PLANNING_REPO (from existing caller; override with PLANNING_REPO=...)"
 fi
-[ -n "$PLANNING_REPO" ] || read -rp "Planning repo this code repo should use (owner/repo): " PLANNING_REPO
-[ -n "$PLANNING_REPO" ] || die "PLANNING_REPO is required"
+PLANNING_REPO="${PLANNING_REPO:-$DEFAULT_PLANNING_REPO}"
 
-echo "==> onboarding $DEST_REPO -> planning repo $PLANNING_REPO (ref $REF)"
+# The squad is stamped into the adapter; on a refresh recover it from the adapter
+# already installed (`Squad: \`squad:<name>\``) so you needn't retype it.
+if [ -z "$SQUAD" ]; then
+  adapter_body=""
+  if [ "$LOCAL_MODE" = 1 ] && [ -f "$CWD_TOP/$ADAPTER_PATH" ]; then
+    adapter_body="$(cat "$CWD_TOP/$ADAPTER_PATH")"
+  else
+    adapter_body="$(gh api "repos/$DEST_REPO/contents/$ADAPTER_PATH" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  fi
+  SQUAD="$(printf '%s' "$adapter_body" | sed -nE 's/^Squad: `squad:([a-z0-9-]+)`.*/\1/p' | head -n1)"
+  [ -n "$SQUAD" ] && echo "    inferred squad: $SQUAD (from existing adapter; override with SQUAD=...)"
+fi
+[ -n "$SQUAD" ] || read -rp "Squad owning this repo (apps|gaming|core|gnome|integration|enterprise|wsl): " SQUAD
+[ -n "$SQUAD" ] || die "SQUAD is required"
+
+echo "==> onboarding $DEST_REPO (squad $SQUAD) -> planning repo $PLANNING_REPO (ref $REF)"
 gh repo view "$DEST_REPO" >/dev/null 2>&1 || die "cannot see destination repo '$DEST_REPO'"
+# The squad must be one the planning repo knows (setup-ai-planning-repo.sh creates
+# a `squad:<slug>` label per squad) — catches a typo before it is stamped.
+gh label list --repo "$PLANNING_REPO" --limit 200 --json name --jq '.[].name' | grep -qx "squad:$SQUAD" \
+  || die "no label 'squad:$SQUAD' in $PLANNING_REPO — unknown squad (or run setup-ai-planning-repo.sh first)"
 if [ "$LOCAL_MODE" = 1 ]; then
   echo "    writing files into your local clone ($CWD_TOP) — commit + push yourself"
 else
@@ -221,7 +250,7 @@ EOF
 fi
 
 echo
-echo "Done. $DEST_REPO now dispatches its PR and issue lifecycle events to $PLANNING_REPO,"
+echo "Done. $DEST_REPO (squad $SQUAD) now dispatches its PR and issue lifecycle events to $PLANNING_REPO,"
 if [ "$WITH_ADAPTER" != "0" ]; then
   echo "and carries the planning-skills adapter pointing at that board."
 fi
