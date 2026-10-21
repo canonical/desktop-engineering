@@ -1,5 +1,5 @@
 # Composite action that reconciles an AI planning board's Status column from
-# live GitHub facts, and archives the cards under closed Maps. It is one of the sibling
+# live GitHub facts, and archives or restores closed Maps and their trees. It is one of the sibling
 # composite actions under `gh-actions/ai-planning/` — this one (`sync/`) settles
 # the board; `pr-dispatch/` relays PR facts and `issue-dispatch/` relays issue
 # lifecycle events. All are actions rather than reusable
@@ -14,7 +14,7 @@
 name: AI planning board status sync
 description: >-
   Idempotent full-board reconcile of an AI planning board's Status column
-  (and archiving of closed Maps' descendants), driven by ai_planning in
+  (and archiving/restoring closed Maps with their trees), driven by ai_planning in
   canonical/desktop-engineering.
 
 inputs:

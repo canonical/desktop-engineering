@@ -19,14 +19,19 @@ from ai_planning.job import (
 )
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
+    ADD_LABEL_MUTATION,
     ARCHIVE_ITEM_MUTATION,
+    LABEL_ID_QUERY,
+    REMOVE_LABEL_MUTATION,
     CLOSE_ISSUE_MUTATION,
     ISSUE_LINKED_PRS_QUERY,
+    ISSUE_SUBTREE_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
     REOPEN_ISSUE_MUTATION,
     REPO_ISSUES_QUERY,
     STATUS_FIELD_QUERY,
+    UNARCHIVE_ITEM_MUTATION,
     UPDATE_STATUS_MUTATION,
 )
 
@@ -51,7 +56,7 @@ STATUS_FIELD_RESPONSE = {
 
 
 def _issue(item_id, *, state="OPEN", assignees=0, labels=(), blocked_by=0, prs=(),
-           status_option_id=None, child_content_ids=()):
+           status_option_id=None, child_content_ids=(), parent=None):
     return issue_item(
         item_id,
         state=state,
@@ -60,6 +65,7 @@ def _issue(item_id, *, state="OPEN", assignees=0, labels=(), blocked_by=0, prs=(
         blocked_by=blocked_by,
         prs=prs,
         child_content_ids=child_content_ids,
+        parent=parent,
         status_option_id=status_option_id,
     )
 
@@ -67,8 +73,11 @@ def _issue(item_id, *, state="OPEN", assignees=0, labels=(), blocked_by=0, prs=(
 class FakeClient:
     """Serves the Status field, one or more item pages, and records mutations."""
 
-    def __init__(self, item_pages):
+    def __init__(self, item_pages, *, label_missing=False):
         self._item_pages = list(item_pages)
+        self.label_missing = label_missing
+        self.labels_added = []
+        self.labels_removed = []
         self._page_index = 0
         self.mutations = []
         self.closed = []
@@ -100,6 +109,15 @@ class FakeClient:
             self.closed.append(variables["issueId"])
             return {"closeIssue": {"issue": {"id": variables["issueId"],
                                              "state": "CLOSED"}}}
+        if query == LABEL_ID_QUERY:
+            label = None if self.label_missing else {"id": "L_archived"}
+            return {"repository": {"label": label}}
+        if query == ADD_LABEL_MUTATION:
+            self.labels_added.append(variables["issueId"])
+            return {"addLabelsToLabelable": {"clientMutationId": None}}
+        if query == REMOVE_LABEL_MUTATION:
+            self.labels_removed.append(variables["issueId"])
+            return {"removeLabelsFromLabelable": {"clientMutationId": None}}
         if query == ARCHIVE_ITEM_MUTATION:
             self.archived.append(variables["itemId"])
             return {"archiveProjectV2Item": {"item": {"id": variables["itemId"]}}}
@@ -683,8 +701,8 @@ def test_merged_pr_found_only_on_a_paged_linked_pr_tail():
 # --- the map auto-close cascade ----------------------------------------------
 
 
-def _map(item_id, *, state="OPEN", child_content_ids=()):
-    item = _issue(item_id, state=state, labels=("wayfinder:map",))
+def _map(item_id, *, state="OPEN", child_content_ids=(), labels=()):
+    item = _issue(item_id, state=state, labels=("wayfinder:map", *labels))
     item["content"]["subIssues"] = {
         "nodes": [{"id": cid} for cid in child_content_ids]
     }
@@ -761,61 +779,183 @@ def test_closed_map_with_an_open_descendant_is_reopened_not_archived():
     assert client.archived == []
 
 
-def test_closed_map_tree_is_archived_in_the_same_sweep_it_closes():
+ARCHIVED = "wayfinder:archived"
+
+
+def _archived_map_parent(state="CLOSED", labels=("wayfinder:map",), archived=True):
+    return {
+        "id": "I_parent_map",
+        "state": state,
+        "repository": {"nameWithOwner": "canonical/planning"},
+        "labels": {"nodes": [{"name": n} for n in labels]},
+        "projectItems": {
+            "nodes": [{"isArchived": archived, "project": {"id": PROJECT_ID}}]
+        },
+    }
+
+
+def test_map_that_just_closed_archives_its_tree_then_itself_and_gets_the_marker():
     ticket = _issue("i_ticket", state="CLOSED")
     spec = _issue("i_spec", state="CLOSED", child_content_ids=("I_i_ticket",))
     sibling = _issue("i_sibling", state="CLOSED")
     unrelated = _issue("i_unrelated", state="CLOSED")
-    map_item = _map(
-        "i_map", child_content_ids=("I_i_spec", "I_i_sibling")
-    )
+    map_item = _map("i_map", child_content_ids=("I_i_spec", "I_i_sibling"))
     client = FakeClient(_single_page([ticket, spec, sibling, unrelated, map_item]))
 
     result = run_sync(client, PROJECT_ID)
 
     assert result.map_closed == ["I_i_map"]
-    assert sorted(client.archived) == ["i_sibling", "i_spec", "i_ticket"]
-    assert sorted(result.archived) == ["i_sibling", "i_spec", "i_ticket"]
+    assert sorted(client.archived[:-1]) == ["i_sibling", "i_spec", "i_ticket"]
+    assert client.archived[-1] == "i_map"  # the Map's card goes last
+    assert client.labels_added == ["I_i_map"]
+    assert "i_unrelated" not in client.archived
 
 
-def test_open_map_archives_nothing():
+def test_closed_map_whose_label_is_missing_is_left_visible():
     child = _issue("i_child", state="CLOSED")
-    other = _issue("i_other")
-    map_item = _map("i_map", child_content_ids=("I_i_child", "I_i_other"))
-    client = FakeClient(_single_page([child, other, map_item]))
+    map_item = _map("i_map", child_content_ids=("I_i_child",))
+    client = FakeClient(_single_page([child, map_item]), label_missing=True)
 
     run_sync(client, PROJECT_ID)
 
     assert client.archived == []
+    assert client.labels_added == []
 
 
-def test_children_of_an_already_archived_closed_map_are_still_archived():
-    """The Map's own card is gone from the board read; its children carry the
-    closed-Map parent, so they and their descendants are still hidden."""
-    parent = {"state": "CLOSED", "labels": {"nodes": [{"name": "wayfinder:map"}]}}
+def test_restored_closed_map_with_a_visible_tree_is_left_alone():
+    child = _issue("i_child", state="CLOSED")
+    map_item = _map(
+        "i_map", state="CLOSED", labels=(ARCHIVED,), child_content_ids=("I_i_child",)
+    )
+    client = FakeClient(_single_page([child, map_item]))
+
+    run_sync(client, PROJECT_ID)
+
+    assert client.archived == []
+    assert client.labels_added == client.labels_removed == []
+
+
+def test_restored_closed_map_restores_the_archived_tree():
+    visible = _issue("i_visible", state="CLOSED")
+    map_item = _map(
+        "i_map",
+        state="CLOSED",
+        labels=(ARCHIVED,),
+        child_content_ids=("I_i_visible", "I_hidden"),
+    )
+    client = TreeFakeClient(
+        _single_page([visible, map_item]),
+        graph={
+            "I_i_map": ("o/planning#10", "CLOSED", "PVTI_i_map", False, ["I_hidden"]),
+            "I_hidden": ("o/spec#1", "CLOSED", "PVTI_hidden", True, ["I_deep"]),
+            "I_deep": ("o/spec#2", "CLOSED", "PVTI_deep", True, []),
+        },
+    )
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert sorted(client.unarchived) == ["PVTI_deep", "PVTI_hidden"]
+    assert sorted(result.restored) == ["I_deep", "I_hidden"]
+    assert client.archived == []  # and the Map is not hidden again
+
+
+def test_reopened_map_restores_its_tree_and_drops_the_marker():
+    map_item = _map("i_map", labels=(ARCHIVED,), child_content_ids=("I_hidden",))
+    client = TreeFakeClient(
+        _single_page([map_item]),
+        graph={
+            "I_i_map": ("o/planning#10", "OPEN", "PVTI_i_map", False, ["I_hidden"]),
+            "I_hidden": ("o/spec#1", "CLOSED", "PVTI_hidden", True, []),
+        },
+    )
+
+    run_sync(client, PROJECT_ID)
+
+    assert client.unarchived == ["PVTI_hidden"]
+    assert client.labels_removed == ["I_i_map"]
+
+
+def test_children_of_an_archived_closed_map_are_archived_and_the_map_marked():
     ticket = _issue("i_ticket", state="CLOSED")
     spec = _issue(
         "i_spec",
         state="CLOSED",
         child_content_ids=("I_i_ticket",),
+        parent=_archived_map_parent(),
     )
-    spec["content"]["parent"] = parent
     client = FakeClient(_single_page([spec, ticket]))
 
     run_sync(client, PROJECT_ID)
 
     assert sorted(client.archived) == ["i_spec", "i_ticket"]
+    assert client.labels_added == ["I_parent_map"]
 
 
-def test_a_closed_non_map_parent_does_not_archive_its_children():
-    parent = {"state": "CLOSED", "labels": {"nodes": [{"name": "wayfinder:spec"}]}}
-    child = _issue("i_child", state="CLOSED")
-    child["content"]["parent"] = parent
+def test_children_of_a_restored_closed_map_stay_visible():
+    child = _issue(
+        "i_child", state="CLOSED", parent=_archived_map_parent(archived=False)
+    )
     client = FakeClient(_single_page([child]))
 
     run_sync(client, PROJECT_ID)
 
     assert client.archived == []
+
+
+def test_a_closed_non_map_parent_does_not_archive_its_children():
+    child = _issue(
+        "i_child",
+        state="CLOSED",
+        parent=_archived_map_parent(labels=("wayfinder:spec",)),
+    )
+    client = FakeClient(_single_page([child]))
+
+    run_sync(client, PROJECT_ID)
+
+    assert client.archived == []
+
+
+class TreeFakeClient(FakeClient):
+    """FakeClient that also answers the sub-issue walk and unarchive mutation.
+
+    `graph` maps an issue node id to
+    `(ref, state, project item id, archived, child ids)`.
+    """
+
+    def __init__(self, item_pages, graph):
+        super().__init__(item_pages)
+        self.graph = graph
+        self.unarchived = []
+
+    def execute(self, query, variables):
+        if query == ISSUE_SUBTREE_QUERY:
+            ref, state, item_id, archived, children = self.graph[variables["issueId"]]
+            repo, _, number = ref.partition("#")
+            return {
+                "node": {
+                    "id": variables["issueId"],
+                    "number": int(number),
+                    "state": state,
+                    "repository": {"nameWithOwner": repo},
+                    "projectItems": {
+                        "nodes": [
+                            {
+                                "id": item_id,
+                                "isArchived": archived,
+                                "project": {"id": PROJECT_ID},
+                            }
+                        ]
+                    },
+                    "subIssues": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"id": child} for child in children],
+                    },
+                }
+            }
+        if query == UNARCHIVE_ITEM_MUTATION:
+            self.unarchived.append(variables["itemId"])
+            return {"unarchiveProjectV2Item": {"item": {"id": variables["itemId"]}}}
+        return super().execute(query, variables)
 
 
 def test_closed_map_with_only_invisible_children_is_not_reopened():

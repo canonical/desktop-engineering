@@ -97,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
         f"skipped_maps={len(result.skipped_maps)} "
         f"skipped_contentless={len(result.skipped_contentless)} "
         f"closed_issues={len(result.closed_issues)} "
-        f"archived={len(result.archived)}",
+        f"archived={len(result.archived)} "
+        f"restored={len(result.restored)}",
         file=sys.stderr,
     )
     return 0

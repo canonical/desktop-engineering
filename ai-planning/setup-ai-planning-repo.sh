@@ -258,9 +258,10 @@ Private planning board for the **$TEAM** squad. File planning issues here; the
 board's **Status** column reconciles on planning issue events and dispatched
 PR/issue events from destination repos.
 
-When a Map closes, the sync archives every card under it, so a finished Map's
-tree leaves the board. The **archive-map** workflow (Actions tab) does the same
-for one Map on demand, or restores it with \`unarchive\`.
+When a Map closes, the sync archives its card and every card under it, so a
+finished effort leaves the board. Restore the Map's card (Project "⋯" ->
+Archived items) and the next sync restores its whole tree. The **archive-map**
+workflow (Actions tab) does either on demand.
 
 This repo carries almost nothing on purpose — its board-sync and archive-map
 workflows. All
@@ -313,6 +314,7 @@ mklabel "wayfinder:prototype" FBCA04 "Planning prototype ticket"   # yellow
 mklabel "wayfinder:grilling"  D93F0B "Planning grilling ticket"    # orange-red
 mklabel "wayfinder:task"      8250DF "Planning task ticket"        # purple
 mklabel "wayfinder:map"       0052CC "Planning effort map (index, no work-state)"  # blue
+mklabel "wayfinder:archived"  BFD4F2 "Set by the sync: this map's tree is archived on the board"
 # wayfinder:spec is NOT created here: specs live in the destination code repo, and
 # labels are per-repo, so it is created there at spec-creation time (see
 # dest-repo/docs/agents/issue-tracker.md → Wayfinding).
@@ -417,9 +419,10 @@ cat <<EOF
                         column (same "Fields" menu) so each map row shows its
                         chip.
 
-     The sync archives every card under a closed map on its own (the
-     archive-map workflow does it on demand and can restore). It never edits a
-     view's filter; leave the -label:wayfinder:map filter in place.
+     The sync archives a closed map and its tree on its own, and restores the
+     tree when you restore the map's card (archive-map does either on demand).
+     It never edits a view's filter; leave the -label:wayfinder:map filter in
+     place.
 
      Enabling "Labels" is per-view, so do it on BOTH views — a view without it
      shows no colour.

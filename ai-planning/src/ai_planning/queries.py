@@ -72,7 +72,14 @@ _ITEM_NODE_FIELDS = """
     ... on Issue {
       id
       state
-      parent { state labels(first: 50) { nodes { name } } }
+      repository { nameWithOwner }
+      parent {
+        id
+        state
+        repository { nameWithOwner }
+        labels(first: 50) { nodes { name } }
+        projectItems(first: 20) { nodes { isArchived project { id } } }
+      }
       assignees { totalCount }
       labels(first: 50) { nodes { name } }
       issueDependenciesSummary { blockedBy }
@@ -376,6 +383,33 @@ UNARCHIVE_ITEM_MUTATION = """
 mutation($projectId: ID!, $itemId: ID!) {
   unarchiveProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
     item { id }
+  }
+}
+"""
+
+# Resolve a label by name in one repo, and add/remove it on an issue. The sweep
+# marks a Map whose tree it has archived with `wayfinder:archived`, so a Map the
+# user later restores is recognised and its tree restored too.
+LABEL_ID_QUERY = """
+query($owner: String!, $name: String!, $label: String!) {
+  repository(owner: $owner, name: $name) {
+    label(name: $label) { id }
+  }
+}
+"""
+
+ADD_LABEL_MUTATION = """
+mutation($issueId: ID!, $labelId: ID!) {
+  addLabelsToLabelable(input: { labelableId: $issueId, labelIds: [$labelId] }) {
+    clientMutationId
+  }
+}
+"""
+
+REMOVE_LABEL_MUTATION = """
+mutation($issueId: ID!, $labelId: ID!) {
+  removeLabelsFromLabelable(input: { labelableId: $issueId, labelIds: [$labelId] }) {
+    clientMutationId
   }
 }
 """

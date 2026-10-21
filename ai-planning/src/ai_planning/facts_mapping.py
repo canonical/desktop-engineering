@@ -156,18 +156,6 @@ def item_child_content_ids(item: dict[str, Any]) -> list[str]:
     ]
 
 
-def item_has_closed_map_parent(item: dict[str, Any]) -> bool:
-    """True when this item's direct parent is a closed Map.
-
-    Lets the sweep still hide a closed Map's children after the Map's own card
-    has been archived (and so no longer appears in the board read).
-    """
-
-    parent = (item.get("content") or {}).get("parent") or {}
-    labels = {node["name"] for node in (parent.get("labels") or {}).get("nodes") or []}
-    return parent.get("state") == "CLOSED" and MAP_LABEL in labels
-
-
 def item_to_facts(item: dict[str, Any]) -> Facts | None:
     """Map one GraphQL Project item to `Facts`, or `None` if it has no content.
 

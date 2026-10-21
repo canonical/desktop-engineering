@@ -95,6 +95,22 @@ def archive_item(client: SupportsExecute, project_id: str, item_id: str) -> None
     )
 
 
+def restore_tree(
+    client: SupportsExecute, project_id: str, root_issue_id: str
+) -> list[TreeIssue]:
+    """Unarchive every archived card below the root issue; return those restored."""
+
+    plan = plan_archive(
+        collect_descendants(client, project_id, root_issue_id), UNARCHIVE
+    )
+    for issue in plan.to_change:
+        client.execute(
+            UNARCHIVE_ITEM_MUTATION,
+            {"projectId": project_id, "itemId": issue.item_id},
+        )
+    return plan.to_change
+
+
 def parse_map_ref(value: str, default_repo: str) -> tuple[str, str, int]:
     """Accept `123`, `#123` or `owner/repo#123`; bare numbers use `default_repo`."""
 

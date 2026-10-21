@@ -22,7 +22,8 @@ Running the deploy script (below) stands up three things for a team:
   **Blocked · Ready · In progress · In review · Done**. There are no custom fields:
   the board reuses GitHub's native **Parent issue** field for hierarchy and the
   native **Repository** field to show which code repo a spec belongs to. A
-  closed Map's tree is hidden automatically by archiving its cards (see
+  closed Map is hidden, with its whole tree, by archiving its cards, and shown
+  again by restoring the Map's card (see
   [Hiding a finished Map](#hiding-a-finished-map)).
 - **A shared label vocabulary** the planning skills expect (`wayfinder:*` and the
   triage labels).
@@ -183,24 +184,35 @@ which keeps Map cards out of Board, is set by hand and stays as it is.
 
 ### Hiding a finished Map
 
-**Automatic.** At the end of every sweep, each closed Map's tree is archived: the
-Project card of every descendant, open or closed, at any depth and in any repo
-(specs in code repos included), after the card's Status has settled. The Map's own
-card stays. Closing a Map (by hand, or by the cascade above) therefore hides its
-tree within the sweep that follows. A Map with an open descendant is reopened by
-the cascade before anything is archived. A child of a closed Map is also archived
-when the Map's own card has been archived. Nothing changes on the issues, and no
-new token permission is needed: archiving is covered by `AI_PLANNING_TOKEN`'s org
-`Projects: Read and write`.
+An archived Map card means "this effort is hidden", and its whole tree follows it.
+GitHub raises no event when a Project card is archived or restored, so the sweep
+works it out from the active cards it can see, plus one marker on the Map issue,
+the **`wayfinder:archived`** label ("the sweep archived this Map's tree"). Each
+rule applies to the next sweep, so a change takes effect on the next sweep (any
+planning-repo issue event, a code-repo dispatch, or **Run workflow** on
+`board-sync`), not instantly.
 
-Archived cards leave the board read, so a settled tree costs nothing on later
-sweeps. The flip side: a descendant that reopens while archived is not seen by the
-sweep. Restore it (below) and the cascade picks it up again.
+| What the sweep sees on a Map | What it does |
+| --- | --- |
+| closed, no marker | just finished: archives the tree (open or closed cards, any depth, any repo), then the Map's own card, then adds the marker |
+| closed, marker, tree hidden | you **restored the Map's card**: restores every archived descendant, recursively; the marker stays so it is not hidden again |
+| open, marker | the Map was reopened: restores the tree and removes the marker |
+| Map card archived by hand, children still visible | archives the children and their subtrees and adds the marker |
+
+A Map with an open descendant is reopened by the cascade before anything is
+archived. The sweep leaves a Map alone, and says so in the log, when the
+`wayfinder:archived` label does not exist in its repo (`setup-ai-planning-repo.sh`
+creates it). Nothing else changes on the issues, and no new token permission is
+needed: archiving is covered by `AI_PLANNING_TOKEN`'s org `Projects: Read and write`
+and the label by `Issues: Read and write`.
+
+A descendant that reopens while it is archived is not seen by the sweep until its
+tree is restored.
 
 **Manual.** The planning repo's **`archive-map.yml`** workflow does the same walk
 for one Map on demand (Actions tab, or
 `gh workflow run archive-map.yml -f map=10 -f dry-run=false`), and can restore a
-tree with `mode: unarchive`. Use it to backfill or undo.
+tree with `mode: unarchive`, immediately and without waiting for a sweep.
 
 - The issue must carry `wayfinder:map` and be **closed**; otherwise nothing runs.
 - The Map's own card is untouched, and `dry-run` (the default) only lists the cards.

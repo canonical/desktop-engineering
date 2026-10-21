@@ -30,10 +30,10 @@ A map auto-closes and auto-reopens by `compute_map_cascade`, a pure reducer over
 each map's native sub-issue subtree (any depth), folded into this same sweep —
 no new trigger. See that function's docstring for the predicate.
 
-After the Status writes, every card still on the board under a closed map (open
-or closed, any depth, cross-repo) is archived and the map's own card stays; see
-`archive.subtree_item_ids`. A child of a closed map is also archived when the
-map's card is itself already archived.
+After the Status writes, `map_visibility.reconcile_map_visibility` keeps each
+map's tree hidden or visible in step with the map's own card: a map that just
+closed is archived with its tree, a restored map has its tree restored, and the
+`wayfinder:archived` label on the map is the marker that tells the two apart.
 
 A closed card's facts are still read and scored like any other card — its
 synced Status feeds the child roll-up and the future map-cascade — and it is
@@ -66,18 +66,17 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ai_planning.archive import archive_item, subtree_item_ids
 from ai_planning.client import SupportsExecute
 from ai_planning.sync_status import Facts, Status, sync_status
 from ai_planning.facts_mapping import (
     extend_item_linked_prs,
     item_child_content_ids,
-    item_has_closed_map_parent,
     item_content_id,
     item_current_status_option_id,
     linked_prs_page_info,
     item_to_facts,
 )
+from ai_planning.map_visibility import reconcile_map_visibility
 from ai_planning.queries import (
     ADD_ITEM_MUTATION,
     CLOSE_ISSUE_MUTATION,
@@ -115,6 +114,7 @@ class SyncResult:
     map_closed: list[str] = field(default_factory=list)
     map_reopened: list[str] = field(default_factory=list)
     archived: list[str] = field(default_factory=list)
+    restored: list[str] = field(default_factory=list)
 
 
 def fetch_status_field(client: SupportsExecute, project_id: str) -> StatusField:
@@ -533,8 +533,7 @@ def run_sync(
     # spec-branch PR). Closing it clears the native blocked_by edges so
     # dependents unblock.
     issue_ids_to_close: dict[str, str] = {}
-    # Cards whose direct parent is a closed Map (it may already be archived).
-    children_of_closed_maps: set[str] = set()
+    items_by_id: dict[str, dict[str, Any]] = {}
 
     def ingest(item: dict[str, Any]) -> None:
         item_id: str = item["id"]
@@ -557,8 +556,7 @@ def run_sync(
             if facts.has_merged_linked_pr and not facts.closed:
                 issue_ids_to_close[item_id] = content_id
         child_content_ids_by_item_id[item_id] = item_child_content_ids(item)
-        if item_has_closed_map_parent(item):
-            children_of_closed_maps.add(item_id)
+        items_by_id[item_id] = item
 
     for item in items:
         ingest(item)
@@ -677,17 +675,23 @@ def run_sync(
         write_status(client, project_id, item_id, status_field, status)
         result.written.append((item_id, status))
 
-    # Hide finished work: every card still visible under a closed Map (open or
-    # closed, any depth, cross-repo) is archived, once its Status has settled.
-    # The Map's own card stays. Archived cards leave the board read, so a settled
-    # tree costs nothing on later sweeps.
-    for item_id in subtree_item_ids(
-        closed_map_item_ids,
-        children_of_closed_maps,
-        item_id_by_content_id,
-        child_content_ids_by_item_id,
-    ):
-        archive_item(client, project_id, item_id)
-        result.archived.append(item_id)
+    # Keep each Map's tree hidden/visible in step with the Map's own card (see
+    # `map_visibility`), once Status has settled.
+    visibility = reconcile_map_visibility(
+        client,
+        project_id,
+        items_by_id=items_by_id,
+        item_order=item_order,
+        closed_map_item_ids=closed_map_item_ids,
+        open_map_item_ids={
+            item_id
+            for item_id, facts in facts_by_item_id.items()
+            if facts.is_map and item_id not in closed_map_item_ids
+        },
+        item_id_by_content_id=item_id_by_content_id,
+        child_content_ids_by_item_id=child_content_ids_by_item_id,
+    )
+    result.archived = visibility.archived
+    result.restored = visibility.restored
 
     return result
