@@ -818,6 +818,17 @@ def test_a_closed_non_map_parent_does_not_archive_its_children():
     assert client.archived == []
 
 
+def test_closed_map_with_only_invisible_children_is_not_reopened():
+    """Archived children are not on the board read; they must not look open."""
+    map_item = _map("i_map", state="CLOSED", child_content_ids=("I_archived",))
+    client = FakeClient(_single_page([map_item]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert result.map_reopened == []
+    assert client.reopened == []
+
+
 def test_map_auto_close_is_reason_agnostic():
     """A subtree closed out-of-scope (NOT_PLANNED) closes the map exactly like
     one closed COMPLETED — `Facts.closed` carries no reason, by design."""

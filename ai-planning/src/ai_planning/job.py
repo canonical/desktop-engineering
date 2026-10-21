@@ -307,9 +307,10 @@ def compute_map_cascade(
     closed map **auto-reopens** the moment any descendant is open again. A
     **childless map never auto-closes**, regardless of its own state.
 
-    A descendant this run never ingested (off-board, or contentless) has no
-    known closed fact, so it is conservatively treated as open — it can still
-    block a close, but the caller never sees a `Facts` for it to misread.
+    A descendant this run never ingested (off-board, archived, or contentless)
+    has no known closed fact, so it is conservatively treated as open for the
+    purpose of *closing* — it can block a close — but it never causes a reopen:
+    only a descendant the sweep can see open does.
 
     A descendant counts as "closed" for this predicate when it is `closed` OR
     has a merged deliberately-linked PR (`has_merged_linked_pr`) — the same
@@ -387,11 +388,12 @@ def compute_map_cascade(
                 continue  # childless-map guard: never auto-close
             # An unresolved descendant has no known closed fact, so it always
             # counts as open — it can block a close but never causes one.
-            open_descendant_count = len(unresolved_content_ids) + sum(
+            known_open_count = sum(
                 1
                 for descendant in descendant_item_ids
                 if closed_by_item_id.get(descendant) is not True
             )
+            open_descendant_count = len(unresolved_content_ids) + known_open_count
             currently_closed = closed_by_item_id.get(item_id, False)
             content_id = content_id_by_item_id.get(item_id)
             if content_id is None:
@@ -400,7 +402,10 @@ def compute_map_cascade(
                 actions.append(MapCascadeAction(item_id, content_id, close=True))
                 closed_by_item_id[item_id] = True
                 changed = True
-            elif open_descendant_count > 0 and currently_closed:
+            # Reopen only on positive evidence: a descendant we can see is open.
+            # An unresolved one may just be archived (hidden with its closed
+            # Map's tree), so it blocks a close but never reopens a closed Map.
+            elif known_open_count > 0 and currently_closed:
                 actions.append(MapCascadeAction(item_id, content_id, close=False))
                 closed_by_item_id[item_id] = False
                 changed = True
