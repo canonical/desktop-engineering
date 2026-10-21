@@ -195,10 +195,10 @@ archiving is covered by `AI_PLANNING_TOKEN`'s org `Projects: Read and write`.
 - The Map's own card is untouched, and `dry-run` (the default) only lists the cards.
 - Choose `mode: unarchive` to restore the whole tree (the Map may be open).
 - Archived cards leave the Efforts view too, not just the Board.
-- By hand in the Project UI: a card's "⋯" menu -> **Archive**, or select several
-  rows in a table view and archive them together. Archived cards are listed with
-  the filter `is:archived`, and restored from the Project's "⋯" -> **Archived
-  items** (or the card's own menu).
+- By hand in the Project UI: select the card (click it on Board, or click the row
+  number in a table; Ctrl/Cmd-click or Shift-click for several), then its "⋯"
+  (Board) or ▾ (table) menu -> **Archive**. Restore from the Project's top-right
+  "⋯" -> **Archived items**, tick the items, **Restore**.
 
 ### Self-close on merge (cross-repo tickets)
 
