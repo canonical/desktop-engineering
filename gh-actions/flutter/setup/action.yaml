@@ -115,8 +115,9 @@ runs:
         fi
 
         # Installs the Flutter SDK pinned in .fvmrc and creates the local
-        # .fvm/flutter_sdk symlink
-        fvm install
+        # .fvm/flutter_sdk symlink. Skip pub get here, as it doesn't respect
+        # lock files. Melos handles this correctly in the next step.
+        fvm install --skip-pub-get
 
         # Put the FVM-pinned SDK on PATH so bare `flutter` and `dart` resolve
         # to the exact same SDK that `fvm flutter` / `fvm dart` use
