@@ -13,7 +13,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       id: my-checkout
       if: ${{ inputs.fail-for-push != 'false' }}
       continue-on-error: true
