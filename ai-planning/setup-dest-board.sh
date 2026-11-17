@@ -19,8 +19,9 @@
 #      linked projects.
 #
 # One secret, set once on the repo: `AI_PLANNING_TOKEN` — a fine-grained PAT
-# scoped to that one repo (Issues: read and write) plus the org's Projects:
-# read and write. Projects v2 is out of the GITHUB_TOKEN's reach even for a
+# scoped to that one repo (Issues: read and write; Pull requests: read — the
+# sweep reads PRs, its link scan included) plus the org's Projects: read and
+# write. Projects v2 is out of the GITHUB_TOKEN's reach even for a
 # repo-linked board (verified live: the Actions token cannot even resolve the
 # Project), so no board automation can run without it. Mint it by hand
 # (https://github.com/settings/personal-access-tokens/new), keep it in
@@ -170,7 +171,7 @@ mint_help="    Mint the fine-grained PAT (browser-only):
       https://github.com/settings/personal-access-tokens/new
       Resource owner:        $OWNER
       Repository access:     Only select repositories -> $DEST_REPO
-      Repository perms:      Issues: Read and write
+      Repository perms:      Issues: Read and write; Pull requests: Read
       Organization perms:    Projects: Read and write
       (no Actions/Webhooks/Contents needed)"
 secret_set="$(gh secret list --repo "$DEST_REPO" --json name --jq '.[].name' 2>/dev/null | grep -qx AI_PLANNING_TOKEN && echo 1 || echo 0)"
@@ -230,7 +231,7 @@ echo "1. THE TOKEN (skipped above when the secret is already set) — mint it in
 echo "   browser at https://github.com/settings/personal-access-tokens/new :"
 echo "     Resource owner:      $OWNER"
 echo "     Repository access:   Only select repositories -> $DEST_REPO"
-echo "     Repository perms:    Issues: Read and write"
+echo "     Repository perms:    Issues: Read and write; Pull requests: Read"
 echo "     Organization perms:  Projects: Read and write"
 echo "   Then store it on the repo (it is the ONLY secret this needs):"
 echo "     gh secret set AI_PLANNING_TOKEN --repo $DEST_REPO"

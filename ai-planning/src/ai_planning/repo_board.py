@@ -107,16 +107,22 @@ def main() -> int:
     # Author this repo's missing ticket links first: GitHub ignores `Closes`
     # on any PR that does not target the default branch — every stack PR into
     # a spec branch — so the sweep would never see those PRs without this.
-    link_result = author_missing_links(client, [repo])
-    for pr_label, ref in link_result.authored:
-        print(f"linked {pr_label} -> {ref.repo_full_name}#{ref.number}")
-    print(
-        f"link_authored={len(link_result.authored)} "
-        f"link_unchanged={len(link_result.unchanged)} "
-        f"link_ambiguous={len(link_result.ambiguous)} "
-        f"link_no_candidates={len(link_result.no_candidates)}",
-        file=sys.stderr,
-    )
+    # A scan failure (a token too narrow to read PRs) must not kill the
+    # status sweep: log it and reconcile the board anyway.
+    try:
+        link_result = author_missing_links(client, [repo])
+    except Exception as error:  # noqa: BLE001 - reported, then non-fatal
+        print(f"error: link scan failed ({error}); sweeping anyway", file=sys.stderr)
+    else:
+        for pr_label, ref in link_result.authored:
+            print(f"linked {pr_label} -> {ref.repo_full_name}#{ref.number}")
+        print(
+            f"link_authored={len(link_result.authored)} "
+            f"link_unchanged={len(link_result.unchanged)} "
+            f"link_ambiguous={len(link_result.ambiguous)} "
+            f"link_no_candidates={len(link_result.no_candidates)}",
+            file=sys.stderr,
+        )
 
     data = client.execute(_LINKED_PROJECTS_QUERY, {"owner": owner, "name": name})
     nodes = ((data.get("repository") or {}).get("projectsV2") or {}).get("nodes") or []

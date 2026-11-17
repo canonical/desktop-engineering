@@ -37,7 +37,8 @@ DEST_REPO=canonical/<repo> ./setup-dest-board.sh
 ## The one secret
 
 `AI_PLANNING_TOKEN` on the code repo — a fine-grained PAT scoped to that one
-repo (Issues: read and write) plus the org's **Projects: read and write**.
+repo (Issues: read and write; Pull requests: read — the sweep reads PRs, its
+link scan included) plus the org's **Projects: read and write**.
 This cannot be avoided: the workflow's own `GITHUB_TOKEN` is repo-scoped and
 cannot even *resolve* a ProjectV2 — verified live, including for a
 repo-linked board — so any Projects v2 automation needs a token carrying the
