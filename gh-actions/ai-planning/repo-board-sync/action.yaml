@@ -1,0 +1,28 @@
+# Composite action that reconciles a code repo's OWN AI planning board — the
+# org Project titled `AI planning` (predictive name) linked to the caller
+# repo. One input total: the PAT Projects v2 requires, because the
+# GITHUB_TOKEN is repo-scoped and cannot resolve a ProjectV2 at all (verified
+# live, even for a repo-linked board). No checkout: the runner has already
+# downloaded this repo to run the action, and the engine (`ai-planning/src`,
+# three levels above this folder) is stdlib-only — one python3 call, no
+# install step. Event-driven by the caller: the workflow fires on issues and
+# pull_request events, never on a timer.
+name: AI planning repo board sync
+description: >-
+  Reconcile a code repo's own AI planning board (the linked 'AI planning'
+  Project, found by title) with live GitHub facts. Event-driven by the caller.
+
+inputs:
+  token:
+    description: >-
+      Fine-grained PAT scoped to the caller repo (Issues: read and write)
+      plus the org's Projects: read and write.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - run: PYTHONPATH="${{ github.action_path }}/../../../ai-planning/src" python3 -m ai_planning.repo_board
+      shell: bash
+      env:
+        AI_PLANNING_TOKEN: ${{ inputs.token }}

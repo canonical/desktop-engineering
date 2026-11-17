@@ -1,0 +1,731 @@
+"""The sync job: fetch every card's facts, sync its Status, write it back.
+
+This is the orchestration shell (ticket 03). It composes thin steps around the
+pure function and holds no precedence branching itself:
+
+    pass 0: seed the board — add every planning-repo issue, and transitively via
+            native sub-issues any cross-repo child (e.g. a spec), so no agent
+            ever runs `item-add`; a card seeded this run is read back by its item
+            id so it's synced now, not left blank until the next run
+    read (GraphQL) -> item_to_facts -> sync_status -> write (GraphQL)
+
+The sync runs in **two passes** so a parent's child roll-up (`Facts.
+child_started_count`) reflects its children's *synced* Status, not their
+raw facts:
+
+    pass 1: sync every leaf item (no sub-issue children present on the board)
+    pass 2: for each parent, count children whose pass-1 Status is In progress,
+            In review or Done ("started"), fold that count into the parent's own
+            Facts, then sync the parent
+
+`sync_status` stays pure and knows nothing about passes; the job owns the
+ordering. Results are written back in the Project's original item order,
+regardless of which pass produced them.
+
+Maps (`sync_status` returns `None`) get no Status written; they are recorded so
+the caller can, optionally, surface an "all children closed" hint. Items with no
+content (draft items / invisible issues) are skipped.
+
+A map auto-closes and auto-reopens by `compute_map_cascade`, a pure reducer over
+each map's native sub-issue subtree (any depth), folded into this same sweep —
+no new trigger. See that function's docstring for the predicate.
+
+After the Status writes, `map_visibility.reconcile_map_visibility` keeps each
+map's tree hidden or visible in step with the map's own card: a map that just
+closed is archived with its tree, a restored map has its tree restored, and the
+board's own `wayfinder:archived:<board>` label on the map is the marker that
+tells the two apart.
+
+A closed card's facts are still read and scored like any other card — its
+synced Status feeds the child roll-up and the future map-cascade — and it is
+also a normal write-candidate: the sweep is the single source of truth for the
+Status column and does not rely on the Project's own native "Item closed"/
+"Pull request merged" workflows (Set Status -> Done) to settle a closed card.
+Those native workflows are a nice-to-have latency win when enabled (they fire
+the instant an issue closes, ahead of the next sweep), but they ship
+*disabled* on some Projects and are UI-only (no public API to enable them), so
+a sweep that trusted them blindly would leave a closed card stuck on a stale
+column forever whenever they're off. The existing skip-if-unchanged guard
+already keeps this cheap: a closed card whose column already reads Done (via
+the native workflow or a prior sweep) produces no mutation, exactly like an
+open card that's already correct. See `run_sync`'s final write loop.
+
+Nothing is deployed in any code repo: a spec's PR state is reached remotely
+through the same GraphQL client, cross-repo.
+
+Scaling note (documented, not built): one sweep fully paginates the board up to
+three times over — `seed_board`'s `_board_content_ids` diff read, its closure
+loop's own `iter_project_items` pass(es), and `run_sync`'s main `items` read.
+That is a flat cost regardless of N today; at N≈500+ cards it is the first
+place worth cutting (e.g. a single cached board read shared across all three),
+but is a pre-agreed future lever, not a problem this prefactor solves.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Any
+
+from ai_planning.client import SupportsExecute
+from ai_planning.sync_status import Facts, Status, sync_status
+from ai_planning.facts_mapping import (
+    extend_item_linked_prs,
+    item_child_content_ids,
+    item_content_id,
+    item_current_status_option_id,
+    linked_prs_page_info,
+    item_to_facts,
+)
+from ai_planning.map_visibility import ARCHIVED_LABEL, reconcile_map_visibility
+from ai_planning.queries import (
+    ADD_ITEM_MUTATION,
+    CLOSE_ISSUE_MUTATION,
+    ISSUE_LINKED_PRS_QUERY,
+    PROJECT_ITEM_QUERY,
+    PROJECT_ITEMS_QUERY,
+    REOPEN_ISSUE_MUTATION,
+    REPO_ISSUES_QUERY,
+    STATUS_FIELD_QUERY,
+    UPDATE_STATUS_MUTATION,
+)
+
+
+@dataclass(frozen=True)
+class StatusField:
+    """The Project's Status field: its node id and name -> option-id lookup."""
+
+    field_id: str
+    option_ids: dict[str, str]
+
+    def option_id_for(self, status: Status) -> str:
+        return self.option_ids[status.value]
+
+
+@dataclass
+class SyncResult:
+    """What one sync pass did, for logging and the map hint."""
+
+    seeded: list[str] = field(default_factory=list)
+    written: list[tuple[str, Status]] = field(default_factory=list)
+    unchanged: list[tuple[str, Status]] = field(default_factory=list)
+    skipped_maps: list[str] = field(default_factory=list)
+    skipped_contentless: list[str] = field(default_factory=list)
+    closed_issues: list[str] = field(default_factory=list)
+    map_closed: list[str] = field(default_factory=list)
+    map_reopened: list[str] = field(default_factory=list)
+    archived: list[str] = field(default_factory=list)
+    restored: list[str] = field(default_factory=list)
+
+
+def fetch_status_field(client: SupportsExecute, project_id: str) -> StatusField:
+    """Read the Status field id and its option-name -> option-id map."""
+
+    data = client.execute(STATUS_FIELD_QUERY, {"projectId": project_id})
+    field_node = (data.get("node") or {}).get("field") or {}
+    option_ids = {
+        option["name"]: option["id"] for option in field_node.get("options", [])
+    }
+    return StatusField(field_id=field_node["id"], option_ids=option_ids)
+
+
+def iter_project_items(
+    client: SupportsExecute, project_id: str, *, page_size: int = 50
+) -> Iterator[dict[str, Any]]:
+    """Yield every Project item, following GraphQL cursor pagination."""
+
+    cursor: str | None = None
+    while True:
+        data = client.execute(
+            PROJECT_ITEMS_QUERY,
+            {"projectId": project_id, "pageSize": page_size, "cursor": cursor},
+        )
+        items = (data.get("node") or {}).get("items") or {}
+        yield from items.get("nodes", [])
+        page_info = items.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            return
+        cursor = page_info.get("endCursor")
+
+
+def write_status(
+    client: SupportsExecute,
+    project_id: str,
+    item_id: str,
+    status_field: StatusField,
+    status: Status,
+) -> None:
+    """Write one synced Status onto a card as its single-select option."""
+
+    client.execute(
+        UPDATE_STATUS_MUTATION,
+        {
+            "projectId": project_id,
+            "itemId": item_id,
+            "fieldId": status_field.field_id,
+            "optionId": status_field.option_id_for(status),
+        },
+    )
+
+
+def iter_repo_open_issue_ids(
+    client: SupportsExecute,
+    owner: str,
+    name: str,
+    *,
+    label: str | None = None,
+    page_size: int = 50,
+) -> Iterator[str]:
+    """Yield the content node id of every OPEN issue in `owner/name`, only those
+    carrying `label` when one is given."""
+
+    cursor: str | None = None
+    while True:
+        data = client.execute(
+            REPO_ISSUES_QUERY,
+            {
+                "owner": owner,
+                "name": name,
+                "pageSize": page_size,
+                "cursor": cursor,
+                "labels": [label] if label else None,
+            },
+        )
+        issues = (data.get("repository") or {}).get("issues") or {}
+        for node in issues.get("nodes", []):
+            content_id = node.get("id")
+            if content_id:
+                yield content_id
+        page_info = issues.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            return
+        cursor = page_info.get("endCursor")
+
+
+def add_item(client: SupportsExecute, project_id: str, content_id: str) -> str:
+    """Add one issue/PR (by content id) to the Project; idempotent on GitHub.
+
+    Returns the Project *item* node id — for a content already carded, GitHub
+    returns the existing item — so the caller can read that item back directly
+    even before the eventually-consistent board list reflects the add.
+    """
+
+    data = client.execute(
+        ADD_ITEM_MUTATION, {"projectId": project_id, "contentId": content_id}
+    )
+    return ((data.get("addProjectV2ItemById") or {}).get("item") or {})["id"]
+
+
+def fetch_project_item(
+    client: SupportsExecute, item_id: str
+) -> dict[str, Any] | None:
+    """Read a single Project item by its item node id, or None if it's gone.
+
+    A read by item id is consistent immediately after `add_item`, unlike the
+    paged board list, so the job uses this to sync a just-seeded card the
+    re-read hasn't surfaced yet.
+    """
+
+    data = client.execute(PROJECT_ITEM_QUERY, {"itemId": item_id})
+    return data.get("node")
+
+
+def iter_issue_linked_prs(
+    client: SupportsExecute,
+    issue_id: str,
+    *,
+    cursor: str | None,
+    page_size: int = 50,
+) -> Iterator[dict[str, Any]]:
+    """Yield an issue's remaining linked-PR nodes past `cursor`.
+
+    Only used when an issue carries more deliberately-linked PRs than the
+    single page embedded in the item read; `cursor` is that embedded page's
+    end cursor.
+    """
+
+    while True:
+        data = client.execute(
+            ISSUE_LINKED_PRS_QUERY,
+            {"issueId": issue_id, "pageSize": page_size, "cursor": cursor},
+        )
+        refs = (data.get("node") or {}).get("closedByPullRequestsReferences") or {}
+        yield from refs.get("nodes", [])
+        page_info = refs.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            return
+        cursor = page_info.get("endCursor")
+
+
+def page_item_linked_prs(
+    client: SupportsExecute, item: dict[str, Any], *, page_size: int = 50
+) -> None:
+    """Fold any paged linked-PR tail back into `item` in place.
+
+    The item read embeds only the first page of an issue's
+    `closedByPullRequestsReferences` connection. When more pages exist, fetch
+    them by the issue's node id and append them so the single `item_to_facts`
+    read scores the full set. A no-op when the embedded page is already
+    complete (the common case).
+    """
+
+    has_next, cursor = linked_prs_page_info(item)
+    if not has_next:
+        return
+    issue_id = item_content_id(item)
+    if issue_id is None:
+        return
+    extend_item_linked_prs(
+        item,
+        list(
+            iter_issue_linked_prs(
+                client, issue_id, cursor=cursor, page_size=page_size
+            )
+        ),
+    )
+
+
+def close_issue(client: SupportsExecute, issue_id: str) -> None:
+    """Close one issue (COMPLETED) by its node id, clearing its dependency edges."""
+
+    client.execute(CLOSE_ISSUE_MUTATION, {"issueId": issue_id})
+
+
+def reopen_issue(client: SupportsExecute, issue_id: str) -> None:
+    """Reopen one issue by its node id. Used solely by the map cascade."""
+
+    client.execute(REOPEN_ISSUE_MUTATION, {"issueId": issue_id})
+
+
+@dataclass(frozen=True)
+class MapCascadeAction:
+    """One map to close or reopen, decided by `compute_map_cascade`."""
+
+    item_id: str
+    content_id: str
+    close: bool
+
+
+def compute_map_cascade(
+    facts_by_item_id: dict[str, Facts],
+    item_id_by_content_id: dict[str, str],
+    child_content_ids_by_item_id: dict[str, list[str]],
+) -> list[MapCascadeAction]:
+    """Pure reducer: decide which maps this sweep should close or reopen.
+
+    A map auto-closes when its **subtree** (every native sub-issue descendant,
+    at any depth — not just direct children) has at least one descendant and
+    zero open descendants; "open" is reason-agnostic, so a descendant closed as
+    `NOT_PLANNED`/out-of-scope counts the same as one closed `COMPLETED`. A
+    closed map **auto-reopens** the moment any descendant is open again. A
+    **childless map never auto-closes**, regardless of its own state.
+
+    A descendant this run never ingested (off-board, archived, or contentless)
+    has no known closed fact, so it is conservatively treated as open for the
+    purpose of *closing* — it can block a close — but it never causes a reopen:
+    only a descendant the sweep can see open does.
+
+    A descendant counts as "closed" for this predicate when it is `closed` OR
+    has a merged deliberately-linked PR (`has_merged_linked_pr`) — the same
+    Done precedence `sync_status` uses — so a spec-branch ticket the sweep is
+    about to self-close (its closing keyword being inert) settles the cascade
+    in this same pass rather than waiting for the next sweep's re-read of the
+    close that just fired.
+
+    Nested maps cascade in the same pass: this function iterates to a fixed
+    point, so a deeply-nested map that this same call decides to close is
+    already reflected as closed when its own ancestor map's subtree is
+    evaluated, in whatever order the maps happen to be visited.
+
+    Returns the ordered list of decided actions; no client I/O happens here —
+    the caller issues each mutation and folds the result back onto its own
+    `facts_by_item_id` for the rest of the sweep.
+    """
+
+    content_id_by_item_id = {v: k for k, v in item_id_by_content_id.items()}
+
+    def children_of(item_id: str) -> tuple[list[str], list[str]]:
+        """This item's direct sub-issue children, split into
+        `(resolved_item_ids, unresolved_content_ids)` — resolved is any child
+        content id that is itself a Project item on this board; unresolved is
+        one that isn't (off-board, or never ingested), and so has no further
+        children of its own and no known closed fact.
+        """
+        resolved: list[str] = []
+        unresolved: list[str] = []
+        for content_id in child_content_ids_by_item_id.get(item_id, []):
+            child_item_id = item_id_by_content_id.get(content_id)
+            if child_item_id is None:
+                unresolved.append(content_id)
+            else:
+                resolved.append(child_item_id)
+        return resolved, unresolved
+
+    def descendants_of(item_id: str) -> tuple[set[str], set[str]]:
+        """The full subtree below `item_id`, as `(item_ids, unresolved_content_ids)`.
+
+        `item_ids` is every on-board descendant, at any depth. Each entry in
+        `unresolved_content_ids` is a descendant the board can't resolve to a
+        Facts read (a leaf as far as this traversal is concerned) — it still
+        counts as a descendant, and, having no known closed fact, always
+        counts as open (see the caller).
+        """
+        seen: set[str] = set()
+        unresolved: set[str] = set()
+        stack = [item_id]
+        while stack:
+            current = stack.pop()
+            resolved_children, unresolved_children = children_of(current)
+            unresolved.update(unresolved_children)
+            for child_item_id in resolved_children:
+                if child_item_id not in seen:
+                    seen.add(child_item_id)
+                    stack.append(child_item_id)
+        return seen, unresolved
+
+    closed_by_item_id = {
+        item_id: facts.closed or facts.has_merged_linked_pr
+        for item_id, facts in facts_by_item_id.items()
+    }
+    map_item_ids = [
+        item_id for item_id, facts in facts_by_item_id.items() if facts.is_map
+    ]
+
+    actions: list[MapCascadeAction] = []
+    changed = True
+    while changed:
+        changed = False
+        for item_id in map_item_ids:
+            descendant_item_ids, unresolved_content_ids = descendants_of(item_id)
+            if not descendant_item_ids and not unresolved_content_ids:
+                continue  # childless-map guard: never auto-close
+            # An unresolved descendant has no known closed fact, so it always
+            # counts as open — it can block a close but never causes one.
+            known_open_count = sum(
+                1
+                for descendant in descendant_item_ids
+                if closed_by_item_id.get(descendant) is not True
+            )
+            open_descendant_count = len(unresolved_content_ids) + known_open_count
+            currently_closed = closed_by_item_id.get(item_id, False)
+            content_id = content_id_by_item_id.get(item_id)
+            if content_id is None:
+                continue
+            if open_descendant_count == 0 and not currently_closed:
+                actions.append(MapCascadeAction(item_id, content_id, close=True))
+                closed_by_item_id[item_id] = True
+                changed = True
+            # Reopen only on positive evidence: a descendant we can see is open.
+            # An unresolved one may just be archived (hidden with its closed
+            # Map's tree), so it blocks a close but never reopens a closed Map.
+            elif known_open_count > 0 and currently_closed:
+                actions.append(MapCascadeAction(item_id, content_id, close=False))
+                closed_by_item_id[item_id] = False
+                changed = True
+
+    return actions
+
+
+def _board_content_ids(
+    client: SupportsExecute, project_id: str, page_size: int
+) -> set[str]:
+    """The content ids of every issue/PR already carded on the board."""
+
+    return {
+        content_id
+        for item in iter_project_items(client, project_id, page_size=page_size)
+        if (content_id := item_content_id(item)) is not None
+    }
+
+
+def seed_board(
+    client: SupportsExecute,
+    project_id: str,
+    planning_repo: str,
+    *,
+    seed_labels: Sequence[str] | None = None,
+    page_size: int = 50,
+) -> dict[str, str]:
+    """Pass 0: ensure every effort issue is a card, so no agent runs `item-add`.
+
+    First seed the planning repo's own OPEN issues (maps, tasks, research,
+    implementation tickets) — only those carrying at least one of `seed_labels`
+    when given (the union, paged once per label), all of them when it is None
+    (the `all` board). Then take the **transitive closure over native
+    sub-issues**: a map's child that lives in another repo — a spec — is only
+    visible once the map itself is on the board, so re-scan the board's
+    sub-issue edges and pull in any child not yet carded, repeating until a
+    scan adds nothing. We diff against the board first, and `add_item` is
+    idempotent anyway, so a settled board issues no add mutations.
+
+    Returns a mapping of each newly added content id -> its Project item id, in
+    insertion order. The item ids let the sweep sync a fresh card directly (by
+    item id) even when the eventually-consistent board list read hasn't caught
+    up to the add yet.
+    """
+
+    owner, name = planning_repo.split("/", 1)
+    on_board = _board_content_ids(client, project_id, page_size)
+    added: dict[str, str] = {}
+
+    for label in (None,) if seed_labels is None else seed_labels:
+        for content_id in iter_repo_open_issue_ids(
+            client, owner, name, label=label, page_size=page_size
+        ):
+            if content_id not in on_board:
+                added[content_id] = add_item(client, project_id, content_id)
+                on_board.add(content_id)
+
+    while True:
+        newly_added: dict[str, str] = {}
+        for item in iter_project_items(client, project_id, page_size=page_size):
+            for child_id in item_child_content_ids(item):
+                if child_id not in on_board:
+                    newly_added[child_id] = add_item(client, project_id, child_id)
+                    on_board.add(child_id)
+        if not newly_added:
+            break
+        added.update(newly_added)
+
+    return added
+
+
+def run_sync(
+    client: SupportsExecute,
+    project_id: str,
+    *,
+    planning_repo: str | None = None,
+    seed_labels: Sequence[str] | None = None,
+    archived_label: str | None = ARCHIVED_LABEL,
+    page_size: int = 50,
+) -> SyncResult:
+    """Score every card and write each synced Status back, two passes deep.
+
+    When `planning_repo` is given, pass 0 seeds the board first (every
+    planning-repo issue plus their transitive sub-issue children), so the sweep
+    reconciles a board it also keeps populated (`seed_labels` narrows the
+    planning repo's issues to the union of those labels — one squad's, or a
+    repo's whole agent-work vocabulary; `archived_label` is this board's own
+    archived-Map marker). Any card seeded this run that the
+    (eventually-consistent) board list read doesn't return yet is fetched back by
+    its item id so it is still synced now. Pass 1 syncs every leaf (an item with
+    no sub-issue children present on this board). Pass 2 syncs every parent,
+    first rolling its children's pass-1 Status up into `child_started_count`.
+    Writes happen afterwards, in the Project's original item order. Every card,
+    closed or open, is a write-candidate: the sweep is authoritative for the
+    Status column and never assumes the Project's own native "Item closed"/
+    "Pull request merged" workflows are enabled. The skip-if-unchanged guard
+    still keeps this cheap — a closed card whose column already reads Done
+    produces no mutation, same as an already-correct open card.
+
+    Every card scores off `item_to_facts`'s sole PR read — a closing-linked
+    PR (`closedByPullRequestsReferences(userLinkedOnly: false)`), cross-repo or
+    same-repo alike, no allow-list required. When a linked PR has merged while
+    its issue is still OPEN (e.g. a spec-branch PR, whose closing keyword
+    GitHub treats as inert), the job self-closes that issue (COMPLETED) so its
+    native `blocked_by` edges clear and dependents unblock; the card itself
+    resolves to Done here regardless of when that close lands.
+
+    The map auto-close cascade (`compute_map_cascade`) runs once per sweep,
+    right after facts are read: it closes a map whose subtree has settled
+    (>=1 descendant, zero open) and reopens one whose subtree gained an open
+    descendant back, cross-repo, via the same `AI_PLANNING_TOKEN`. No separate
+    trigger — this sweep is the only mechanism.
+
+    """
+
+    seeded_items: dict[str, str] = {}
+    if planning_repo:
+        seeded_items = seed_board(
+            client,
+            project_id,
+            planning_repo,
+            seed_labels=seed_labels,
+            page_size=page_size,
+        )
+
+    status_field = fetch_status_field(client, project_id)
+    result = SyncResult(seeded=list(seeded_items))
+
+    items = list(iter_project_items(client, project_id, page_size=page_size))
+
+    item_order: list[str] = []
+    facts_by_item_id: dict[str, Facts] = {}
+    current_option_id_by_item_id: dict[str, str | None] = {}
+    item_id_by_content_id: dict[str, str] = {}
+    child_content_ids_by_item_id: dict[str, list[str]] = {}
+    # Issue node ids to close: a merged, deliberately-linked PR completed the
+    # ticket, but the issue is still OPEN (its closing keyword was inert, e.g. a
+    # spec-branch PR). Closing it clears the native blocked_by edges so
+    # dependents unblock.
+    issue_ids_to_close: dict[str, str] = {}
+    items_by_id: dict[str, dict[str, Any]] = {}
+
+    def ingest(item: dict[str, Any]) -> None:
+        item_id: str = item["id"]
+        item_order.append(item_id)
+        current_option_id_by_item_id[item_id] = item_current_status_option_id(item)
+
+        # Fold any paged linked-PR tail in before scoring so the merged-PR fact
+        # sees the full set, not just the first embedded page.
+        page_item_linked_prs(client, item, page_size=page_size)
+
+        facts = item_to_facts(item)
+        if facts is None:
+            result.skipped_contentless.append(item_id)
+            return
+
+        facts_by_item_id[item_id] = facts
+        content_id = item_content_id(item)
+        if content_id is not None:
+            item_id_by_content_id[content_id] = item_id
+            if facts.has_merged_linked_pr and not facts.closed:
+                issue_ids_to_close[item_id] = content_id
+        child_content_ids_by_item_id[item_id] = item_child_content_ids(item)
+        items_by_id[item_id] = item
+
+    for item in items:
+        ingest(item)
+
+    # Backfill any card seeded this run that the board list didn't return yet:
+    # Projects v2 list reads are eventually consistent, so a just-added item can
+    # be missing here, but a read by its item id (which `add_item` returned) is
+    # consistent. Without this, a freshly seeded card would be left with no
+    # Status until the next run.
+    for content_id, item_id in seeded_items.items():
+        if content_id in item_id_by_content_id:
+            continue
+        item = fetch_project_item(client, item_id)
+        if item is not None:
+            ingest(item)
+
+    # Close any still-open issue whose deliberately-linked PR merged: closing
+    # clears its native blocked_by edges so dependents unblock, and fires an
+    # `issues: closed` event that reconciles the board again. Ordered by first
+    # appearance for a deterministic sweep. The card's own Status is already
+    # Done via `has_merged_linked_pr`, independent of this close. A harmless
+    # no-op when GitHub's own native close already fired.
+    for item_id in item_order:
+        issue_id = issue_ids_to_close.get(item_id)
+        if issue_id is not None:
+            close_issue(client, issue_id)
+            result.closed_issues.append(issue_id)
+
+    # Map auto-close cascade: fold each map's subtree closure into this same
+    # sweep, no new trigger. `compute_map_cascade` is the pure reducer (see its
+    # docstring for the predicate); this loop is the only place that turns its
+    # decisions into cross-repo mutations, updating `facts_by_item_id` in step
+    # so any later read of a map's `closed` fact this run (e.g. an ancestor
+    # map's own subtree) already reflects it.
+    closed_map_item_ids = {
+        item_id
+        for item_id, facts in facts_by_item_id.items()
+        if facts.is_map and (facts.closed or facts.has_merged_linked_pr)
+    }
+    map_actions = compute_map_cascade(
+        facts_by_item_id, item_id_by_content_id, child_content_ids_by_item_id
+    )
+    for action in map_actions:
+        if action.close:
+            close_issue(client, action.content_id)
+            result.map_closed.append(action.content_id)
+            closed_map_item_ids.add(action.item_id)
+        else:
+            reopen_issue(client, action.content_id)
+            result.map_reopened.append(action.content_id)
+            closed_map_item_ids.discard(action.item_id)
+        facts_by_item_id[action.item_id] = replace(
+            facts_by_item_id[action.item_id], closed=action.close
+        )
+
+    # A "parent" is any item with at least one sub-issue child that is itself
+    # a Project item on this board; everything else syncs as a leaf in
+    # pass 1, including items with children the board can't see.
+    parent_item_ids = {
+        item_id
+        for item_id, child_ids in child_content_ids_by_item_id.items()
+        if any(child_id in item_id_by_content_id for child_id in child_ids)
+    }
+
+    status_by_item_id: dict[str, Status | None] = {}
+
+    # Pass 1: leaves.
+    for item_id, facts in facts_by_item_id.items():
+        if item_id in parent_item_ids:
+            continue
+        status_by_item_id[item_id] = sync_status(facts)
+
+    # Pass 2: parents, rolling their children's synced Status up first. A child
+    # counts as "started" once its synced Status is In progress, In review or
+    # Done — so a parent whose sub-issues have begun or already finished is at
+    # least In progress, even when none is *currently* In progress (e.g. every
+    # child is Done but the parent spec has no PR of its own yet). A child in
+    # In review lifts the parent all the way to In review (a spec whose stack
+    # PRs are ready for review is itself in review, even while its own spec PR
+    # is still a draft). Blocked / Done on the parent's own facts still win
+    # over this (see sync_status's ladder).
+    STARTED = {Status.IN_PROGRESS, Status.IN_REVIEW, Status.DONE}
+    for item_id in parent_item_ids:
+        facts = facts_by_item_id[item_id]
+        child_ids = child_content_ids_by_item_id.get(item_id, [])
+        child_statuses = [
+            status_by_item_id.get(item_id_by_content_id.get(child_id))
+            for child_id in child_ids
+        ]
+        child_started_count = sum(1 for s in child_statuses if s in STARTED)
+        child_in_review_count = sum(1 for s in child_statuses if s is Status.IN_REVIEW)
+        rolled_up_facts = replace(
+            facts,
+            child_started_count=child_started_count,
+            child_in_review_count=child_in_review_count,
+        )
+        status_by_item_id[item_id] = sync_status(rolled_up_facts)
+
+    # Write back in the Project's original item order. A card already showing
+    # the synced Status is left untouched: re-writing the same option id is a
+    # no-op on GitHub's side, so we skip it to save an API call and avoid any
+    # needless board churn. Closed cards are not special-cased: they are
+    # write-candidates exactly like open ones, so a closed card whose column
+    # is stale (e.g. because the Project's native "Item closed"/"Pull request
+    # merged" workflows are disabled, or simply haven't fired yet) still gets
+    # settled to its synced Status (Done, via `sync_status`'s top rung) here,
+    # rather than being left to a native automation the sweep can't verify is
+    # even enabled. Its synced Status still feeds the child roll-up and the
+    # map cascade above regardless of whether this loop writes it.
+    for item_id in item_order:
+        if item_id not in facts_by_item_id:
+            continue  # already recorded in skipped_contentless
+        status = status_by_item_id[item_id]
+        if status is None:  # a map: no work-Status, never forced into a column
+            result.skipped_maps.append(item_id)
+            continue
+        target_option_id = status_field.option_id_for(status)
+        if current_option_id_by_item_id.get(item_id) == target_option_id:
+            result.unchanged.append((item_id, status))
+            continue
+        write_status(client, project_id, item_id, status_field, status)
+        result.written.append((item_id, status))
+
+    # Keep each Map's tree hidden/visible in step with the Map's own card (see
+    # `map_visibility`), once Status has settled. A None `archived_label`
+    # opts a board out entirely (a repo board carries no marker label).
+    if archived_label is not None:
+        visibility = reconcile_map_visibility(
+            client,
+            project_id,
+            items_by_id=items_by_id,
+            item_order=item_order,
+            closed_map_item_ids=closed_map_item_ids,
+            open_map_item_ids={
+                item_id
+                for item_id, facts in facts_by_item_id.items()
+                if facts.is_map and item_id not in closed_map_item_ids
+            },
+            item_id_by_content_id=item_id_by_content_id,
+            child_content_ids_by_item_id=child_content_ids_by_item_id,
+            archived_label=archived_label,
+        )
+        result.archived = visibility.archived
+        result.restored = visibility.restored
+
+    return result

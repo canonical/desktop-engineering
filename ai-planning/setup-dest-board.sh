@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+#
+# setup-dest-board.sh — give a code repo its own AI planning board, idempotently.
+# Run from THIS folder in a clone of canonical/desktop-engineering.
+#
+# For a repo whose planning issues live in the repo itself (maps, specs,
+# tickets — e.g. the Wayfinder work in canonical/warty-whisperer), this stands
+# up the whole repo-board shape with nothing to configure afterwards:
+#
+#   1. an org Project (v2) titled `AI planning`, **linked to the repo** (it
+#      shows in the repo's Projects tab — the API cannot create repo-owned
+#      projects, but `createProjectV2` takes a `repositoryId` that does the
+#      linking at creation time), with the five Status columns
+#      (Blocked · Ready · In progress · In review · Done), a Board view
+#      (grouped by Status) and an Efforts view (the maps);
+#   2. `.github/workflows/board-sync.yml` on the repo's default branch — the
+#      event-driven sync caller. No schedule, no variables, no boards JSON:
+#      the action finds the board by its predictive title among the repo's
+#      linked projects.
+#
+# One secret, set once on the repo: `AI_PLANNING_TOKEN` — a fine-grained PAT
+# scoped to that one repo (Issues: read and write) plus the org's Projects:
+# read and write. Projects v2 is out of the GITHUB_TOKEN's reach even for a
+# repo-linked board (verified live: the Actions token cannot even resolve the
+# Project), so no board automation can run without it. Mint it by hand
+# (https://github.com/settings/personal-access-tokens/new), keep it in
+# Bitwarden under the repo's entry; the script prompts for it (or takes
+# AI_PLANNING_PAT=...) and skips the prompt on a refresh (ROTATE_PAT=1
+# replaces).
+#
+# After the script, the only hand adjustments are the project's three native
+# workflows (README, "Native automations"): Item added → Ready, Item closed →
+# Done, Pull request merged → Done.
+#
+# Default mode commits the stamped workflow via the Contents API (idempotent,
+# byte-identical skips). COMMIT=0 prints it instead; running from inside a
+# clone of the destination repo writes into that working tree for review. The
+# project/columns/views changes are always applied — they carry no commit.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INVOCATION_DIR="$(pwd)"
+TEMPLATE="$SCRIPT_DIR/dest-repo/.github/workflows/board-sync.yml"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+DEST_REPO="${DEST_REPO:-}"          # owner/name of the code repo
+BOARD_TITLE="${BOARD_TITLE:-AI planning}"  # the predictive title the sync finds
+REF="${REF:-ai_planning_repo_board}"  # desktop-engineering ref the caller pins
+COMMIT="${COMMIT:-1}"               # 0: print the workflow, don't write it
+AI_PLANNING_PAT="${AI_PLANNING_PAT:-}"
+ROTATE_PAT="${ROTATE_PAT:-0}"
+
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
+[ -n "${1:-}" ] && { usage; exit 0; }
+
+command -v gh >/dev/null || die "gh (GitHub CLI) is required"
+command -v jq >/dev/null || die "jq is required"
+gh auth status >/dev/null 2>&1 || die "run 'gh auth login' first"
+[ -f "$TEMPLATE" ] || die "template not found: $TEMPLATE"
+
+# Run from inside a clone of the destination repo? Infer DEST_REPO and write
+# the workflow into that working tree instead of the API.
+TOOLING_TOP="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+CWD_TOP="$(git -C "$INVOCATION_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+CWD_REPO=""
+if [ -n "$CWD_TOP" ] && [ "$CWD_TOP" != "$TOOLING_TOP" ]; then
+  CWD_REPO="$(git -C "$INVOCATION_DIR" remote get-url origin 2>/dev/null \
+    | sed -E 's#.*[:/]([^/]+/[^/.]+)(\.git)?$#\1#' || true)"
+fi
+[ -n "$CWD_REPO" ] && echo "==> detected local clone: $CWD_REPO"
+[ -n "$DEST_REPO" ] || DEST_REPO="$CWD_REPO"
+[ -n "$DEST_REPO" ] || read -rp "Destination code repo (owner/repo): " DEST_REPO
+[ -n "$DEST_REPO" ] || die "DEST_REPO is required"
+OWNER="${DEST_REPO%%/*}" NAME="${DEST_REPO#*/}"
+LOCAL_MODE=0
+[ -n "$CWD_REPO" ] && [ "$CWD_REPO" = "$DEST_REPO" ] && LOCAL_MODE=1
+
+DEFAULT_BRANCH="$(gh repo view "$DEST_REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
+ORG_ID="$(gh api "orgs/$OWNER" --jq .node_id)"
+REPO_NODE_ID="$(gh repo view "$DEST_REPO" --json id --jq .id)"
+
+# --- 1. the org Project, linked to the repo -----------------------------------
+number="$(gh api graphql -f query='
+  query($owner:String!,$name:String!){repository(owner:$owner,name:$name){
+    projectsV2(first:20){nodes{number title}}
+  }}' -f owner="$OWNER" -f name="$NAME" \
+  --jq ".data.repository.projectsV2.nodes[] | select(.title==\"$BOARD_TITLE\") | .number" \
+  2>/dev/null | head -n1 || true)"
+if [ -n "$number" ]; then
+  echo "==> $DEST_REPO already has linked Project #$number '$BOARD_TITLE'"
+else
+  echo "==> creating org Project '$BOARD_TITLE' linked to $DEST_REPO (its Projects tab)"
+  number="$(gh api graphql -f query='
+    mutation($oid:ID!,$rid:ID!,$title:String!){
+      createProjectV2(input:{ownerId:$oid,repositoryId:$rid,title:$title}){projectV2{number}}
+    }' -f oid="$ORG_ID" -f rid="$REPO_NODE_ID" -f title="$BOARD_TITLE" \
+    --jq '.data.createProjectV2.projectV2.number')" \
+    || die "could not create the linked Project; create it by hand in the UI (link it to $DEST_REPO), then re-run this script"
+fi
+project_id="$(gh api graphql -f query='
+  query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){
+    projectV2(number:$number){id}
+  }}' -f owner="$OWNER" -f name="$NAME" -F number="$number" \
+  --jq '.data.repository.projectV2.id')"
+echo "    Project #$number  id=$project_id"
+
+# --- 2. Status columns (guarded: rewriting the options would wipe the column) --
+WANT_OPTIONS="Blocked·Ready·In progress·In review·Done"
+status_json="$(gh api graphql -f query='
+  query($id:ID!){node(id:$id){... on ProjectV2{field(name:"Status"){... on ProjectV2SingleSelectField{id options{name}}}}}}' \
+  -f id="$project_id" --jq '.data.node.field')"
+status_field="$(printf '%s' "$status_json" | jq -r '.id')"
+current="$(printf '%s' "$status_json" | jq -r '[.options[].name] | join("·")')"
+if [ "$current" = "$WANT_OPTIONS" ]; then
+  echo "    Status columns already set"
+else
+  echo "    setting Status columns (was: ${current:-<none>})"
+  gh api graphql -f query='
+    mutation($fid:ID!){updateProjectV2Field(input:{fieldId:$fid,singleSelectOptions:[
+      {name:"Blocked",     color:RED,    description:"At least one open blocker; dominates all but Done"},
+      {name:"Ready",       color:GRAY,   description:"Unblocked and unassigned — the takeable frontier"},
+      {name:"In progress", color:YELLOW, description:"Assigned (claimed); or a draft PR is open"},
+      {name:"In review",   color:BLUE,   description:"A non-draft PR is open and linked"},
+      {name:"Done",        color:GREEN,  description:"Issue closed"}
+    ]}){projectV2Field{... on ProjectV2SingleSelectField{options{name}}}}}' \
+    -f fid="$status_field" >/dev/null
+fi
+
+# --- 3. Board + Efforts views --------------------------------------------------
+existing_views="$(gh api graphql -f query='
+  query($id:ID!){node(id:$id){... on ProjectV2{views(first:50){nodes{name}}}}}' \
+  -f id="$project_id" --jq '[.data.node.views.nodes[].name]' 2>/dev/null || echo 'null')"
+views_note=""
+if [ "$existing_views" != "null" ]; then
+  fields="$(gh api "orgs/$OWNER/projectsV2/$number/fields" --paginate 2>/dev/null || true)"
+  status_rest_id="$(jq -rs '[.[][] | select(.name=="Status") | .id] | first // empty' <<<"$fields" 2>/dev/null || true)"
+  visible="$(jq -cs '[.[][] | select(.name | IN("Title","Labels","Assignees","Linked pull requests","Parent issue","Sub-issues progress")) | .id]' <<<"$fields" 2>/dev/null || echo '[]')"
+  if ! jq -e 'index("Board")' <<<"$existing_views" >/dev/null; then
+    jq -n --argjson status "$status_rest_id" --argjson vis "$visible" \
+      '{name:"Board",layout:"board",filter:"-label:wayfinder:map",vertical_group_by:[$status]}
+       + (if ($vis|length)>0 then {visible_fields:$vis} else {} end)' \
+      | gh api --method POST "orgs/$OWNER/projectsV2/$number/views" --input - >/dev/null 2>&1 \
+      || views_note="Board view creation failed"
+  fi
+  if ! jq -e 'index("Efforts")' <<<"$existing_views" >/dev/null; then
+    jq -n --argjson vis "$visible" \
+      '{name:"Efforts",layout:"table",filter:"label:wayfinder:map"}
+       + (if ($vis|length)>0 then {visible_fields:$vis} else {} end)' \
+      | gh api --method POST "orgs/$OWNER/projectsV2/$number/views" --input - >/dev/null 2>&1 \
+      || views_note="${views_note:+$views_note; }Efforts view creation failed"
+  fi
+else
+  views_note="could not read views"
+fi
+[ -z "$views_note" ] || echo "    views: $views_note — create them by hand (Board, grouped by Status; Efforts, filter label:wayfinder:map)" >&2
+
+# --- 4. the workflow + its PAT -------------------------------------------------
+stamped="$(mktemp)"
+sed "s|@ai_planning_repo_board|@$REF|g" "$TEMPLATE" > "$stamped"
+[ -n "$(gh api "repos/canonical/desktop-engineering/branches/$REF" --jq .name 2>/dev/null || true)" ] \
+  || echo "    warning: canonical/desktop-engineering has no branch '$REF' yet — the caller pins it; push the tooling there before relying on the board" >&2
+
+# The sweep's PAT: fine-grained, scoped to THIS repo + the org's Projects
+# permission (Projects v2 is out of the GITHUB_TOKEN's reach). Already-stored
+# secrets are not readable back, so "set" means "don't ask again" — a refresh
+# re-prompts only with ROTATE_PAT=1.
+mint_help="    Mint the fine-grained PAT (browser-only):
+      https://github.com/settings/personal-access-tokens/new
+      Resource owner:        $OWNER
+      Repository access:     Only select repositories -> $DEST_REPO
+      Repository perms:      Issues: Read and write
+      Organization perms:    Projects: Read and write
+      (no Actions/Webhooks/Contents needed)"
+secret_set="$(gh secret list --repo "$DEST_REPO" --json name --jq '.[].name' 2>/dev/null | grep -qx AI_PLANNING_TOKEN && echo 1 || echo 0)"
+if [ "$secret_set" = "1" ] && [ "$ROTATE_PAT" != "1" ]; then
+  echo "    secret AI_PLANNING_TOKEN already set (ROTATE_PAT=1 to replace)"
+elif [ "$COMMIT" = "0" ] || [ "$LOCAL_MODE" = "1" ]; then
+  printf '%s\n' "$mint_help"
+  if [ "$LOCAL_MODE" = "1" ]; then
+    echo "    Set it from this repo's clone once you're happy:"
+    echo "      gh secret set AI_PLANNING_TOKEN --repo $DEST_REPO"
+  fi
+else
+  if [ -z "$AI_PLANNING_PAT" ]; then
+    printf '%s\n' "$mint_help"
+    read -rsp "PAT (input hidden): " AI_PLANNING_PAT; echo
+  fi
+  [ -n "$AI_PLANNING_PAT" ] || die "no PAT given (AI_PLANNING_PAT=... to skip the prompt)"
+  gh secret set AI_PLANNING_TOKEN --repo "$DEST_REPO" --body "$AI_PLANNING_PAT"
+  echo "    secret AI_PLANNING_TOKEN set"
+fi
+
+echo
+if [ "$LOCAL_MODE" = "1" ]; then
+  mkdir -p .github/workflows
+  cp "$stamped" ".github/workflows/board-sync.yml"
+  echo "==> wrote ./.github/workflows/board-sync.yml (review, commit and push it yourself)"
+elif [ "$COMMIT" = "1" ]; then
+  workflow_path=".github/workflows/board-sync.yml"
+  new_b64="$(base64 -w0 < "$stamped")"
+  existing="$(gh api "repos/$DEST_REPO/contents/$workflow_path" --jq '{sha,content}' 2>/dev/null || true)"
+  if [ -n "$existing" ]; then
+    if [ "$(echo "$existing" | jq -r '.content' | tr -d '\n')" = "$new_b64" ]; then
+      echo "==> $workflow_path already up to date"
+    else
+      gh api --method PUT "repos/$DEST_REPO/contents/$workflow_path" \
+        -f message="ai-planning: refresh the board-sync workflow" \
+        -f content="$new_b64" -f sha="$(echo "$existing" | jq -r '.sha')" \
+        -f branch="$DEFAULT_BRANCH" >/dev/null
+      echo "==> $workflow_path updated on $DEFAULT_BRANCH"
+    fi
+  else
+    gh api --method PUT "repos/$DEST_REPO/contents/$workflow_path" \
+      -f message="ai-planning: install the board-sync workflow" \
+      -f content="$new_b64" -f branch="$DEFAULT_BRANCH" >/dev/null
+    echo "==> $workflow_path installed on $DEFAULT_BRANCH"
+  fi
+else
+  echo "==> COMMIT=0: the workflow is at $stamped — review, then re-run with COMMIT=1."
+fi
+
+echo
+echo "Done. Board: org Project #$number '$BOARD_TITLE' ($project_id), linked to $DEST_REPO."
+echo
+echo "Hand steps (the only ones left):"
+echo
+echo "1. THE TOKEN (skipped above when the secret is already set) — mint it in the"
+echo "   browser at https://github.com/settings/personal-access-tokens/new :"
+echo "     Resource owner:      $OWNER"
+echo "     Repository access:   Only select repositories -> $DEST_REPO"
+echo "     Repository perms:    Issues: Read and write"
+echo "     Organization perms:  Projects: Read and write"
+echo "   Then store it on the repo (it is the ONLY secret this needs):"
+echo "     gh secret set AI_PLANNING_TOKEN --repo $DEST_REPO"
+echo "   Why it cannot be the workflow's own token: GITHUB_TOKEN is repo-scoped"
+echo "   and cannot resolve a ProjectV2 at all (verified live, even for a"
+echo "   repo-linked board) — a token carrying the org's Projects permission is"
+echo "   the price of any Projects v2 automation."
+echo
+echo "2. THE WORKFLOW — already installed above as .github/workflows/board-sync.yml"
+echo "   on $DEFAULT_BRANCH (event-driven: issues + pull_request + Run workflow;"
+echo "   no schedule). First run: Actions -> 'AI planning board sync' -> Run workflow."
+echo
+echo "3. THE THREE NATIVE PROJECT WORKFLOWS (Projects v2 has no API for these —"
+echo "   click-only). Open the project -> top-right '..' -> Workflows, then for"
+echo "   each: click it -> Edit (top right) -> configure -> 'Save and turn on':"
+echo "     a. 'Item added to project'   -> Set Status: Ready"
+echo "        (every new card starts in Ready; the sweep corrects a blocked one)"
+echo "     b. 'Item closed'             -> Set Status: Done"
+echo "     c. 'Pull request merged'     -> Set Status: Done"
+echo "        (fires for merges into ANY branch, so stack PRs into spec branches"
+echo "         settle instantly; it does not close the issue — the sweep's"
+echo "         self-close does that on its next pass)"
+echo "   'Auto-add sub-issues to project' is already enabled by default."
+echo
+echo "4. AGENTS: every stack PR body says 'Closes #<ticket>' (.kb/git-workflow.md) —"
+echo "   GitHub never creates that link outside main, the sweep authors it and"
+echo "   scores the PR: draft -> In progress, ready for review -> In review,"
+echo "   merged -> Done + ticket closed."
