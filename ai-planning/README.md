@@ -10,7 +10,7 @@ repo, one secret. Everything else is native GitHub or this folder's sweep.
 DEST_REPO=canonical/<repo> ./setup-dest-board.sh
 # add COMMIT=0 to print the workflow instead of committing it
 # (or run it from inside a clone of the destination repo: it writes the file
-# into that working tree for review, exactly like setup-dest-repo.sh did)
+# into that working tree for review)
 ```
 
 ## What the setup stands up
@@ -84,7 +84,9 @@ only. On the project: `⋯` → **Workflows** → click each → **Edit** →
 *Save and turn on*:
 
 1. **Item added to project** → Set Status: **Ready** — new cards start in
-   Ready (a blocked one is corrected by the next sweep);
+   Ready (a blocked one is corrected by the next sweep; a map card also gets
+   a Ready value set, which is cosmetic only: maps carry no work-state, the
+   sweep never writes them and the Board view hides them);
 2. **Item closed** → Set Status: **Done**;
 3. **Pull request merged** → Set Status: **Done** — fires for merges into
    *any* branch, so stack PRs into spec branches settle instantly; it does
@@ -115,7 +117,7 @@ src/ai_planning/
                                      `AI planning` Project by title, then sweep
   sync_status.py                     the pure precedence ladder (unit-tested)
   job.py                             the sweep: seed -> fetch -> score -> write
-  client.py / queries.py / facts_mapping.py
+  client.py / queries.py / facts_mapping.py / boards.py
   link_authoring.py / link_authoring_job.py   the missing-link authoring arm
   map_visibility.py / archive.py     map-tree archiving (unused on repo boards:
                                      no marker label; kept for the shared design)

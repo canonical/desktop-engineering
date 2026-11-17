@@ -2,6 +2,8 @@
 
 import pytest
 
+import ai_planning.repo_board as entry
+from ai_planning.job import SyncResult
 from ai_planning.repo_board import DEFAULT_SEED_LABELS, pick_project
 
 
@@ -42,3 +44,84 @@ def test_default_seed_labels_are_the_agent_work_vocabulary():
         "wayfinder:prototype",
         "wayfinder:grilling",
     )
+
+
+# --- the wiring of main(): discovery -> link scan -> sweep --------------------
+
+
+class FakeClient:
+    def execute(self, _query, _variables):
+        return {
+            "repository": {
+                "projectsV2": {"nodes": [_node(175)]},
+            }
+        }
+
+
+@pytest.fixture
+def wired_env(monkeypatch):
+    monkeypatch.setenv("AI_PLANNING_TOKEN", "tok")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "canonical/warty-whisperer")
+    monkeypatch.delenv("AI_PLANNING_PROJECT_NAME", raising=False)
+    monkeypatch.delenv("AI_PLANNING_SEED_LABELS", raising=False)
+    monkeypatch.setattr(entry.GraphQLClient, "with_token", staticmethod(lambda _: FakeClient()))
+
+
+def test_main_scans_links_then_sweeps_the_discovered_board(wired_env, monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        entry, "author_missing_links", lambda client, repos: calls.append(("scan", repos))
+        or type("R", (), {"authored": [], "unchanged": [], "ambiguous": [], "no_candidates": []})()
+    )
+
+    def fake_run_sync(client, project_id, **kwargs):
+        calls.append(("sweep", project_id, kwargs))
+        return SyncResult()
+
+    monkeypatch.setattr(entry, "run_sync", fake_run_sync)
+
+    assert entry.main() == 0
+    assert calls == [
+        ("scan", ["canonical/warty-whisperer"]),
+        (
+            "sweep",
+            "PVT_175",
+            dict(
+                planning_repo="canonical/warty-whisperer",
+                seed_labels=DEFAULT_SEED_LABELS,
+                archived_label=None,  # no map archiving on a repo board
+            ),
+        ),
+    ]
+
+
+def test_main_survives_a_failing_link_scan_and_still_sweeps(wired_env, monkeypatch):
+    monkeypatch.setattr(
+        entry, "author_missing_links", lambda client, repos: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    swept = []
+    monkeypatch.setattr(entry, "run_sync", lambda client, pid, **kw: swept.append(pid) or SyncResult())
+
+    assert entry.main() == 0
+    assert swept == ["PVT_175"]
+
+
+def test_missing_token_or_repo_is_a_usage_error(monkeypatch):
+    monkeypatch.delenv("AI_PLANNING_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "canonical/warty-whisperer")
+    assert entry.main() == 2
+
+    monkeypatch.setenv("AI_PLANNING_TOKEN", "tok")
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    assert entry.main() == 2
+
+
+def test_no_linked_project_is_a_usage_error_pointing_at_the_setup(wired_env, monkeypatch):
+    class EmptyClient:
+        def execute(self, _query, _variables):
+            return {"repository": {"projectsV2": {"nodes": []}}}
+
+    monkeypatch.setattr(entry.GraphQLClient, "with_token", staticmethod(lambda _: EmptyClient()))
+
+    assert entry.main() == 2

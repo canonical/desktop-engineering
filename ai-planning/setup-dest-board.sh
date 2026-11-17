@@ -82,7 +82,16 @@ DEFAULT_BRANCH="$(gh repo view "$DEST_REPO" --json defaultBranchRef --jq .defaul
 ORG_ID="$(gh api "orgs/$OWNER" --jq .node_id)"
 REPO_NODE_ID="$(gh repo view "$DEST_REPO" --json id --jq .id)"
 
-# --- 1. the org Project, linked to the repo -----------------------------------
+# --- 1. the repo's Projects feature + the linked org Project -------------------
+# The Projects tab (and this whole shape) needs the repo's Projects feature on.
+# New repos ship it on; re-enable it when someone unticked it. Org-owner scope
+# is not needed for the feature flag itself, but only a repo admin can PATCH.
+has_projects="$(gh repo view "$DEST_REPO" --json hasProjectsEnabled --jq .hasProjectsEnabled)"
+if [ "$has_projects" != "true" ]; then
+  gh repo edit "$DEST_REPO" --enable-projects >/dev/null 2>&1 \
+    || echo "    warning: could not enable the repo's Projects feature (needs repo admin) — do it in Settings → General → Features" >&2
+fi
+
 number="$(gh api graphql -f query='
   query($owner:String!,$name:String!){repository(owner:$owner,name:$name){
     projectsV2(first:20){nodes{number title}}
