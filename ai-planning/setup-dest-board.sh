@@ -172,6 +172,18 @@ sed "s|@ai_planning_repo_board|@$REF|g" "$TEMPLATE" > "$stamped"
 [ -n "$(gh api "repos/canonical/desktop-engineering/branches/$REF" --jq .name 2>/dev/null || true)" ] \
   || echo "    warning: canonical/desktop-engineering has no branch '$REF' yet — the caller pins it; push the tooling there before relying on the board" >&2
 
+# A protected default branch refuses API-made commits outright — and would
+# refuse them anyway: Contents-API commits carry no verified signature. The
+# workflow then has to land as a signed commit from a local clone.
+if [ "$LOCAL_MODE" != "1" ] && [ "$COMMIT" = "1" ]; then
+  if gh api "repos/$DEST_REPO/branches/$DEFAULT_BRANCH" --jq .protected 2>/dev/null | grep -q true; then
+    die "default branch '$DEFAULT_BRANCH' of $DEST_REPO is protected (PR + verified signatures) — API-made commits are unsigned by design, so run this script from inside a clone of the repo instead:
+      git clone https://github.com/$DEST_REPO && cd $NAME
+      $SCRIPT_DIR/setup-dest-board.sh
+    it writes .github/workflows/board-sync.yml into your working tree; commit it (your signing key), push and open a PR."
+  fi
+fi
+
 # The sweep's PAT: fine-grained, scoped to THIS repo + the org's Projects
 # permission (Projects v2 is out of the GITHUB_TOKEN's reach). Already-stored
 # secrets are not readable back, so "set" means "don't ask again" — a refresh
@@ -206,7 +218,12 @@ echo
 if [ "$LOCAL_MODE" = "1" ]; then
   mkdir -p .github/workflows
   cp "$stamped" ".github/workflows/board-sync.yml"
-  echo "==> wrote ./.github/workflows/board-sync.yml (review, commit and push it yourself)"
+  echo "==> wrote ./.github/workflows/board-sync.yml — land it as a signed commit:"
+  echo "     git checkout -b ai-planning/board-sync"
+  echo "     git add .github/workflows/board-sync.yml"
+  echo "     git commit -m 'ci: sync the AI planning board on issue and PR events'"
+  echo "     git push -u origin ai-planning/board-sync"
+  echo "     gh pr create --repo $DEST_REPO --fill"
 elif [ "$COMMIT" = "1" ]; then
   workflow_path=".github/workflows/board-sync.yml"
   new_b64="$(base64 -w0 < "$stamped")"
