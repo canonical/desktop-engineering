@@ -166,28 +166,17 @@ else
 fi
 [ -z "$views_note" ] || echo "    views: $views_note — create them by hand (Board, grouped by Status; Efforts, filter label:wayfinder:map)" >&2
 
-# --- 4. the workflow + its PAT -------------------------------------------------
+# --- 4. the stamped workflow ----------------------------------------------------
 stamped="$(mktemp)"
 sed "s|@ai_planning_repo_board|@$REF|g" "$TEMPLATE" > "$stamped"
 [ -n "$(gh api "repos/canonical/desktop-engineering/branches/$REF" --jq .name 2>/dev/null || true)" ] \
   || echo "    warning: canonical/desktop-engineering has no branch '$REF' yet — the caller pins it; push the tooling there before relying on the board" >&2
 
-# A protected default branch refuses API-made commits outright — and would
-# refuse them anyway: Contents-API commits carry no verified signature. The
-# workflow then has to land as a signed commit from a local clone.
-if [ "$LOCAL_MODE" != "1" ] && [ "$COMMIT" = "1" ]; then
-  if gh api "repos/$DEST_REPO/branches/$DEFAULT_BRANCH" --jq .protected 2>/dev/null | grep -q true; then
-    die "default branch '$DEFAULT_BRANCH' of $DEST_REPO is protected (PR + verified signatures) — API-made commits are unsigned by design, so run this script from inside a clone of the repo instead:
-      git clone https://github.com/$DEST_REPO && cd $NAME
-      $SCRIPT_DIR/setup-dest-board.sh
-    it writes .github/workflows/board-sync.yml into your working tree; commit it (your signing key), push and open a PR."
-  fi
-fi
-
-# The sweep's PAT: fine-grained, scoped to THIS repo + the org's Projects
-# permission (Projects v2 is out of the GITHUB_TOKEN's reach). Already-stored
-# secrets are not readable back, so "set" means "don't ask again" — a refresh
-# re-prompts only with ROTATE_PAT=1.
+# --- 5. the sweep's PAT ---------------------------------------------------------
+# Fine-grained, scoped to THIS repo + the org's Projects permission (Projects
+# v2 is out of the GITHUB_TOKEN's reach). Already-stored secrets are not
+# readable back, so "set" means "don't ask again" — a refresh re-prompts only
+# with ROTATE_PAT=1.
 mint_help="    Mint the fine-grained PAT (browser-only):
       https://github.com/settings/personal-access-tokens/new
       Resource owner:        $OWNER
@@ -213,6 +202,89 @@ else
   gh secret set AI_PLANNING_TOKEN --repo "$DEST_REPO" --body "$AI_PLANNING_PAT"
   echo "    secret AI_PLANNING_TOKEN set"
 fi
+
+# --- 6. landing the workflow ---------------------------------------------------
+# A protected default branch refuses API-made commits outright (HTTP 409), and
+# a PR from them would fail the verified-signatures rule anyway: Contents-API
+# commits carry no signature. So on a protected branch the workflow lands as a
+# SIGNED commit made locally — this machine's git config and signing key —
+# inside a throwaway clone of the repo, pushed to a branch and opened as a PR;
+# merging it is the only step left. AUTO_PR=1 skips the confirmation.
+if [ "$LOCAL_MODE" != "1" ] && [ "$COMMIT" = "1" ]; then
+  if gh api "repos/$DEST_REPO/branches/$DEFAULT_BRANCH" --jq .protected 2>/dev/null | grep -q true; then
+    PR_BRANCH="ai-planning/board-sync"
+    echo "==> '$DEFAULT_BRANCH' of $DEST_REPO is protected (PR + verified signatures)."
+    echo "    Landing the workflow as a signed commit + PR from a throwaway clone"
+    echo "    of the repo (your git config and signing key do the signing)."
+    if [ "${AUTO_PR:-0}" != "1" ]; then
+      read -rp "Proceed? [y/N] " answer
+      case "$answer" in y|Y|yes|Yes) ;; *) die "aborted — or re-run from inside your own clone of the repo";; esac
+    fi
+    tmp_clone="$(mktemp -d)"
+    git clone --depth 1 "https://github.com/$DEST_REPO" "$tmp_clone" >/dev/null 2>&1 \
+      || die "could not clone $DEST_REPO"
+    (
+      cd "$tmp_clone"
+      mkdir -p .github/workflows
+      cp "$stamped" .github/workflows/board-sync.yml
+      git checkout -b "$PR_BRANCH" >/dev/null
+      git add .github/workflows/board-sync.yml
+      git commit -m "ci: sync the AI planning board on issue and PR events" >/dev/null
+      gh api -X DELETE "repos/$DEST_REPO/git/refs/heads/$PR_BRANCH" >/dev/null 2>&1 || true
+      git push -u origin "$PR_BRANCH" >/dev/null
+      cat > pr-body.md <<'BODY'
+## Summary
+
+Installs `.github/workflows/board-sync.yml`: the **event-driven** sync of the
+repo's own AI planning board — the org Project titled `AI planning` linked to
+this repo (no schedule, no variables; the board is found by its predictive
+title).
+
+**One secret** (already set): `AI_PLANNING_TOKEN` — a fine-grained PAT scoped
+to this repo (Issues: read and write; Pull requests: read) plus the org's
+Projects: read and write. `GITHUB_TOKEN` cannot resolve a ProjectV2 at all
+(verified live), so a Projects-capable PAT is the price of any board
+automation.
+
+**What the sweep does on each event**
+(`canonical/desktop-engineering/gh-actions/ai-planning/repo-board-sync`):
+- authors the missing `Closes #<ticket>` links — GitHub ignores `Closes` on
+  any PR that does not target `main` (every stack PR into a spec branch);
+- seeds the board with open `ready-for-agent` / `ready-for-human` /
+  `wayfinder:*` issues and their sub-issue trees;
+- scores every card: claim or draft PR → In progress, PR ready for review or a
+  child in review → In review, merged linked PR → Done (+ self-close of the
+  ticket), open blocker with nothing running → Blocked, else Ready;
+- cascades maps (auto-close/reopen with their sub-issue trees).
+
+**Hand adjustments after merging** (Projects v2 has no API for these): on the
+project → ⋯ → Workflows → turn on *Item added to project → Ready*, *Item
+closed → Done*, *Pull request merged → Done*. `Auto-add sub-issues to
+project` is already on.
+BODY
+      gh pr create --repo "$DEST_REPO" --head "$PR_BRANCH" --base "$DEFAULT_BRANCH" \
+        --title "ci: sync the AI planning board on issue and PR events" \
+        --body-file pr-body.md
+    )
+    pr_url="$(cd "$tmp_clone" && gh pr view "$PR_BRANCH" --json url --jq .url 2>/dev/null || echo "(check Actions/PRs on $DEST_REPO)")"
+    rm -rf "$tmp_clone"
+    echo "==> $pr_url"
+    echo
+    echo "Done. Board: org Project #$number '$BOARD_TITLE' ($project_id), linked to $DEST_REPO."
+    echo
+    echo "Remaining hand steps:"
+    echo "  1. Merge the PR above — the workflow lands on $DEFAULT_BRANCH."
+    echo "  2. The THREE native project workflows (open the project -> '..' ->"
+    echo "     Workflows -> Edit -> 'Save and turn on'):"
+    echo "       'Item added to project' -> Set Status: Ready"
+    echo "       'Item closed'           -> Set Status: Done"
+    echo "       'Pull request merged'   -> Set Status: Done"
+    echo "     ('Auto-add sub-issues to project' is already on.)"
+    echo "  3. First sweep: Actions -> 'AI planning board sync' -> Run workflow."
+    exit 0
+  fi
+fi
+
 
 echo
 if [ "$LOCAL_MODE" = "1" ]; then
