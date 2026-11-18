@@ -84,7 +84,7 @@ WANTED_VIEWS: list[dict[str, Any]] = [
     {
         "name": "Maps",
         "layout": BOARD_LAYOUT,
-        "filter": "-no:map",
+        "filter": "label:wayfinder:map",
         "fields": ["Title", "Assignees", "Status", "Labels", "Spec", "Sub-issues progress"],
     },
     {
@@ -104,7 +104,7 @@ WANTED_VIEWS: list[dict[str, Any]] = [
     {
         "name": "Specs",
         "layout": BOARD_LAYOUT,
-        "filter": "-no:spec",
+        "filter": "-label:wayfinder:map",
         "fields": ["Title", "Assignees", "Status", "Labels", "Map", "Sub-issues progress"],
     },
 ]
@@ -262,7 +262,11 @@ def _grow_options(
                 "projectId": project_id,
                 "fieldName": name,
                 "options": [
-                    {"name": option["name"], "color": option.get("color", "GRAY")}
+                    {
+                        "name": option["name"],
+                        "color": option.get("color", "GRAY"),
+                        "description": option.get("description", ""),
+                    }
                     for option in merged
                 ],
             },

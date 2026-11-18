@@ -26,8 +26,8 @@ DEST_REPO=canonical/<repo> ./setup-dest-board.sh    # add COMMIT=0 to print the 
     map/spec exists), one option per map/spec named `<title> #<number>`, renamed
     in place when the issue is retitled (identity pinned by the option id
     already on the card).
-  - Three views ensured by name: **Maps** (board, filter `-no:map`), **Efforts**
-    (table, filter `is:issue`), **Specs** (board, filter `-no:spec`) — with their
+  - Three views ensured by name: **Maps** (board, filter `label:wayfinder:map`), **Efforts**
+    (table, filter `is:issue`), **Specs** (board, filter `-label:wayfinder:map`) — with their
     visible fields. The slice-by is UI-only (views/fields/options are
     API-creatable, the slice is not): one hand click each — Maps → Map, Efforts
     → Parent issue, Specs → Spec — printed by the setup; the three view updates
