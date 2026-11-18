@@ -136,27 +136,7 @@ echo "     fields, views — nothing to set here)"
 
 # --- 2. the stamped workflow ----------------------------------------------------
 stamped="$(mktemp)"
-# The workflow_run trigger must name this repo's other workflows (GitHub
-# rejects a workflow_run without `workflows:`): stamp their names in. When
-# the repo has none, drop the trigger — the other events cover the board,
-# and re-running the setup after adding a CI workflow stamps it in.
-ci_workflows="$(gh api "repos/$DEST_REPO/actions/workflows" --paginate \
-  --jq '[.workflows[] | select(.state == "active") | .name] | sort | unique' 2>/dev/null || echo '[]')"
-board_sync_name="$(gh api "repos/$DEST_REPO/actions/workflows/board-sync.yml" --jq .name 2>/dev/null || true)"
-ci_workflows="$(jq -c --arg self "$board_sync_name" \
-  '[.[] | select(. != $self and . != "")]' <<<"$ci_workflows")"
-if [ "$(jq 'length' <<<"$ci_workflows")" -gt 0 ]; then
-  # tojson -> JSON string literals, which are valid YAML double-quoted
-  # scalars: colons, commas and quotes in workflow names all survive.
-  ci_list="$(jq -r 'map(tojson) | join(", ")' <<<"$ci_workflows")"
-  sed -e "s|@ai_planning_repo_board|@$REF|g" \
-      -e "s|@board_sync_ci_workflows@|$ci_list|g" "$TEMPLATE" > "$stamped"
-else
-  echo "    note: no other workflows on $DEST_REPO yet — the workflow_run trigger is"
-  echo "          omitted (re-run the setup after adding CI to stamp it in)"
-  sed -e "s|@ai_planning_repo_board|@$REF|g" "$TEMPLATE" | \
-    sed '/^  # check_suite does NOT fire/,/^    workflows: .*$/d' > "$stamped"
-fi
+sed "s|@ai_planning_repo_board|@$REF|g" "$TEMPLATE" > "$stamped"
 [ -n "$(gh api "repos/canonical/desktop-engineering/branches/$REF" --jq .name 2>/dev/null || true)" ] \
   || echo "    warning: canonical/desktop-engineering has no branch '$REF' yet — the caller pins it; push the tooling there before relying on the board" >&2
 
@@ -366,7 +346,7 @@ echo "   Specs views) and scores every card:"
 echo "     Actions -> 'AI planning board sync' -> Run workflow."
 echo "   (The workflow is already installed above as .github/workflows/board-sync.yml"
 echo "   on $DEFAULT_BRANCH: event-driven — issues, pull_request,"
-echo "   pull_request_review, workflow_run + Run workflow; no schedule.)"
+echo "   pull_request_review + Run workflow; no schedule.)"
 echo
 echo "3. THE THREE NATIVE PROJECT WORKFLOWS (Projects v2 has no API for these —"
 echo "   click-only). Open the project -> top-right '..' -> Workflows, then for"

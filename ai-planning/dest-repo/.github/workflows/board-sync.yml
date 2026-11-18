@@ -3,10 +3,11 @@ name: AI planning board sync
 
 # Event-driven only — every trigger is a fact the sweep can reconcile, and
 # there is no timer: issue lifecycle events, PR events (open, push, draft
-# flips, close), review submissions, and completed workflow runs in THIS repo
-# (the repo's CI going green — see the workflow_run note below) settle the
-# board within about a minute. Run it by hand (Actions → Run workflow) after
-# a change that raises no event, such as editing a view.
+# flips, close) and review submissions in THIS repo settle the board within
+# about a minute. A CI check going green is caught by the agent's ready
+# flip (ready_for_review); the sweep itself never runs on a timer. Run it
+# by hand (Actions → Run workflow) after a change that raises no event,
+# such as editing a view.
 #
 # The board is the org Project titled `AI planning` linked to this repo, found
 # by the action itself — no variables, no boards JSON. The one secret is the
@@ -26,17 +27,6 @@ on:
       [opened, edited, reopened, synchronize, converted_to_draft, ready_for_review, closed]
   pull_request_review:
     types: [submitted, dismissed]
-  # check_suite does NOT fire for suites GitHub Actions itself created (GitHub
-  # suppresses it to prevent recursion), so a repo whose CI runs on Actions
-  # would never sweep on a red→green flip through it. workflow_run fires for
-  # the workflows named below — the setup stamps THIS repo's other workflows
-  # at install time (GitHub rejects a workflow_run without `workflows:`), and
-  # the job's guard excludes this workflow's own runs so the sync never
-  # triggers itself. A workflow added later is stamped in by re-running the
-  # setup; until then the other events still reconcile the board.
-  workflow_run:
-    types: [completed]
-    workflows: [@board_sync_ci_workflows@]
   workflow_dispatch: {}
 
 # The job itself needs no token at all — the action carries its own PAT input.
@@ -46,11 +36,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # A workflow_run event for THIS workflow's own run must not re-sweep
-    # (every run completes, which would otherwise loop forever).
-    if: >-
-      github.event_name != 'workflow_run'
-      || github.event.workflow_run.name != 'AI planning board sync'
     steps:
       - name: Reconcile the AI planning board
         uses: canonical/desktop-engineering/gh-actions/ai-planning/repo-board-sync@ai_planning_repo_board
