@@ -84,7 +84,18 @@ LOCAL_MODE=0
 [ -n "$CWD_REPO" ] && [ "$CWD_REPO" = "$DEST_REPO" ] && LOCAL_MODE=1
 
 DEFAULT_BRANCH="$(gh repo view "$DEST_REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
-ORG_ID="$(gh api "orgs/$OWNER" --jq .node_id)"
+# The project owner: an org for an org-owned repo, the user themself for a
+# user-owned repo (both are valid `createProjectV2` owners — the API cannot
+# create repo-owned projects, but the linking via `repositoryId` works either
+# way). The PAT recipe differs: an org project needs the org Projects
+# permission, a user project needs the PAT's Account permissions -> Projects.
+if gh api "orgs/$OWNER" --jq .node_id >/dev/null 2>&1; then
+  PROJECT_OWNER_KIND=org
+  OWNER_ID="$(gh api "orgs/$OWNER" --jq .node_id)"
+else
+  PROJECT_OWNER_KIND=user
+  OWNER_ID="$(gh api "users/$OWNER" --jq .node_id)"
+fi
 REPO_NODE_ID="$(gh repo view "$DEST_REPO" --json id --jq .id)"
 
 # --- 1. the repo's Projects feature + the linked org Project -------------------
@@ -110,7 +121,7 @@ else
   number="$(gh api graphql -f query='
     mutation($oid:ID!,$rid:ID!,$title:String!){
       createProjectV2(input:{ownerId:$oid,repositoryId:$rid,title:$title}){projectV2{number}}
-    }' -f oid="$ORG_ID" -f rid="$REPO_NODE_ID" -f title="$BOARD_TITLE" \
+    }' -f oid="$OWNER_ID" -f rid="$REPO_NODE_ID" -f title="$BOARD_TITLE" \
     --jq '.data.createProjectV2.projectV2.number')" \
     || die "could not create the linked Project; create it by hand in the UI (link it to $DEST_REPO), then re-run this script"
 fi
@@ -139,8 +150,10 @@ mint_help="    Mint the fine-grained PAT (browser-only):
       Resource owner:        $OWNER
       Repository access:     Only select repositories -> $DEST_REPO
       Repository perms:      Issues: Read and write; Pull requests: Read
-      Organization perms:    Projects: Read and write
-      (no Actions/Webhooks/Contents needed)"
+      Projects permission:   Read and write
+      (a user-owned repo: the PAT's ACCOUNT permissions -> Projects;
+       an org-owned repo: Organization perms -> Projects.
+       no Actions/Webhooks/Contents needed)"
 secret_set="$(gh secret list --repo "$DEST_REPO" --json name --jq '.[].name' 2>/dev/null | grep -qx AI_PLANNING_TOKEN && echo 1 || echo 0)"
 if [ "$secret_set" = "1" ] && [ "$ROTATE_PAT" != "1" ]; then
   echo "    secret AI_PLANNING_TOKEN already set (ROTATE_PAT=1 to replace)"
@@ -301,7 +314,8 @@ echo "   browser at https://github.com/settings/personal-access-tokens/new :"
 echo "     Resource owner:      $OWNER"
 echo "     Repository access:   Only select repositories -> $DEST_REPO"
 echo "     Repository perms:    Issues: Read and write; Pull requests: Read"
-echo "     Organization perms:  Projects: Read and write"
+echo "     Projects permission: Read and write"
+echo "       ($([ "$PROJECT_OWNER_KIND" = user ] && echo "the PAT's ACCOUNT permissions -> Projects, for a user-owned repo" || echo "Organization perms -> Projects, for an org-owned repo"))"
 echo "   Then store it on the repo (it is the ONLY secret this needs):"
 echo "     gh secret set AI_PLANNING_TOKEN --repo $DEST_REPO"
 echo "   Why it cannot be the workflow's own token: GITHUB_TOKEN is repo-scoped"

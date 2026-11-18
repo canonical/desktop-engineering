@@ -25,6 +25,7 @@ from ai_planning.queries import (
     CLOSE_ISSUE_MUTATION,
     FIELD_BY_NAME_QUERY,
     ISSUE_LINKED_PRS_QUERY,
+    ISSUE_SUB_ISSUES_QUERY,
     ISSUE_SUBTREE_QUERY,
     LABEL_ID_QUERY,
     PROJECT_ITEM_QUERY,
@@ -510,6 +511,8 @@ class SeedingFakeClient(ShapeFakeMixin):
             is_archived=spec.get("is_archived", False),
             number=spec.get("number", 1),
             title=spec.get("title", "An issue"),
+            sub_has_next=spec.get("sub_has_next", False),
+            sub_cursor=spec.get("sub_cursor"),
         )
 
     def execute(self, query, variables):
@@ -1405,3 +1408,114 @@ def test_a_hand_archived_standalone_card_stays_hidden():
     assert result.archived == []
     assert result.unarchived == []
 
+
+
+def test_a_sub_issue_tail_beyond_one_page_is_paged_and_ingested():
+    """A spec with more tickets than one embed page (50) must not be silently
+    truncated: the tail is fetched and folded in, so the closure, the typing
+    and the roll-up see the full set."""
+    child_ids = [f"C_child_{i}" for i in range(55)]
+    world = {
+        "C_map": {
+            "labels": ("wayfinder:map",),
+            "number": 1,
+            "title": "Map: the effort",
+            "child_content_ids": ("C_spec",),
+        },
+        "C_spec": {
+            "labels": ("ready-for-agent",),
+            "number": 5,
+            "title": "Spec: the slice",
+            "child_content_ids": tuple(child_ids[:50]),  # the embedded page
+            "sub_has_next": True,
+            "sub_cursor": "sub-cur-0",
+        },
+    }
+    for cid in child_ids:
+        world[cid] = {"labels": ("ready-for-agent",), "number": 100, "title": "Impl"}
+    client = SeedingFakeClient(
+        world=world,
+        repo_open=[],
+        on_board=["C_map", "C_spec"] + child_ids[:50],
+    )
+    # The sub-issue pager: the issue-side query returns the 5-child tail.
+    def fake_sub_issues(query, variables):
+        assert variables["issueId"] == "C_spec"
+        return {
+            "node": {
+                "subIssues": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [{"id": cid} for cid in child_ids[50:]],
+                }
+            }
+        }
+
+    client._extra_handlers = {ISSUE_SUB_ISSUES_QUERY: fake_sub_issues}
+    original_execute = client.execute
+
+    def execute_with_extra(query, variables):
+        handler = getattr(client, "_extra_handlers", {}).get(query)
+        if handler is not None:
+            return handler(query, variables)
+        return original_execute(query, variables)
+
+    client.execute = execute_with_extra
+
+    result = run_sync(client, PROJECT_ID, planning_repo=PLANNING_REPO)
+
+    # The tail children were seeded (carded) and typed impl — not truncated.
+    assert len(result.seeded) == 5
+    stamp_writes = {(m["itemId"], m["fieldId"]) for m in client.status_writes
+                    if m["fieldId"] == "PVTSSF_Spec"}
+    assert len(stamp_writes) >= 5  # the tail tickets carry their spec's stamp
+
+
+def test_a_detached_impl_ticket_loses_its_stale_spec_stamp():
+    """A card that LOST its association (its spec was unlinked from the map)
+    has its stale stamp cleared: the drift-clears settle both stamp fields of
+    every card each sweep, so nothing stays grouped under a map/spec it no
+    longer belongs to."""
+    world = {
+        "C_map": {
+            "labels": ("wayfinder:map",),
+            "number": 1,
+            "title": "Map: the effort",
+            # The spec was UNLINKED: the map no longer lists it.
+        },
+        "C_spec": {
+            "labels": ("ready-for-agent",),
+            "number": 5,
+            "title": "Spec: the slice",
+            "child_content_ids": ("C_impl",),
+            "map_option_id": "opt_map",  # stale stamps from before the unlink
+            "spec_option_id": "opt_spec",
+        },
+        "C_impl": {
+            "labels": ("ready-for-agent",),
+            "number": 7,
+            "title": "Impl: the ticket",
+            "spec_option_id": "opt_spec",  # the stale stamp to clear
+        },
+    }
+    client = SeedingFakeClient(
+        world=world, repo_open=[], on_board=["C_map", "C_spec", "C_impl"]
+    )
+    client.shape_fields["Map"] = {
+        "id": "PVTSSF_Map",
+        "options": [{"id": "opt_map", "name": "Map: the effort #1"}],
+    }
+    client.shape_fields["Spec"] = {
+        "id": "PVTSSF_Spec",
+        "options": [{"id": "opt_spec", "name": "Spec: the slice #5"}],
+    }
+    client.world["C_map"]["map_option_id"] = "opt_map"
+
+    run_sync(client, PROJECT_ID, planning_repo=PLANNING_REPO)
+
+    cleared = [tuple(c) for c in client.cleared]
+    # The unlinked spec and its detached ticket lose their stale stamps.
+    assert ("PVTI_C_spec", "PVTSSF_Spec") in cleared
+    assert ("PVTI_C_spec", "PVTSSF_Map") in cleared
+    assert ("PVTI_C_impl", "PVTSSF_Spec") in cleared
+    # The map keeps its own stamp.
+    assert ("PVTI_C_map", "PVTSSF_Map") not in [tuple(c) for c in client.cleared]

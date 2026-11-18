@@ -113,6 +113,35 @@ def linked_prs_page_info(item: dict[str, Any]) -> tuple[bool, str | None]:
     return bool(page_info.get("hasNextPage")), page_info.get("endCursor")
 
 
+def sub_issues_page_info(item: dict[str, Any]) -> tuple[bool, str | None]:
+    """`(has_next_page, end_cursor)` for this item's sub-issue connection.
+
+    Read-only structural helper: the job pages the rest of an issue's
+    `subIssues` (via `ISSUE_SUB_ISSUES_QUERY`) when it carries more children
+    than one embed page, so nothing downstream sees a silent truncation.
+    """
+
+    content = item.get("content") or {}
+    sub_issues = content.get("subIssues") or {}
+    page_info = sub_issues.get("pageInfo") or {}
+    return bool(page_info.get("hasNextPage")), page_info.get("endCursor")
+
+
+def extend_item_sub_issues(item: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
+    """Append paged sub-issue nodes onto this item's content.
+
+    Lets the job fold a paged sub-issue tail back into the item so the seed's
+    closure, the tree typing and the child roll-up all read the full set. A
+    no-op for a contentless item.
+    """
+
+    content = item.get("content")
+    if not content:
+        return
+    sub_issues = content.setdefault("subIssues", {"nodes": []})
+    sub_issues.setdefault("nodes", []).extend(nodes)
+
+
 def extend_item_linked_prs(item: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
     """Append paged linked-PR nodes onto this item's content.
 

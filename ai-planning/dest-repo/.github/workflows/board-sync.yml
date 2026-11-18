@@ -25,7 +25,13 @@ on:
       [opened, edited, reopened, synchronize, converted_to_draft, ready_for_review, closed]
   pull_request_review:
     types: [submitted, dismissed]
-  check_suite:
+  # check_suite does NOT fire for suites GitHub Actions itself created (GitHub
+  # suppresses it to prevent recursion), so a repo whose CI runs on Actions
+  # would never sweep on a red→green flip through it. workflow_run fires for
+  # any completed workflow run on the default branch — the repo's CI included —
+  # and the job's guard below excludes this workflow's own runs so the sync
+  # never triggers itself.
+  workflow_run:
     types: [completed]
   workflow_dispatch: {}
 
@@ -36,6 +42,11 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # A workflow_run event for THIS workflow's own run must not re-sweep
+    # (every run completes, which would otherwise loop forever).
+    if: >-
+      github.event_name != 'workflow_run'
+      || github.event.workflow_run.name != 'AI planning board sync'
     steps:
       - name: Reconcile the AI planning board
         uses: canonical/desktop-engineering/gh-actions/ai-planning/repo-board-sync@ai_planning_repo_board

@@ -40,6 +40,7 @@ through the same GraphQL client.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -64,12 +65,14 @@ from ai_planning.shape import (
 from ai_planning.sync_status import Facts, Status, sync_status
 from ai_planning.facts_mapping import (
     extend_item_linked_prs,
+    extend_item_sub_issues,
     item_child_content_ids,
     item_content_id,
     item_current_stamp_option_ids,
     item_current_status_option_id,
     item_is_archived,
     linked_prs_page_info,
+    sub_issues_page_info,
     item_to_facts,
 )
 from ai_planning.queries import (
@@ -78,6 +81,7 @@ from ai_planning.queries import (
     CLEAR_FIELD_VALUE_MUTATION,
     CLOSE_ISSUE_MUTATION,
     ISSUE_LINKED_PRS_QUERY,
+    ISSUE_SUB_ISSUES_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
     REOPEN_ISSUE_MUTATION,
@@ -315,6 +319,60 @@ def page_item_linked_prs(
     )
 
 
+def iter_issue_sub_issues(
+    client: SupportsExecute,
+    issue_id: str,
+    *,
+    cursor: str | None,
+    page_size: int = 50,
+) -> Iterator[dict[str, Any]]:
+    """Yield an issue's remaining sub-issue nodes past `cursor`.
+
+    Only used when an issue carries more sub-issue children than the single
+    page embedded in the item read; `cursor` is that embedded page's end
+    cursor.
+    """
+
+    while True:
+        data = client.execute(
+            ISSUE_SUB_ISSUES_QUERY,
+            {"issueId": issue_id, "pageSize": page_size, "cursor": cursor},
+        )
+        refs = (data.get("node") or {}).get("subIssues") or {}
+        yield from refs.get("nodes", [])
+        page_info = refs.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            return
+        cursor = page_info.get("endCursor")
+
+
+def page_item_sub_issues(
+    client: SupportsExecute, item: dict[str, Any], *, page_size: int = 50
+) -> None:
+    """Fold any paged sub-issue tail back into `item` in place.
+
+    The item read embeds only the first page of an issue's `subIssues`
+    connection (50); a spec with more tickets than that would otherwise be
+    silently truncated in the seed's closure, the tree typing and the child
+    roll-up. A no-op when the embedded page is already complete.
+    """
+
+    has_next, cursor = sub_issues_page_info(item)
+    if not has_next:
+        return
+    issue_id = item_content_id(item)
+    if issue_id is None:
+        return
+    extend_item_sub_issues(
+        item,
+        list(
+            iter_issue_sub_issues(
+                client, issue_id, cursor=cursor, page_size=page_size
+            )
+        ),
+    )
+
+
 def close_issue(client: SupportsExecute, issue_id: str) -> None:
     """Close one issue (COMPLETED) by its node id, clearing its dependency edges."""
 
@@ -509,6 +567,9 @@ def seed_board(
     while True:
         newly_added: dict[str, str] = {}
         for item in iter_project_items(client, project_id, page_size=page_size):
+            # The embed holds only the first 50 sub-issues; fold any tail in
+            # or a big spec's later tickets are never seeded at all.
+            page_item_sub_issues(client, item, page_size=page_size)
             for child_id in item_child_content_ids(item):
                 if child_id not in on_board:
                     newly_added[child_id] = add_item(client, project_id, child_id)
@@ -621,15 +682,23 @@ def _stamp_identity(
     item_id_by_content_id: dict[str, str],
     stamps_by_item_id: dict[str, dict[str, str | None]],
     child_content_ids_by_item_id: dict[str, list[str]],
+    pr_meta_by_content_id: dict[str, dict[str, str | None]],
 ) -> tuple[dict[str, str | None], dict[str, str | None]]:
     """Pin each map/spec option to its existing option id, when one is set.
 
-    The identity evidence is any card's current stamp value: the map's own
-    card, its phase-1 tickets, its specs and their tickets and PR cards. A
-    vanished spec (its own stamps cleared while its PR is open) is still
-    pinned by its implementation tickets' or its spec PR's current value, so
-    a retitle renames the option in place instead of spawning a second one.
+    The identity evidence is any family card's current stamp value: the
+    map's own card, its phase-1 tickets, its specs, their tickets, and —
+    crucially when the spec and every ticket are VANISHED (their stamps
+    cleared while their PRs are open) — the family's PR cards, whose Spec
+    value still points at the option. Without that evidence a retitle of a
+    fully-vanished spec would find no pin and spawn a second option.
     """
+
+    pr_content_ids_by_spec: dict[str, list[str]] = {}
+    for pr_content_id, meta in pr_meta_by_content_id.items():
+        spec_id = meta.get("spec_content_id")
+        if spec_id:
+            pr_content_ids_by_spec.setdefault(spec_id, []).append(pr_content_id)
 
     map_identity: dict[str, str | None] = {}
     spec_identity: dict[str, str | None] = {}
@@ -641,6 +710,7 @@ def _stamp_identity(
         if content_id in item_id_by_content_id:
             item_id = item_id_by_content_id[content_id]
             roots.extend(child_content_ids_by_item_id.get(item_id, []))
+        roots.extend(pr_content_ids_by_spec.get(content_id, []))
         for candidate_content_id in roots:
             candidate_item_id = item_id_by_content_id.get(candidate_content_id)
             if candidate_item_id is None:
@@ -673,6 +743,7 @@ def plan_and_write_stamps(
     child_content_ids_by_item_id: dict[str, list[str]],
     stamps_by_item_id: dict[str, dict[str, str | None]],
     pr_meta_by_content_id: dict[str, dict[str, str | None]],
+    item_order: Sequence[str],
     result: SyncResult,
 ) -> None:
     """Grow the stamp options, then write only the stamp drift.
@@ -701,6 +772,7 @@ def plan_and_write_stamps(
         item_id_by_content_id,
         stamps_by_item_id,
         child_content_ids_by_item_id,
+        pr_meta_by_content_id,
     )
     (
         map_field_id,
@@ -785,6 +857,7 @@ def plan_and_write_stamps(
         if (option_id := spec_option_ids.get(entry["key"])) is not None:
             name_to_option_id["Spec"][entry["name"]] = option_id
 
+    planned_stamps = {plan.content_id: plan.stamps for plan in plans}
     for plan in plans:
         item_id = item_id_by_content_id.get(plan.content_id)
         if item_id is None:
@@ -809,6 +882,31 @@ def plan_and_write_stamps(
             if current.get(field_name) != wanted_option_id:
                 set_field_option(client, project_id, item_id, field_id, wanted_option_id)
                 result.stamps_set.append((item_id, field_name))
+
+    # The drift-clears: a card whose plan no longer mentions a field it
+    # currently carries has LOST that association (an impl ticket detached
+    # from its spec, a spec unlinked from its map, a card that fell out of
+    # the model entirely) — the stale stamp would keep it grouped under a
+    # map/spec it no longer belongs to, so it is cleared. The pass walks
+    # EVERY ingested card (a detached card is untyped — that is the point),
+    # settles both stamp fields of each, and a settled board writes nothing.
+    content_id_by_item_id = {
+        iid: cid for cid, iid in item_id_by_content_id.items()
+    }
+    for item_id in item_order:
+        if item_id not in stamps_by_item_id:
+            continue
+        content_id = content_id_by_item_id.get(item_id)
+        if content_id is None:
+            continue
+        wanted = planned_stamps.get(content_id) or {}
+        current = stamps_by_item_id.get(item_id) or {}
+        for field_name, field_id in field_ids.items():
+            if field_id is None or field_name in wanted:
+                continue
+            if current.get(field_name) is not None:
+                clear_field(client, project_id, item_id, field_id)
+                result.stamps_cleared.append((item_id, field_name))
 
 
 def _open_pr_content_ids(items_by_id: dict[str, dict[str, Any]]) -> set[str]:
@@ -847,9 +945,15 @@ def resolve_pr_specs(
     by the link arm for non-default targets): a spec PR closes its spec; a
     stack PR closes its implementation ticket, whose typed card names the
     spec. A PR whose links don't resolve (an ambiguous body, a standalone
-    issue) maps to no spec and is stamped on a later sweep, once resolvable.
+    issue, a body missing the line entirely) maps to no spec: the card stays
+    unstamped — invisible on every view — and the sweep says so on stderr so
+    the missing `Closes #<n>` line is loud, not silent. When a body closes
+    tickets of several specs, the first connection match wins and the
+    ambiguity is logged; fixing the body heals it on the next sweep.
     """
 
+    if "/" not in repo_full_name:
+        return {}
     owner, name = repo_full_name.split("/", 1)
     meta: dict[str, dict[str, str | None]] = {}
     for pr in repo_prs:
@@ -857,6 +961,7 @@ def resolve_pr_specs(
             continue
         kind = "spec" if is_spec_pr(pr.get("headRefName")) else "stack"
         spec_content_id: str | None = None
+        matched: list[str] = []
         for node in (pr.get("closingRefs") or {}).get("nodes") or []:
             repository = node.get("repository") or {}
             if (repository.get("owner") or {}).get("login") != owner:
@@ -868,11 +973,25 @@ def resolve_pr_specs(
             if card_type is None:
                 continue
             if kind == "spec" and card_type.kind == "spec":
-                spec_content_id = issue_content_id
-                break
-            if kind == "stack" and card_type.kind in ("impl", "spec"):
-                spec_content_id = card_type.spec_id or issue_content_id
-                break
+                matched.append(issue_content_id)
+            elif kind == "stack" and card_type.kind in ("impl", "spec"):
+                matched.append(card_type.spec_id or issue_content_id)
+        if matched:
+            spec_content_id = matched[0]
+            if len(matched) > 1:
+                print(
+                    f"warning: PR #{pr.get('number')} closes tickets of"
+                    f" {len(matched)} specs — stamping with the first; fix the"
+                    f" body so each PR closes one ticket",
+                    file=sys.stderr,
+                )
+        else:
+            print(
+                f"warning: PR #{pr.get('number')} resolves to no spec — its"
+                f" body needs a `Closes #<ticket>` line (the spec PR:"
+                f" `Closes #<spec>`); the card stays unstampeded until then",
+                file=sys.stderr,
+            )
         meta[pr["id"]] = {
             "kind": kind,
             "spec_content_id": spec_content_id,
@@ -944,9 +1063,11 @@ def run_sync(
         stamps_by_item_id[item_id] = item_current_stamp_option_ids(item)
         archived_by_item_id[item_id] = item_is_archived(item)
 
-        # Fold any paged linked-PR tail in before scoring so the merged-PR fact
-        # sees the full set, not just the first embedded page.
+        # Fold any paged linked-PR / sub-issue tails in before scoring so the
+        # merged-PR fact, the seed closure, the tree typing and the roll-up
+        # all see the full sets, not just the first embedded pages.
         page_item_linked_prs(client, item, page_size=page_size)
+        page_item_sub_issues(client, item, page_size=page_size)
 
         facts = item_to_facts(item)
         if facts is None:
@@ -1001,6 +1122,7 @@ def run_sync(
         child_content_ids_by_item_id,
         stamps_by_item_id,
         pr_meta_by_content_id,
+        item_order,
         result,
     )
 
@@ -1093,7 +1215,9 @@ def run_sync(
     # one that was archived comes back when its work resumes. Phase-1
     # decision tickets and standalone issues are NOT archived — they settle
     # visibly into Done (or the native auto-archive, if wanted), and a card
-    # hidden by hand stays hidden: the sweep respects the hand.
+    # hidden by hand comes back while its content is open: the sweep has no
+    # marker to tell a hand-hide from a stale archive, so it errs toward
+    # visibility.
     for item_id in item_order:
         facts = facts_by_item_id.get(item_id)
         if facts is None:

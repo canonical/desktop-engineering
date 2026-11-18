@@ -108,6 +108,7 @@ _ITEM_NODE_FIELDS = """
         nodes { %s }
       }
       subIssues(first: 50) {
+        pageInfo { hasNextPage endCursor }
         nodes { id }
       }
     }
@@ -230,6 +231,25 @@ query($issueId: ID!, $pageSize: Int!, $cursor: String) {
 }
 """ % _LINKED_PR_FIELDS
 
+# Page an issue's sub-issue connection beyond the first page embedded in the
+# item read, keyed by the issue's own node id (`$cursor` null on page one).
+# Reached when an issue carries more sub-issues than one page — a spec with
+# more than 50 tickets, say — so the seed's transitive closure, the tree
+# typing and the child roll-up all see the full set instead of a silent
+# truncation.
+ISSUE_SUB_ISSUES_QUERY = """
+query($issueId: ID!, $pageSize: Int!, $cursor: String) {
+  node(id: $issueId) {
+    ... on Issue {
+      subIssues(first: $pageSize, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  }
+}
+"""
+
 # Close one issue by its node id, marked COMPLETED. The sweep self-closes an
 # implementation ticket whose deliberately-linked PR has merged while the issue
 # is still open (e.g. a spec-branch PR, whose closing keyword GitHub treats as
@@ -274,7 +294,7 @@ mutation($issueId: ID!) {
 # carding sweep maps a stack PR to its ticket, and a spec PR to its spec,
 # through. The rest of the fields (branch names, draft flag, review decision,
 # check rollup) are the PR-card facts `job` scores and classifies with.
-_LINK_AUTHORING_PAGE_SIZE = 20
+_LINK_AUTHORING_PAGE_SIZE = 50
 
 _CLOSING_REFS_FIELDS = """
   number
@@ -552,7 +572,8 @@ PROJECT_FIELDS_QUERY = """
 query($projectId: ID!) {
   node(id: $projectId) {
     ... on ProjectV2 {
-      fields(first: 40) {
+      fields(first: 100) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           ... on ProjectV2FieldCommon {
             id
@@ -568,10 +589,11 @@ query($projectId: ID!) {
 # The Project's views, for ensure-by-name: id, name, layout, filter and the
 # names of the fields the view currently shows (the drift check).
 PROJECT_VIEWS_QUERY = """
-query($projectId: ID!) {
+query($projectId: ID!, $pageSize: Int!, $cursor: String) {
   node(id: $projectId) {
     ... on ProjectV2 {
-      views(first: 20) {
+      views(first: $pageSize, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           name

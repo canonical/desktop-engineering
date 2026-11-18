@@ -2,7 +2,8 @@
 
 A code repo whose planning issues live in the repo itself — maps, specs and
 tickets (the Wayfinder work) — gets **its own board** with nothing to configure:
-one org Project linked to the repo and found by its predictive title
+one Project linked to the repo (an org Project for an org-owned repo, a
+user Project for a user-owned repo) and found by its predictive title
 (`AI planning`), one event-driven workflow in the repo, one secret. Everything
 else is native GitHub or this folder's sweep.
 
@@ -96,16 +97,21 @@ child-in-review roll-up rung is retired — PR cards carry the review lifecycle 
    descendant reopens;
 8. **archive**: every closed card of the spec family (map, spec, implementation
    ticket, PR card) is archived — hidden from every view; reopened work
-   unarchives. Phase-1 tickets and standalone issues are never auto-archived, and
-   hand-archived cards are respected. The items read carry `archivedStates:
+   unarchives. Phase-1 tickets and standalone issues are never auto-archived.
+   A hand-archived card of still-open work comes back on the next sweep —
+   the sweep has no marker to tell a hand-hide from a stale archive, so it
+   errs toward visibility; hide finished work by closing it. The items read
+   carry `archivedStates:
    [NOT_ARCHIVED, ARCHIVED]` because `addProjectV2ItemById` on archived content
    un-archives it.
 
 ## Events
 
 `.github/workflows/board-sync.yml` is event-driven only: `issues`, `pull_request`
-(incl. `synchronize`), `pull_request_review` (submitted/dismissed), `check_suite`
-(completed), plus a manual `workflow_dispatch` (Actions → "AI planning board
+(incl. `synchronize`), `pull_request_review` (submitted/dismissed) and
+`workflow_run` (completed — what catches a repo's CI going green; its own
+runs are excluded by a job-level guard so the sync never triggers itself),
+plus a manual `workflow_dispatch` (Actions → "AI planning board
 sync" → Run workflow) which reconciles everything — that is the "manual sync".
 No schedule. The three native project workflows are UI-only, printed by the
 setup: Item added → Ready, Item closed → Done, Pull request merged → Done.

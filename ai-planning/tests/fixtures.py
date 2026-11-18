@@ -61,6 +61,8 @@ def issue_item(
     title="An issue",
     prs_has_next=False,
     prs_cursor=None,
+    sub_has_next=False,
+    sub_cursor=None,
 ):
     """An Issue-content Project item with the fields the fetch shell reads.
 
@@ -104,7 +106,10 @@ def issue_item(
                 },
                 "nodes": list(prs),
             },
-            "subIssues": {"nodes": [{"id": cid} for cid in child_content_ids]},
+            "subIssues": {
+                "pageInfo": {"hasNextPage": sub_has_next, "endCursor": sub_cursor},
+                "nodes": [{"id": cid} for cid in child_content_ids],
+            },
         },
     }
 

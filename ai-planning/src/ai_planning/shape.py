@@ -27,6 +27,7 @@ re-creates every option and wipes the values).
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -332,16 +333,22 @@ def ensure_stamp_fields(
     return map_field_id, map_ids, spec_field_id, spec_ids, created
 
 
-def _visible_field_ids(
-    client: SupportsExecute, project_id: str, names: list[str]
-) -> list[str] | None:
-    """The field ids for a view's visible-field names, or None if unknown."""
+def _field_ids_by_name(
+    client: SupportsExecute, project_id: str
+) -> dict[str, str]:
+    """Every field of the project, name -> node id (one read, reused)."""
 
     data = client.execute(PROJECT_FIELDS_QUERY, {"projectId": project_id})
     nodes = ((data.get("node") or {}).get("fields") or {}).get("nodes") or []
-    by_name = {node.get("name"): node["id"] for node in nodes if node.get("id")}
-    ids = [by_name[name] for name in names if name in by_name]
-    return ids or None
+    if ((data.get("node") or {}).get("fields") or {}).get("pageInfo", {}).get(
+        "hasNextPage"
+    ):
+        print(
+            "warning: the project has more fields than one page — visible"
+            " fields beyond it are not resolvable",
+            file=sys.stderr,
+        )
+    return {node.get("name"): node["id"] for node in nodes if node.get("id")}
 
 
 def ensure_views(
@@ -350,12 +357,27 @@ def ensure_views(
     """Ensure the three views exist with their filters and visible fields.
 
     Returns `(created_names, updated_names)`. The slice-by field is UI-only
-    and never set here.
+    and never set here. Views are read across all pages (a long-lived
+    project accumulates views; matching against one page would re-create
+    duplicates every sweep).
     """
 
-    data = client.execute(PROJECT_VIEWS_QUERY, {"projectId": project_id})
-    existing = ((data.get("node") or {}).get("views") or {}).get("nodes") or []
-    by_name = {view["name"]: view for view in existing}
+    by_name: dict[str, dict[str, Any]] = {}
+    cursor: str | None = None
+    while True:
+        data = client.execute(
+            PROJECT_VIEWS_QUERY,
+            {"projectId": project_id, "pageSize": 50, "cursor": cursor},
+        )
+        views = (data.get("node") or {}).get("views") or {}
+        for view in views.get("nodes") or []:
+            by_name[view["name"]] = view
+        page_info = views.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+
+    field_ids_by_name = _field_ids_by_name(client, project_id)
     created: list[str] = []
     updated: list[str] = []
     for wanted in WANTED_VIEWS:
@@ -366,8 +388,17 @@ def ensure_views(
                 {"projectId": project_id, "name": wanted["name"], "layout": wanted["layout"]},
             )
             view = (data.get("createProjectV2View") or {}).get("projectV2View") or {}
+            if not view.get("id"):
+                print(
+                    f"warning: could not create the {wanted['name']!r} view"
+                    " (GitHub returned no view); the next sweep retries",
+                    file=sys.stderr,
+                )
+                continue
             created.append(wanted["name"])
-        field_ids = _visible_field_ids(client, project_id, wanted["fields"])
+        field_ids = [
+            field_ids_by_name[name] for name in wanted["fields"] if name in field_ids_by_name
+        ]
         current_names = [
             node.get("name")
             for node in ((view.get("fields") or {}).get("nodes") or [])
@@ -375,15 +406,15 @@ def ensure_views(
         # Order-insensitive: GitHub may hand the visible fields back in its own
         # order; what matters is that the wanted set is all there.
         drifted = view.get("filter") != wanted["filter"] or (
-            field_ids is not None and sorted(current_names) != sorted(wanted["fields"])
+            field_ids and sorted(current_names) != sorted(wanted["fields"])
         )
-        if drifted:
+        if drifted and view.get("id"):
             client.execute(
                 UPDATE_VIEW_MUTATION,
                 {
                     "viewId": view["id"],
                     "filter": wanted["filter"],
-                    "visibleFieldIds": field_ids,
+                    "visibleFieldIds": field_ids or None,
                 },
             )
             if wanted["name"] not in created:

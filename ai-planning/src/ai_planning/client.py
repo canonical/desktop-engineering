@@ -13,12 +13,21 @@ GitHub GraphQL endpoint with a bearer token.
 from __future__ import annotations
 
 import json
+import time
+import urllib.error
 import urllib.request
 from typing import Any, Callable, Protocol
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
 Transport = Callable[[dict[str, Any]], dict[str, Any]]
+
+# A big sweep can issue hundreds of calls; GitHub's secondary rate limits
+# answer 403/429 or a GraphQL RATE_LIMITED error. The transport retries a
+# bounded number of times with a short backoff — enough to ride out a burst,
+# never enough to hide a real permission problem (a 403 that is not a rate
+# limit fails on the first attempt).
+_RETRY_DELAYS = (2.0, 5.0, 10.0)
 
 
 class GraphQLError(RuntimeError):
@@ -52,7 +61,20 @@ def _urllib_transport(token: str, url: str) -> Transport:
         with urllib.request.urlopen(request) as response:  # fixed host: api.github.com
             return json.loads(response.read().decode("utf-8"))
 
-    return send
+    def send_with_retry(payload: dict[str, Any]) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for delay in (None,) + _RETRY_DELAYS:
+            if delay is not None:
+                time.sleep(delay)
+            try:
+                return send(payload)
+            except urllib.error.HTTPError as error:
+                if error.code not in (403, 429):
+                    raise
+                last_error = error
+        raise last_error  # type: ignore[misc]
+
+    return send_with_retry
 
 
 class GraphQLClient:
@@ -78,8 +100,23 @@ class GraphQLClient:
         # is a normal outcome the callers null-check for (`resolve_candidate`,
         # the immediate arm's `pr_node is None`), so surface the data and let
         # them decide. Only a request-level failure — no `data` at all (bad
-        # credentials, an invalid query, a rate limit) — is fatal here.
+        # credentials, an invalid query, a rate limit) — is fatal here; a
+        # RATE_LIMITED error retries with the transport's backoff.
         data = response.get("data")
         if data is None:
-            raise GraphQLError(json.dumps(response.get("errors")))
+            errors = response.get("errors") or []
+            message = json.dumps(errors)
+            if any(
+                (error.get("extensions") or {}).get("code") == "RATE_LIMITED"
+                or "rate limit" in str(error.get("message", "")).lower()
+                for error in errors
+                if isinstance(error, dict)
+            ):
+                for delay in _RETRY_DELAYS:
+                    time.sleep(delay)
+                    response = self._transport({"query": query, "variables": variables})
+                    data = response.get("data")
+                    if data is not None:
+                        return data
+            raise GraphQLError(message)
         return data
