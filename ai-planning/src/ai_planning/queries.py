@@ -187,11 +187,14 @@ mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
 # `$labels` is null for no label filter (the `all` board) or `["squad:<slug>"]`
 # to keep one squad's issues (GraphQL ANDs the labels).
 REPO_ISSUES_QUERY = """
-query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String, $labels: [String!]) {
+query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) {
-    issues(first: $pageSize, after: $cursor, states: [OPEN], labels: $labels) {
+    issues(first: $pageSize, after: $cursor, states: [OPEN]) {
       pageInfo { hasNextPage endCursor }
-      nodes { id }
+      nodes {
+        id
+        labels(first: 20) { nodes { name } }
+      }
     }
   }
 }

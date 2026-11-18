@@ -84,7 +84,7 @@ WANTED_VIEWS: list[dict[str, Any]] = [
     {
         "name": "Maps",
         "layout": BOARD_LAYOUT,
-        "filter": "label:wayfinder:map",
+        "filter": "-no:map",
         "fields": ["Title", "Assignees", "Status", "Labels", "Spec", "Sub-issues progress"],
     },
     {
@@ -104,7 +104,7 @@ WANTED_VIEWS: list[dict[str, Any]] = [
     {
         "name": "Specs",
         "layout": BOARD_LAYOUT,
-        "filter": "-label:wayfinder:map",
+        "filter": "-no:spec",
         "fields": ["Title", "Assignees", "Status", "Labels", "Map", "Sub-issues progress"],
     },
 ]
@@ -261,6 +261,8 @@ def _grow_options(
             {
                 "projectId": project_id,
                 "fieldName": name,
+                # descriptions are required (non-null) on every option input —
+                # a create without them is rejected outright (seen live).
                 "options": [
                     {
                         "name": option["name"],
@@ -356,14 +358,20 @@ def _field_ids_by_name(
 
 
 def ensure_views(
-    client: SupportsExecute, project_id: str
+    client: SupportsExecute,
+    project_id: str,
+    *,
+    force_filters: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Ensure the three views exist with their filters and visible fields.
 
     Returns `(created_names, updated_names)`. The slice-by field is UI-only
     and never set here. Views are read across all pages (a long-lived
     project accumulates views; matching against one page would re-create
-    duplicates every sweep).
+    duplicates every sweep). `force_filters` rewrites every filter even when
+    the stored string already matches — needed after the Map/Spec fields
+    were just created, because a filter written BEFORE its field existed is
+    stored as an invalid filter the string comparison can never see.
     """
 
     by_name: dict[str, dict[str, Any]] = {}
@@ -412,7 +420,7 @@ def ensure_views(
         drifted = view.get("filter") != wanted["filter"] or (
             field_ids and sorted(current_names) != sorted(wanted["fields"])
         )
-        if drifted and view.get("id"):
+        if (drifted or force_filters) and view.get("id"):
             client.execute(
                 UPDATE_VIEW_MUTATION,
                 {

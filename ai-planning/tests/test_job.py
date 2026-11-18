@@ -529,7 +529,15 @@ class SeedingFakeClient(ShapeFakeMixin):
                     "issues": {
                         "pageInfo": {"hasNextPage": False, "endCursor": None},
                         "nodes": [
-                            {"id": cid}
+                            {
+                                "id": cid,
+                                "labels": {
+                                    "nodes": [
+                                        {"name": name}
+                                        for name in self.world[cid].get("labels", ())
+                                    ]
+                                },
+                            }
                             for cid in self.repo_open
                             if not wanted
                             or set(wanted) <= set(self.world[cid].get("labels", ()))
@@ -628,6 +636,8 @@ def test_all_board_seeds_every_open_issue_without_a_label_filter():
 
 
 def test_squad_board_seeds_only_issues_with_its_squad_label():
+    """One unlabelled scan, filtered client-side on the seed-label union:
+    only issues carrying at least one wanted label land."""
     world = {
         "C_apps": {"labels": ("squad:apps",)},
         "C_core": {"labels": ("squad:core",)},
@@ -638,12 +648,13 @@ def test_squad_board_seeds_only_issues_with_its_squad_label():
     added = seed_board(client, PROJECT_ID, PLANNING_REPO, seed_labels=("squad:apps",))
 
     assert set(added) == {"C_apps"}
-    assert client.repo_issue_labels == [["squad:apps"]]
+    # A single unlabelled scan (no per-label server filtering any more).
+    assert client.repo_issue_labels == [None]
 
 
 def test_seed_unions_explicit_labels():
-    """A board with explicit seed labels pages the repo once per label and seeds
-    the union — an issue carrying either label lands, one carrying neither (nor
+    """A board with explicit seed labels seeds the union from ONE unlabelled
+    scan — an issue carrying either label lands, one carrying neither (nor
     nothing at all) doesn't."""
     world = {
         "C_agent": {"labels": ("ready-for-agent",)},
@@ -661,7 +672,7 @@ def test_seed_unions_explicit_labels():
     )
 
     assert set(added) == {"C_agent", "C_map"}
-    assert client.repo_issue_labels == [["ready-for-agent"], ["wayfinder:map"]]
+    assert client.repo_issue_labels == [None]
 
 
 def test_squad_board_still_pulls_in_cross_squad_subissues_of_its_maps():

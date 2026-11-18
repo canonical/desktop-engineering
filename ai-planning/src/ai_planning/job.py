@@ -202,16 +202,19 @@ def write_status(
     )
 
 
-def iter_repo_open_issue_ids(
+def iter_repo_open_issues(
     client: SupportsExecute,
     owner: str,
     name: str,
     *,
-    label: str | None = None,
     page_size: int = 50,
-) -> Iterator[str]:
-    """Yield the content node id of every OPEN issue in `owner/name`, only those
-    carrying `label` when one is given."""
+) -> Iterator[dict[str, Any]]:
+    """Yield `{id, labels}` for every OPEN issue in `owner/name`.
+
+    One unlabelled scan: the caller filters by label union client-side (the
+    per-label variant paged the repo once per label to end at the same
+    union). Labels ride along for exactly that filter.
+    """
 
     cursor: str | None = None
     while True:
@@ -222,14 +225,19 @@ def iter_repo_open_issue_ids(
                 "name": name,
                 "pageSize": page_size,
                 "cursor": cursor,
-                "labels": [label] if label else None,
             },
         )
         issues = (data.get("repository") or {}).get("issues") or {}
         for node in issues.get("nodes", []):
-            content_id = node.get("id")
-            if content_id:
-                yield content_id
+            if node.get("id"):
+                yield {
+                    "id": node["id"],
+                    "labels": [
+                        label["name"]
+                        for label in (node.get("labels") or {}).get("nodes", [])
+                        if label.get("name")
+                    ],
+                }
         page_info = issues.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
             return
@@ -556,13 +564,21 @@ def seed_board(
     on_board = _board_content_ids(client, project_id, page_size)
     added: dict[str, str] = {}
 
-    for label in (None,) if seed_labels is None else seed_labels:
-        for content_id in iter_repo_open_issue_ids(
-            client, owner, name, label=label, page_size=page_size
+    # ONE unlabelled scan, filtered client-side on the label union: the
+    # per-label variant paged the repo once per label (seven scans on a
+    # repo-board) to end up with the same union.
+    wanted_labels = set(seed_labels) if seed_labels is not None else None
+    for node in iter_repo_open_issues(
+        client, owner, name, page_size=page_size
+    ):
+        if wanted_labels is not None and not (
+            set(node.get("labels") or ()) & wanted_labels
         ):
-            if content_id not in on_board:
-                added[content_id] = add_item(client, project_id, content_id)
-                on_board.add(content_id)
+            continue
+        content_id = node["id"]
+        if content_id not in on_board:
+            added[content_id] = add_item(client, project_id, content_id)
+            on_board.add(content_id)
 
     while True:
         newly_added: dict[str, str] = {}
@@ -1038,10 +1054,6 @@ def run_sync(
             client, project_id, planning_repo, repo_prs, on_board
         )
 
-    views_created, views_updated = ensure_views(client, project_id)
-    result.views_created = views_created
-    result.views_updated = views_updated
-
     status_field = StatusField(shape.status_field_id, shape.status_option_ids)
 
     items = list(iter_project_items(client, project_id, page_size=page_size))
@@ -1125,6 +1137,17 @@ def run_sync(
         item_order,
         result,
     )
+
+    # Views come AFTER the stamp fields: a filter referencing a field that
+    # does not exist yet is stored as an invalid filter the string
+    # comparison can never detect. `force_filters` rewrites every filter on
+    # the sweep that created the fields, repairing boards whose views were
+    # written before their fields.
+    views_created, views_updated = ensure_views(
+        client, project_id, force_filters=bool(result.fields_created)
+    )
+    result.views_created = views_created
+    result.views_updated = views_updated
 
     # Close any still-open issue whose deliberately-linked PR merged: closing
     # clears its native blocked_by edges so dependents unblock, and fires an
