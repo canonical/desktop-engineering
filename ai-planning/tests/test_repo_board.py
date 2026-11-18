@@ -70,10 +70,21 @@ def wired_env(monkeypatch):
 def test_main_scans_links_then_sweeps_the_discovered_board(wired_env, monkeypatch):
     calls = []
 
-    monkeypatch.setattr(
-        entry, "author_missing_links", lambda client, repos: calls.append(("scan", repos))
-        or type("R", (), {"authored": [], "unchanged": [], "ambiguous": [], "no_candidates": []})()
-    )
+    def fake_scan(client, repos):
+        calls.append(("scan", repos))
+        return type(
+            "R",
+            (),
+            {
+                "authored": [],
+                "unchanged": [],
+                "ambiguous": [],
+                "no_candidates": [],
+                "prs": [{"id": "PR_1", "state": "OPEN", "number": 1}],
+            },
+        )()
+
+    monkeypatch.setattr(entry, "author_missing_links", fake_scan)
 
     def fake_run_sync(client, project_id, **kwargs):
         calls.append(("sweep", project_id, kwargs))
@@ -90,7 +101,7 @@ def test_main_scans_links_then_sweeps_the_discovered_board(wired_env, monkeypatc
             dict(
                 planning_repo="canonical/warty-whisperer",
                 seed_labels=DEFAULT_SEED_LABELS,
-                archived_label=None,  # no map archiving on a repo board
+                repo_prs=[{"id": "PR_1", "state": "OPEN", "number": 1}],
             ),
         ),
     ]

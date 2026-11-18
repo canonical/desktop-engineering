@@ -1,26 +1,21 @@
 """Map a raw GraphQL Project item onto the pure function's `Facts` input.
 
-This is the *read* half of the I/O shell (ticket 03): it turns the native
-GitHub facts GraphQL returns into the exact `Facts` tuple `sync_status` eats.
-It extracts facts only — it holds **no** precedence branching. The ladder
-(Done > Blocked > In review > In progress > Ready) lives solely in
-`sync_status`, here we only read what GitHub reports.
+This is the *read* half of the I/O shell: it turns the native GitHub facts
+GraphQL returns into the exact `Facts` tuple `sync_status` eats. It extracts
+facts only — it holds **no** precedence branching. The ladder lives solely in
+`sync_status`; here we only read what GitHub reports.
 
 A card scores off exactly one PR read: `closedByPullRequestsReferences(
 userLinkedOnly: false, includeClosedPrs: true)`, GitHub's closing-link
 connection (a closing keyword or a manually attached link). A mere mention
 scores nothing — only closing references appear in this connection at all.
+The nodes are full PullRequest objects, so the folded PR facts (`pr_state`,
+`pr_ci_ok`, `pr_approved`) come off the same connection. A PR *card* scores
+its own fields instead (`isDraft`, `statusCheckRollup`, `reviewDecision`).
 
 A Project item whose `content` is null (a draft item, or an issue the token
 cannot see) yields `None`: there is no underlying issue/PR to score, so the job
 skips it rather than inventing facts.
-
-`item_content_id` and `item_child_content_ids` are read-only structural
-helpers the job uses to correlate a parent with its native sub-issue children
-across Project items. They hold no precedence branching either: the roll-up
-count itself (`Facts.child_started_count`) is computed by the job from
-each child's already-synced Status, then folded back into `Facts` before the
-parent is synced.
 """
 
 from __future__ import annotations
@@ -43,29 +38,49 @@ def _linked_pr_nodes(content: dict[str, Any]) -> list[dict[str, Any]]:
     return refs.get("nodes") or []
 
 
-def _open_non_draft_pr(content: dict[str, Any]) -> bool:
-    """True when a linked PR is open and ready (not a draft).
+def _rollup_ok(pr: dict[str, Any]) -> bool:
+    """True when this PR's check rollup is green — or it runs no checks.
 
-    A draft PR is deliberately excluded: a draft is not a review, so it must
-    not push the card into In review (spec: draft PR keeps the card In progress).
+    `statusCheckRollup.state` is `SUCCESS` when every check passed and `None`
+    when the PR runs no checks at all (both count as green); `FAILURE`,
+    `ERROR`, `PENDING` and `EXPECTED` mean not-green yet, whatever the PR's
+    draft flag says.
     """
 
-    for pr in _linked_pr_nodes(content):
-        if pr.get("state") == "OPEN" and not pr.get("isDraft", False):
-            return True
-    return False
+    rollup = pr.get("statusCheckRollup") or {}
+    return rollup.get("state") in (None, "SUCCESS")
 
 
-def _open_draft_pr(content: dict[str, Any]) -> bool:
-    """True when a linked PR is open and still a draft.
+def _fold_open_prs(content: dict[str, Any]) -> tuple[str | None, bool | None, bool]:
+    """Fold the issue's open linked PRs into `(pr_state, pr_ci_ok, pr_approved)`.
 
-    Lifts the card only as far as In progress — see `sync_status`.
+    The most advanced open PR wins for the state (ready over draft). CI is
+    scored only for ready PRs (a draft is expected to be red — the agent is
+    still working): green-and-or-check-free across all of them, `False` when
+    any is not green, `None` when there is no ready PR. `pr_approved` is True
+    when any open PR carries `reviewDecision == APPROVED` (GitHub blocks
+    self-approval and approving a draft, so this is always a second
+    reviewer's verdict on a reviewable PR).
     """
 
+    state: str | None = None
+    ci_ok: bool | None = None
+    approved = False
     for pr in _linked_pr_nodes(content):
-        if pr.get("state") == "OPEN" and pr.get("isDraft", False):
-            return True
-    return False
+        if pr.get("state") != "OPEN":
+            continue
+        if pr.get("reviewDecision") == "APPROVED":
+            approved = True
+        if pr.get("isDraft", False):
+            if state is None:
+                state = "draft"
+            continue
+        # An open, non-draft PR: ready for review.
+        if state != "ready":
+            state = "ready"
+        ok = _rollup_ok(pr)
+        ci_ok = ok if ci_ok is None else (ci_ok and ok)
+    return state, ci_ok, approved
 
 
 def _merged_pr(content: dict[str, Any]) -> bool:
@@ -112,6 +127,12 @@ def extend_item_linked_prs(item: dict[str, Any], nodes: list[dict[str, Any]]) ->
     refs.setdefault("nodes", []).extend(nodes)
 
 
+def item_is_archived(item: dict[str, Any]) -> bool:
+    """Whether this card is currently archived (hidden from every view)."""
+
+    return bool(item.get("isArchived"))
+
+
 def item_current_status_option_id(item: dict[str, Any]) -> str | None:
     """The Status single-select option id already set on this card, if any.
 
@@ -123,6 +144,22 @@ def item_current_status_option_id(item: dict[str, Any]) -> str | None:
 
     status = item.get("status") or {}
     return status.get("optionId")
+
+
+def item_current_stamp_option_ids(item: dict[str, Any]) -> dict[str, str | None]:
+    """The option ids currently set on this card's `Map` and `Spec` fields.
+
+    The job diffs these against the computed stamp plan and writes (or
+    clears) only what drifted, so a settled board issues no stamp mutations.
+    A field with no value reads as `None` — exactly what a clear leaves
+    behind and what a vanish wants.
+    """
+
+    stamps: dict[str, str | None] = {}
+    for key in ("map", "spec"):
+        value = item.get(key) or {}
+        stamps[key.capitalize()] = value.get("optionId")
+    return stamps
 
 
 def item_content_id(item: dict[str, Any]) -> str | None:
@@ -156,6 +193,16 @@ def item_child_content_ids(item: dict[str, Any]) -> list[str]:
     ]
 
 
+def _pr_facts_for_pr_item(content: dict[str, Any]) -> tuple[str | None, bool | None, bool]:
+    """A PR card scores its own fields: draft-or-ready, rollup, review decision."""
+
+    if content.get("state") != "OPEN":
+        return None, None, False
+    if content.get("isDraft", False):
+        return "draft", None, False
+    return "ready", _rollup_ok(content), content.get("reviewDecision") == "APPROVED"
+
+
 def item_to_facts(item: dict[str, Any]) -> Facts | None:
     """Map one GraphQL Project item to `Facts`, or `None` if it has no content.
 
@@ -163,11 +210,11 @@ def item_to_facts(item: dict[str, Any]) -> Facts | None:
     skips it. A non-null content of any type (Issue or PullRequest) is mapped:
     every field is read defensively so a partial payload never raises.
 
-    Every PR-derived fact (`has_open_non_draft_pr`, `has_open_draft_pr`,
-    `has_merged_linked_pr`) is sourced solely from
-    `closedByPullRequestsReferences(userLinkedOnly: false)` — a closing link
-    (keyword or manual), cross-repo or same-repo alike. No allow-list or
-    cross-repo guard is needed: the closing link itself is the guard.
+    Every PR-derived fact is sourced solely from
+    `closedByPullRequestsReferences(userLinkedOnly: false)` for an issue card
+    (a closing link — keyword or manual — cross-repo or same-repo alike; no
+    allow-list needed, the closing link itself is the guard), and from the
+    PR's own fields for a PR card.
     """
 
     content = item.get("content")
@@ -178,12 +225,29 @@ def item_to_facts(item: dict[str, Any]) -> Facts | None:
     assignees = content.get("assignees") or {}
     summary = content.get("issueDependenciesSummary") or {}
 
+    if content.get("__typename") == "PullRequest":
+        pr_state, pr_ci_ok, pr_approved = _pr_facts_for_pr_item(content)
+        closed = content.get("state") in ("CLOSED", "MERGED") or content.get(
+            "merged"
+        ) is True
+        return make_facts(
+            closed=closed,
+            open_blocker_count=0,
+            assigned=False,
+            pr_state=pr_state,
+            pr_ci_ok=pr_ci_ok,
+            pr_approved=pr_approved,
+            is_map=False,
+        )
+
+    pr_state, pr_ci_ok, pr_approved = _fold_open_prs(content)
     return make_facts(
         closed=content.get("state") == "CLOSED",
         open_blocker_count=summary.get("blockedBy") or 0,
-        has_open_non_draft_pr=_open_non_draft_pr(content),
-        has_open_draft_pr=_open_draft_pr(content),
         assigned=(assignees.get("totalCount") or 0) >= 1,
+        pr_state=pr_state,
+        pr_ci_ok=pr_ci_ok,
+        pr_approved=pr_approved,
         is_map=MAP_LABEL in labels,
         has_merged_linked_pr=_merged_pr(content),
     )

@@ -4,19 +4,20 @@ Every case is a fact-tuple -> Status assertion, exercising every rung of the
 precedence ladder and every tie-break in the spec table. No network, no wiring.
 
 Locked precedence (first match wins):
-    closed -> Done
-    > open non-draft PR or >=1 child in review -> In review
-    > assigned or >=1 started child or open draft PR -> In progress
+    closed or merged linked PR -> Done
+    > open PR approved -> Approved
+    > open PR ready with CI green (or no checks) -> In review
+    > assigned or >=1 started child or an open PR not yet reviewable -> In progress
     > open blocker -> Blocked
     > else -> Ready
 
-Real work beats the blocker: a claim, an open PR or a started child lifts a
-card out of Blocked; Blocked keeps only unclaimed, PR-less tickets with an
-open blocker. The child roll-up lifts a parent on its children's synced
-Status: a child In review lifts the parent to In review, and a child counts as
-"started" once its synced Status is In progress, In review or Done, lifting
-the parent at least into In progress. Only Done still wins on the parent's own
-facts.
+Real work beats the blocker: a claim, any open PR or a started child lifts a
+card out of Blocked; Blocked keeps only unclaimed, PR-less tickets with an open
+blocker. CI-awareness keeps In review honest: a ready PR with red (or pending)
+checks stays In progress. Approved is GitHub's own reviewDecision — a second
+reviewer's verdict, the signal the human merge step waits on. The child roll-up
+lifts a parent on its children's synced Status; only Done still wins on the
+parent's own facts.
 
 A map fact is skipped entirely (no work-Status), never forced into a column.
 """
@@ -34,163 +35,134 @@ from ai_planning.sync_status import Status, sync_status, make_facts
             make_facts(
                 closed=True,
                 open_blocker_count=1,
-                has_open_non_draft_pr=True,
                 assigned=True,
+                pr_state="ready",
+                pr_ci_ok=True,
             ),
             Status.DONE,
             id="closed+assigned+pr+blocker->Done",
         ),
-        # Real work beats the blocker: an open non-draft PR is In review even
-        # with an open blocker; Blocked keeps only unclaimed, PR-less tickets.
+        # Approved: an approved PR reads Approved even with an open blocker.
         pytest.param(
             make_facts(
                 closed=False,
                 open_blocker_count=1,
-                has_open_non_draft_pr=True,
                 assigned=False,
+                pr_state="ready",
+                pr_ci_ok=False,
+                pr_approved=True,
             ),
-            Status.IN_REVIEW,
-            id="open+blocker+pr->In review",
+            Status.APPROVED,
+            id="approved+blocker+redCI->Approved",
         ),
-        # In review: non-draft PR open, no blocker.
+        # In review: ready PR, CI green, no approval yet.
         pytest.param(
             make_facts(
                 closed=False,
                 open_blocker_count=0,
-                has_open_non_draft_pr=True,
                 assigned=True,
+                pr_state="ready",
+                pr_ci_ok=True,
             ),
             Status.IN_REVIEW,
-            id="open+pr+assigned->In review",
+            id="ready+green->In review",
         ),
-        # In review through the roll-up: a child in review lifts the parent all
-        # the way to In review, even while the parent's own PR is still a draft
-        # (a spec whose stack PRs are ready for review is itself in review).
+        # In review with no checks configured at all: green-or-none.
         pytest.param(
             make_facts(
                 closed=False,
                 open_blocker_count=0,
-                has_open_non_draft_pr=False,
                 assigned=False,
-                child_in_review_count=1,
-                has_open_draft_pr=True,
+                pr_state="ready",
+                pr_ci_ok=None,
             ),
             Status.IN_REVIEW,
-            id="childInReview+draftPR->In review",
+            id="ready+noChecks->In review",
         ),
-        # A child in review lifts the parent to In review even with a blocker.
-        pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=1,
-                has_open_non_draft_pr=False,
-                assigned=False,
-                child_in_review_count=1,
-            ),
-            Status.IN_REVIEW,
-            id="blocker+childInReview->In review",
-        ),
-        # Done still dominates a child in review.
-        pytest.param(
-            make_facts(
-                closed=True,
-                open_blocker_count=0,
-                has_open_non_draft_pr=False,
-                assigned=False,
-                child_in_review_count=1,
-            ),
-            Status.DONE,
-            id="closed+childInReview->Done",
-        ),
-        # A draft-only PR does NOT count as In review; assigned -> In progress.
+        # CI honesty: a ready PR with failing checks stays In progress — it
+        # must never claim In review while red.
         pytest.param(
             make_facts(
                 closed=False,
                 open_blocker_count=0,
-                has_open_non_draft_pr=False,
-                assigned=True,
+                assigned=False,
+                pr_state="ready",
+                pr_ci_ok=False,
             ),
             Status.IN_PROGRESS,
-            id="open+draftPR+assigned->In progress",
+            id="ready+red->In progress",
+        ),
+        # Pending checks are not green either.
+        pytest.param(
+            make_facts(
+                closed=False,
+                open_blocker_count=0,
+                assigned=True,
+                pr_state="ready",
+                pr_ci_ok=False,
+            ),
+            Status.IN_PROGRESS,
+            id="ready+pending->In progress",
+        ),
+        # A draft PR lifts a card only into In progress, never In review.
+        pytest.param(
+            make_facts(
+                closed=False,
+                open_blocker_count=0,
+                assigned=True,
+                pr_state="draft",
+            ),
+            Status.IN_PROGRESS,
+            id="draftPR+assigned->In progress",
         ),
         # In progress: assigned, no PR, no blocker.
         pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=0,
-                has_open_non_draft_pr=False,
-                assigned=True,
-            ),
+            make_facts(closed=False, open_blocker_count=0, assigned=True),
             Status.IN_PROGRESS,
             id="open+assigned->In progress",
         ),
         # Ready: the takeable frontier — unblocked AND unassigned.
         pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=0,
-                has_open_non_draft_pr=False,
-                assigned=False,
-            ),
+            make_facts(closed=False, open_blocker_count=0, assigned=False),
             Status.READY,
             id="open+unassigned->Ready",
         ),
-        # Child roll-up: unassigned, no PR, no blocker, but a child has started
-        # (In progress / In review / Done) -> lifted out of Ready into In progress.
+        # Child roll-up: a started child lifts the parent out of Ready.
         pytest.param(
             make_facts(
-                closed=False,
-                open_blocker_count=0,
-                has_open_non_draft_pr=False,
-                assigned=False,
-                child_started_count=1,
+                closed=False, open_blocker_count=0, assigned=False, child_started_count=1
             ),
             Status.IN_PROGRESS,
             id="parent+childStarted->In progress",
         ),
-        # A started child beats the parent's own blocker: claimed work is In
-        # progress even when a blocker is still open.
+        # A started child beats the parent's own blocker.
         pytest.param(
             make_facts(
-                closed=False,
-                open_blocker_count=1,
-                has_open_non_draft_pr=False,
-                assigned=False,
-                child_started_count=1,
+                closed=False, open_blocker_count=1, assigned=False, child_started_count=1
             ),
             Status.IN_PROGRESS,
             id="parent+blocker+childStarted->In progress",
         ),
-        # Blocked: an open blocker with no real work anywhere — unclaimed, no
-        # PR, no started child.
+        # Blocked: an open blocker with no real work anywhere.
         pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=1,
-                has_open_non_draft_pr=False,
-                assigned=False,
-            ),
+            make_facts(closed=False, open_blocker_count=1, assigned=False),
             Status.BLOCKED,
             id="open+blocker->Blocked",
         ),
         # A claim beats an open blocker too.
         pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=1,
-                has_open_non_draft_pr=False,
-                assigned=True,
-            ),
+            make_facts(closed=False, open_blocker_count=1, assigned=True),
             Status.IN_PROGRESS,
             id="open+blocker+assigned->In progress",
         ),
-        # The parent's own open non-draft PR still beats the child roll-up.
+        # The parent's own ready PR outranks the child roll-up.
         pytest.param(
             make_facts(
                 closed=False,
                 open_blocker_count=0,
-                has_open_non_draft_pr=True,
                 assigned=False,
+                pr_state="ready",
+                pr_ci_ok=True,
                 child_started_count=1,
             ),
             Status.IN_REVIEW,
@@ -198,13 +170,7 @@ from ai_planning.sync_status import Status, sync_status, make_facts
         ),
         # A map is skipped entirely: no work-Status.
         pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=0,
-                has_open_non_draft_pr=False,
-                assigned=False,
-                is_map=True,
-            ),
+            make_facts(closed=False, open_blocker_count=0, assigned=False, is_map=True),
             None,
             id="map->skipped",
         ),
@@ -214,62 +180,38 @@ from ai_planning.sync_status import Status, sync_status, make_facts
             make_facts(
                 closed=False,
                 open_blocker_count=0,
-                has_open_non_draft_pr=False,
                 assigned=True,
                 has_merged_linked_pr=True,
             ),
             Status.DONE,
             id="merged linked PR while open->Done",
         ),
-        # Merged linked PR shares the top rung with closed: it beats a blocker,
-        # an open review PR and assignment, exactly as closed does.
+        # Merged linked PR shares the top rung with closed.
         pytest.param(
             make_facts(
                 closed=False,
                 open_blocker_count=1,
-                has_open_non_draft_pr=True,
                 assigned=True,
+                pr_state="ready",
+                pr_ci_ok=True,
                 has_merged_linked_pr=True,
             ),
             Status.DONE,
             id="merged+blocker+pr+assigned->Done",
         ),
-        # An open draft PR lifts an otherwise-Ready card into In progress,
-        # the same rung as `assigned`/the child roll-up.
+        # A draft PR beats an open blocker: real work.
         pytest.param(
             make_facts(
-                closed=False,
-                open_blocker_count=0,
-                has_open_non_draft_pr=False,
-                assigned=False,
-                has_open_draft_pr=True,
-            ),
-            Status.IN_PROGRESS,
-            id="open+draftPR+unassigned->In progress",
-        ),
-        # A draft PR is real work too: it beats an open blocker.
-        pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=1,
-                has_open_non_draft_pr=False,
-                assigned=False,
-                has_open_draft_pr=True,
+                closed=False, open_blocker_count=1, assigned=False, pr_state="draft"
             ),
             Status.IN_PROGRESS,
             id="draftPR+blocker->In progress",
         ),
-        # Nor over an open non-draft PR (In review still outranks it).
+        # Several open blockers stay Blocked when nothing runs.
         pytest.param(
-            make_facts(
-                closed=False,
-                open_blocker_count=0,
-                has_open_non_draft_pr=True,
-                assigned=False,
-                has_open_draft_pr=True,
-            ),
-            Status.IN_REVIEW,
-            id="draftPR+nonDraftPR->In review",
+            make_facts(closed=False, open_blocker_count=5, assigned=False),
+            Status.BLOCKED,
+            id="open+severalBlockers->Blocked",
         ),
     ],
 )
@@ -283,7 +225,6 @@ def test_a_map_with_a_merged_linked_pr_is_still_skipped():
     facts = make_facts(
         closed=False,
         open_blocker_count=0,
-        has_open_non_draft_pr=False,
         assigned=False,
         is_map=True,
         has_merged_linked_pr=True,
@@ -297,20 +238,7 @@ def test_map_is_skipped_even_when_it_would_otherwise_be_done():
     facts = make_facts(
         closed=True,
         open_blocker_count=3,
-        has_open_non_draft_pr=True,
         assigned=True,
         is_map=True,
     )
     assert sync_status(facts) is None
-
-
-def test_multiple_open_blockers_still_blocked():
-    """Unclaimed, PR-less tickets with several open blockers stay Blocked —
-    real work (a claim, a PR, a started child) is what lifts them out."""
-    facts = make_facts(
-        closed=False,
-        open_blocker_count=5,
-        has_open_non_draft_pr=False,
-        assigned=False,
-    )
-    assert sync_status(facts) == Status.BLOCKED

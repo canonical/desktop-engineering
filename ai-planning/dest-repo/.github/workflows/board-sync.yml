@@ -2,9 +2,10 @@
 name: AI planning board sync
 
 # Event-driven only — every trigger is a fact the sweep can reconcile, and
-# there is no timer: issue lifecycle events and PR events in THIS repo settle
-# the board within about a minute. Run it by hand (Actions → Run workflow)
-# after a change that raises no event, such as archiving a card in the UI.
+# there is no timer: issue lifecycle events, PR events (open, push, draft
+# flips, close), review submissions and completed check suites in THIS repo
+# settle the board within about a minute. Run it by hand (Actions → Run
+# workflow) after a change that raises no event, such as editing a view.
 #
 # The board is the org Project titled `AI planning` linked to this repo, found
 # by the action itself — no variables, no boards JSON. The one secret is the
@@ -20,7 +21,12 @@ on:
     types:
       [opened, edited, closed, reopened, assigned, unassigned, labeled, unlabeled]
   pull_request:
-    types: [opened, edited, reopened, converted_to_draft, ready_for_review, closed]
+    types:
+      [opened, edited, reopened, synchronize, converted_to_draft, ready_for_review, closed]
+  pull_request_review:
+    types: [submitted, dismissed]
+  check_suite:
+    types: [completed]
   workflow_dispatch: {}
 
 # The job itself needs no token at all — the action carries its own PAT input.

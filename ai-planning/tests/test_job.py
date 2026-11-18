@@ -21,21 +21,24 @@ from ai_planning.queries import (
     ADD_ITEM_MUTATION,
     ADD_LABEL_MUTATION,
     ARCHIVE_ITEM_MUTATION,
-    LABEL_ID_QUERY,
-    REMOVE_LABEL_MUTATION,
+    CLEAR_FIELD_VALUE_MUTATION,
     CLOSE_ISSUE_MUTATION,
+    FIELD_BY_NAME_QUERY,
     ISSUE_LINKED_PRS_QUERY,
     ISSUE_SUBTREE_QUERY,
+    LABEL_ID_QUERY,
     PROJECT_ITEM_QUERY,
     PROJECT_ITEMS_QUERY,
+    PROJECT_VIEWS_QUERY,
     REOPEN_ISSUE_MUTATION,
     REPO_ISSUES_QUERY,
+    REMOVE_LABEL_MUTATION,
     STATUS_FIELD_QUERY,
     UNARCHIVE_ITEM_MUTATION,
     UPDATE_STATUS_MUTATION,
 )
 
-from tests.fixtures import issue_item, linked_pr
+from tests.fixtures import ShapeFakeMixin, issue_item, linked_pr, pr_item
 
 PROJECT_ID = "PVT_project"
 
@@ -48,6 +51,7 @@ STATUS_FIELD_RESPONSE = {
                 {"id": "opt_blocked", "name": "Blocked"},
                 {"id": "opt_in_progress", "name": "In progress"},
                 {"id": "opt_in_review", "name": "In review"},
+                {"id": "opt_approved", "name": "Approved"},
                 {"id": "opt_done", "name": "Done"},
             ],
         }
@@ -70,8 +74,8 @@ def _issue(item_id, *, state="OPEN", assignees=0, labels=(), blocked_by=0, prs=(
     )
 
 
-class FakeClient:
-    """Serves the Status field, one or more item pages, and records mutations."""
+class FakeClient(ShapeFakeMixin):
+    """Serves the board shape, one or more item pages, and records mutations."""
 
     def __init__(self, item_pages, *, label_missing=False):
         self._item_pages = list(item_pages)
@@ -83,8 +87,12 @@ class FakeClient:
         self.closed = []
         self.reopened = []
         self.archived = []
+        self._init_shape()
 
     def execute(self, query, variables):
+        shape_response = self._execute_shape(query, variables)
+        if shape_response is not None:
+            return shape_response
         if query == STATUS_FIELD_QUERY:
             return STATUS_FIELD_RESPONSE
         if query == PROJECT_ITEMS_QUERY:
@@ -121,6 +129,12 @@ class FakeClient:
         if query == ARCHIVE_ITEM_MUTATION:
             self.archived.append(variables["itemId"])
             return {"archiveProjectV2Item": {"item": {"id": variables["itemId"]}}}
+        if query == UNARCHIVE_ITEM_MUTATION:
+            self.unarchived.append(variables["itemId"])
+            return {"unarchiveProjectV2Item": {"item": {"id": variables["itemId"]}}}
+        if query == CLEAR_FIELD_VALUE_MUTATION:
+            self.cleared.append((variables["itemId"], variables["fieldId"]))
+            return {"clearProjectV2ItemFieldValue": {"projectV2Item": {"id": "x"}}}
         if query == REOPEN_ISSUE_MUTATION:
             self.reopened.append(variables["issueId"])
             return {"reopenIssue": {"issue": {"id": variables["issueId"],
@@ -148,8 +162,8 @@ def test_card_already_in_the_right_column_is_not_rewritten():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.unchanged == [("i_steady", Status.IN_PROGRESS)]
-    assert result.written == [
+    assert result.status_unchanged == [("i_steady", Status.IN_PROGRESS)]
+    assert result.status_written == [
         ("i_moved", Status.IN_PROGRESS),
         ("i_fresh", Status.IN_PROGRESS),
     ]
@@ -172,8 +186,8 @@ def test_fully_settled_board_writes_nothing():
     result = run_sync(client, PROJECT_ID)
 
     assert client.mutations == []
-    assert [item_id for item_id, _ in result.unchanged] == ["i_ready", "i_done"]
-    assert result.written == []
+    assert [item_id for item_id, _ in result.status_unchanged] == ["i_ready", "i_done"]
+    assert result.status_written == []
 
 
 def test_syncs_and_writes_each_status():
@@ -190,7 +204,7 @@ def test_syncs_and_writes_each_status():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [
+    assert result.status_written == [
         ("i_ready", Status.READY),
         ("i_blocked", Status.BLOCKED),
         ("i_review", Status.IN_REVIEW),
@@ -221,7 +235,7 @@ def test_review_beats_blocker_through_the_full_pipeline():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [("i_x", Status.IN_REVIEW)]
+    assert result.status_written == [("i_x", Status.IN_REVIEW)]
 
 
 def test_maps_are_skipped_never_written():
@@ -234,8 +248,13 @@ def test_maps_are_skipped_never_written():
     result = run_sync(client, PROJECT_ID)
 
     assert result.skipped_maps == ["i_map"]
-    assert [item_id for item_id, _ in result.written] == ["i_task"]
-    assert [m["itemId"] for m in client.mutations] == ["i_task"]
+    assert [item_id for item_id, _ in result.status_written] == ["i_task"]
+    # The map gets its Map stamp (a stamp mutation, not a Status one); no
+    # Status write ever targets it.
+    status_mutations = [
+        m for m in client.mutations if m["fieldId"] == "PVTSSF_status"
+    ]
+    assert [m["itemId"] for m in status_mutations] == ["i_task"]
 
 
 def test_contentless_items_are_skipped():
@@ -245,7 +264,7 @@ def test_contentless_items_are_skipped():
     result = run_sync(client, PROJECT_ID)
 
     assert result.skipped_contentless == ["i_draft"]
-    assert [item_id for item_id, _ in result.written] == ["i_task"]
+    assert [item_id for item_id, _ in result.status_written] == ["i_task"]
 
 
 def test_pagination_walks_every_page():
@@ -308,12 +327,12 @@ def test_parent_syncs_in_progress_from_in_progress_child():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert dict(result.written) == {
+    assert dict(result.status_written) == {
         "i_child": Status.IN_PROGRESS,
         "i_parent": Status.IN_PROGRESS,
     }
     # Written in the Project's original item order: child, then parent.
-    assert [item_id for item_id, _ in result.written] == ["i_child", "i_parent"]
+    assert [item_id for item_id, _ in result.status_written] == ["i_child", "i_parent"]
 
 
 def test_parent_stays_ready_when_no_child_is_in_progress():
@@ -324,7 +343,7 @@ def test_parent_stays_ready_when_no_child_is_in_progress():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert dict(result.written) == {
+    assert dict(result.status_written) == {
         "i_child": Status.READY,
         "i_parent": Status.READY,
     }
@@ -338,7 +357,7 @@ def test_child_roll_up_beats_parents_blocker():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert dict(result.written)["i_parent"] == Status.IN_PROGRESS
+    assert dict(result.status_written)["i_parent"] == Status.IN_PROGRESS
 
 
 def test_parents_own_review_pr_beats_child_roll_up():
@@ -349,13 +368,13 @@ def test_parents_own_review_pr_beats_child_roll_up():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert dict(result.written)["i_parent"] == Status.IN_REVIEW
+    assert dict(result.status_written)["i_parent"] == Status.IN_REVIEW
 
 
-def test_in_review_child_lifts_parent_to_in_review():
-    """A child in In review (its own open non-draft PR — a stack PR marked
-    ready for review) lifts the parent all the way to In review, even while the
-    parent's own PR (the spec PR) is still a draft."""
+def test_child_in_review_no_longer_lifts_the_parent():
+    """The roll-up rung is retired: PR cards carry the review lifecycle now, so
+    a child in In review does NOT lift its parent — the parent reads its own
+    facts (here: its own draft spec PR keeps it In progress)."""
     child = _issue("i_child", prs=[{"state": "OPEN", "isDraft": False}])  # leaf -> In review
     parent = _issue("i_parent", prs=[{"state": "OPEN", "isDraft": True}])  # otherwise In progress
     parent["content"]["subIssues"] = {"nodes": [{"id": "I_i_child"}]}
@@ -363,9 +382,9 @@ def test_in_review_child_lifts_parent_to_in_review():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert dict(result.written) == {
+    assert dict(result.status_written) == {
         "i_child": Status.IN_REVIEW,
-        "i_parent": Status.IN_REVIEW,
+        "i_parent": Status.IN_PROGRESS,
     }
 
 
@@ -378,7 +397,7 @@ def test_map_parent_is_still_skipped_regardless_of_children():
     result = run_sync(client, PROJECT_ID)
 
     assert result.skipped_maps == ["i_parent"]
-    assert dict(result.written) == {"i_child": Status.IN_PROGRESS}
+    assert dict(result.status_written) == {"i_child": Status.IN_PROGRESS}
 
 
 def test_child_not_on_board_does_not_make_an_item_a_parent():
@@ -390,7 +409,7 @@ def test_child_not_on_board_does_not_make_an_item_a_parent():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert dict(result.written) == {"i_solo": Status.READY}
+    assert dict(result.status_written) == {"i_solo": Status.READY}
 
 
 def test_stale_closed_card_is_healed_to_done():
@@ -405,8 +424,8 @@ def test_stale_closed_card_is_healed_to_done():
     result = run_sync(client, PROJECT_ID)
 
     assert [m["itemId"] for m in client.mutations] == ["i_stale_closed"]
-    assert result.written == [("i_stale_closed", Status.DONE)]
-    assert result.unchanged == []
+    assert result.status_written == [("i_stale_closed", Status.DONE)]
+    assert result.status_unchanged == []
 
 
 def test_closed_child_is_read_and_written_and_feeds_roll_up():
@@ -423,7 +442,7 @@ def test_closed_child_is_read_and_written_and_feeds_roll_up():
 
     # The closed child's Done status counts as started, so the parent
     # (unassigned, no PR of its own) is lifted to In progress.
-    assert dict(result.written) == {
+    assert dict(result.status_written) == {
         "i_child": Status.DONE,
         "i_parent": Status.IN_PROGRESS,
     }
@@ -432,7 +451,7 @@ def test_closed_child_is_read_and_written_and_feeds_roll_up():
 PLANNING_REPO = "acme/acme-ai-planning"
 
 
-class SeedingFakeClient:
+class SeedingFakeClient(ShapeFakeMixin):
     """Models a *mutable* board over a fixed 'world' of issues.
 
     `world` maps content_id -> its facts (state, labels, blocked_by, prs,
@@ -454,9 +473,28 @@ class SeedingFakeClient:
         # but is still readable directly by its item id via PROJECT_ITEM_QUERY.
         self.list_lag = list_lag
         self._lagged = []
+        self._init_shape()
 
     def _item(self, content_id):
         spec = self.world[content_id]
+        if spec.get("is_pr"):
+            return pr_item(
+                item_id=f"PVTI_{content_id}",
+                content_id=content_id,
+                number=spec.get("number", 10),
+                title=spec.get("title", "A pull request"),
+                state=spec.get("state", "OPEN"),
+                is_draft=spec.get("is_draft", False),
+                merged=spec.get("merged", False),
+                base_ref=spec.get("base_ref", "main"),
+                head_ref=spec.get("head_ref", "feature"),
+                review_decision=spec.get("review_decision"),
+                rollup_state=spec.get("rollup_state"),
+                status_option_id=spec.get("status_option_id"),
+                map_option_id=spec.get("map_option_id"),
+                spec_option_id=spec.get("spec_option_id"),
+                is_archived=spec.get("is_archived", False),
+            )
         return issue_item(
             item_id=f"PVTI_{content_id}",
             state=spec.get("state", "OPEN"),
@@ -467,9 +505,17 @@ class SeedingFakeClient:
             content_id=content_id,
             child_content_ids=spec.get("child_content_ids", ()),
             status_option_id=spec.get("status_option_id"),
+            map_option_id=spec.get("map_option_id"),
+            spec_option_id=spec.get("spec_option_id"),
+            is_archived=spec.get("is_archived", False),
+            number=spec.get("number", 1),
+            title=spec.get("title", "An issue"),
         )
 
     def execute(self, query, variables):
+        shape_response = self._execute_shape(query, variables)
+        if shape_response is not None:
+            return shape_response
         if query == STATUS_FIELD_QUERY:
             return STATUS_FIELD_RESPONSE
         if query == REPO_ISSUES_QUERY:
@@ -514,6 +560,15 @@ class SeedingFakeClient:
         if query == UPDATE_STATUS_MUTATION:
             self.status_writes.append(variables)
             return {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "x"}}}
+        if query == CLEAR_FIELD_VALUE_MUTATION:
+            self.cleared.append((variables["itemId"], variables["fieldId"]))
+            return {"clearProjectV2ItemFieldValue": {"projectV2Item": {"id": "x"}}}
+        if query == ARCHIVE_ITEM_MUTATION:
+            self.archived.append(variables["itemId"])
+            return {"archiveProjectV2Item": {"item": {"id": variables["itemId"]}}}
+        if query == UNARCHIVE_ITEM_MUTATION:
+            self.unarchived.append(variables["itemId"])
+            return {"unarchiveProjectV2Item": {"item": {"id": variables["itemId"]}}}
         raise AssertionError(f"unexpected query: {query!r}")
 
 
@@ -628,7 +683,7 @@ def test_run_sync_seeds_then_syncs_the_newly_carded_issue():
     result = run_sync(client, PROJECT_ID, planning_repo=PLANNING_REPO)
 
     assert result.seeded == ["C_task"]
-    assert dict(result.written) == {"PVTI_C_task": Status.IN_PROGRESS}
+    assert dict(result.status_written) == {"PVTI_C_task": Status.IN_PROGRESS}
 
 
 def test_run_sync_syncs_a_seeded_card_missing_from_the_lagging_list_read():
@@ -645,7 +700,7 @@ def test_run_sync_syncs_a_seeded_card_missing_from_the_lagging_list_read():
 
     assert result.seeded == ["C_task"]
     # Synced despite never appearing in the board list read.
-    assert dict(result.written) == {"PVTI_C_task": Status.IN_PROGRESS}
+    assert dict(result.status_written) == {"PVTI_C_task": Status.IN_PROGRESS}
     assert [w["itemId"] for w in client.status_writes] == ["PVTI_C_task"]
 
 
@@ -658,7 +713,7 @@ def test_run_sync_without_planning_repo_does_not_seed():
     result = run_sync(client, PROJECT_ID)
 
     assert result.seeded == []
-    assert [item_id for item_id, _ in result.written] == ["i_task"]
+    assert [item_id for item_id, _ in result.status_written] == ["i_task"]
 
 
 # --- the self-close-on-merge mechanism ---------------------------------------
@@ -676,7 +731,7 @@ def test_merged_linked_pr_closes_issue_and_sets_done():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [("i_ticket", Status.DONE)]
+    assert result.status_written == [("i_ticket", Status.DONE)]
     # The underlying issue node id (content id) was closed exactly once.
     assert client.closed == ["I_i_ticket"]
     assert result.closed_issues == ["I_i_ticket"]
@@ -690,7 +745,7 @@ def test_open_pr_still_maps_to_in_review_and_does_not_close():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [("i_review", Status.IN_REVIEW)]
+    assert result.status_written == [("i_review", Status.IN_REVIEW)]
     assert client.closed == []
 
 
@@ -700,7 +755,7 @@ def test_open_draft_pr_maps_to_in_progress():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [("i_draft", Status.IN_PROGRESS)]
+    assert result.status_written == [("i_draft", Status.IN_PROGRESS)]
     assert client.closed == []
 
 
@@ -716,7 +771,7 @@ def test_already_closed_issue_with_merged_pr_is_not_closed_again():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [("i_done", Status.DONE)]
+    assert result.status_written == [("i_done", Status.DONE)]
     assert client.closed == []
 
 
@@ -764,7 +819,7 @@ def test_merged_pr_found_only_on_a_paged_linked_pr_tail():
 
     result = run_sync(client, PROJECT_ID)
 
-    assert result.written == [("i_ticket", Status.DONE)]
+    assert result.status_written == [("i_ticket", Status.DONE)]
     assert client.closed == ["I_i_ticket"]
 
 
@@ -828,7 +883,10 @@ def test_closed_map_auto_reopens_when_a_descendant_reopens():
     assert client.closed == []
 
 
-def test_closed_map_with_an_open_descendant_is_reopened_not_archived():
+def test_closed_map_with_an_open_descendant_is_reopened_and_its_closed_spec_still_archives():
+    """The cascade reopens the map (its subtree gained an open descendant); the
+    archive arm then hides what is actually closed — the settled spec — while
+    the reopened map and the live work stay visible."""
     ticket = _issue("i_ticket", state="CLOSED")
     spec = _issue(
         "i_spec", state="CLOSED", child_content_ids=("I_i_ticket",)
@@ -844,181 +902,15 @@ def test_closed_map_with_an_open_descendant_is_reopened_not_archived():
 
     result = run_sync(client, PROJECT_ID)
 
-    # The open child reopens the map first, so nothing is hidden this sweep.
     assert result.map_reopened == ["I_i_map"]
-    assert client.archived == []
+    # The reopened map is open, so it is not archived; the closed spec and its
+    # closed ticket are (the family hides together).
+    assert map_item["id"] not in client.archived
+    assert client.archived == ["i_ticket", "i_spec"]
+    assert result.unarchived == []
 
 
 ARCHIVED = "wayfinder:archived"
-
-
-def _archived_map_parent(state="CLOSED", labels=("wayfinder:map",), archived=True):
-    return {
-        "id": "I_parent_map",
-        "state": state,
-        "repository": {"nameWithOwner": "canonical/planning"},
-        "labels": {"nodes": [{"name": n} for n in labels]},
-        "projectItems": {
-            "nodes": [{"isArchived": archived, "project": {"id": PROJECT_ID}}]
-        },
-    }
-
-
-def test_map_that_just_closed_archives_its_tree_then_itself_and_gets_the_marker():
-    ticket = _issue("i_ticket", state="CLOSED")
-    spec = _issue("i_spec", state="CLOSED", child_content_ids=("I_i_ticket",))
-    sibling = _issue("i_sibling", state="CLOSED")
-    unrelated = _issue("i_unrelated", state="CLOSED")
-    map_item = _map("i_map", child_content_ids=("I_i_spec", "I_i_sibling"))
-    client = FakeClient(_single_page([ticket, spec, sibling, unrelated, map_item]))
-
-    result = run_sync(client, PROJECT_ID)
-
-    assert result.map_closed == ["I_i_map"]
-    assert sorted(client.archived[:-1]) == ["i_sibling", "i_spec", "i_ticket"]
-    assert client.archived[-1] == "i_map"  # the Map's card goes last
-    assert client.labels_added == ["I_i_map"]
-    assert "i_unrelated" not in client.archived
-
-
-def test_a_board_only_honours_its_own_archived_marker():
-    """Another board's marker on the Map must not count as this board's: the
-    Map is archived on this board (its own marker is added) even though the
-    `all` board already archived it."""
-    child = _issue("i_child", state="CLOSED")
-    map_item = _map(
-        "i_map",
-        state="CLOSED",
-        labels=("wayfinder:archived:all",),
-        child_content_ids=("I_i_child",),
-    )
-    client = FakeClient(_single_page([child, map_item]))
-
-    run_sync(client, PROJECT_ID, archived_label="wayfinder:archived:apps")
-
-    assert sorted(client.archived) == ["i_child", "i_map"]
-    assert client.labels_added == ["I_i_map"]
-
-
-def test_a_board_leaves_a_map_alone_when_its_own_marker_is_present():
-    child = _issue("i_child", state="CLOSED")
-    map_item = _map(
-        "i_map",
-        state="CLOSED",
-        labels=("wayfinder:archived:apps",),
-        child_content_ids=("I_i_child",),
-    )
-    client = FakeClient(_single_page([child, map_item]))
-
-    run_sync(client, PROJECT_ID, archived_label="wayfinder:archived:apps")
-
-    assert client.archived == []
-    assert client.labels_added == []
-
-
-def test_closed_map_whose_label_is_missing_is_left_visible():
-    child = _issue("i_child", state="CLOSED")
-    map_item = _map("i_map", child_content_ids=("I_i_child",))
-    client = FakeClient(_single_page([child, map_item]), label_missing=True)
-
-    run_sync(client, PROJECT_ID)
-
-    assert client.archived == []
-    assert client.labels_added == []
-
-
-def test_restored_closed_map_with_a_visible_tree_is_left_alone():
-    child = _issue("i_child", state="CLOSED")
-    map_item = _map(
-        "i_map", state="CLOSED", labels=(ARCHIVED,), child_content_ids=("I_i_child",)
-    )
-    client = FakeClient(_single_page([child, map_item]))
-
-    run_sync(client, PROJECT_ID)
-
-    assert client.archived == []
-    assert client.labels_added == client.labels_removed == []
-
-
-def test_restored_closed_map_restores_the_archived_tree():
-    visible = _issue("i_visible", state="CLOSED")
-    map_item = _map(
-        "i_map",
-        state="CLOSED",
-        labels=(ARCHIVED,),
-        child_content_ids=("I_i_visible", "I_hidden"),
-    )
-    client = TreeFakeClient(
-        _single_page([visible, map_item]),
-        graph={
-            "I_i_map": ("o/planning#10", "CLOSED", "PVTI_i_map", False, ["I_hidden"]),
-            "I_hidden": ("o/spec#1", "CLOSED", "PVTI_hidden", True, ["I_deep"]),
-            "I_deep": ("o/spec#2", "CLOSED", "PVTI_deep", True, []),
-        },
-    )
-
-    result = run_sync(client, PROJECT_ID)
-
-    assert sorted(client.unarchived) == ["PVTI_deep", "PVTI_hidden"]
-    assert sorted(result.restored) == ["I_deep", "I_hidden"]
-    assert client.archived == []  # and the Map is not hidden again
-
-
-def test_reopened_map_restores_its_tree_and_drops_the_marker():
-    map_item = _map("i_map", labels=(ARCHIVED,), child_content_ids=("I_hidden",))
-    client = TreeFakeClient(
-        _single_page([map_item]),
-        graph={
-            "I_i_map": ("o/planning#10", "OPEN", "PVTI_i_map", False, ["I_hidden"]),
-            "I_hidden": ("o/spec#1", "CLOSED", "PVTI_hidden", True, []),
-        },
-    )
-
-    run_sync(client, PROJECT_ID)
-
-    assert client.unarchived == ["PVTI_hidden"]
-    assert client.labels_removed == ["I_i_map"]
-
-
-def test_children_of_an_archived_closed_map_are_archived_and_the_map_marked():
-    ticket = _issue("i_ticket", state="CLOSED")
-    spec = _issue(
-        "i_spec",
-        state="CLOSED",
-        child_content_ids=("I_i_ticket",),
-        parent=_archived_map_parent(),
-    )
-    client = FakeClient(_single_page([spec, ticket]))
-
-    run_sync(client, PROJECT_ID)
-
-    assert sorted(client.archived) == ["i_spec", "i_ticket"]
-    assert client.labels_added == ["I_parent_map"]
-
-
-def test_children_of_a_restored_closed_map_stay_visible():
-    child = _issue(
-        "i_child", state="CLOSED", parent=_archived_map_parent(archived=False)
-    )
-    client = FakeClient(_single_page([child]))
-
-    run_sync(client, PROJECT_ID)
-
-    assert client.archived == []
-
-
-def test_a_closed_non_map_parent_does_not_archive_its_children():
-    child = _issue(
-        "i_child",
-        state="CLOSED",
-        parent=_archived_map_parent(labels=("wayfinder:spec",)),
-    )
-    client = FakeClient(_single_page([child]))
-
-    run_sync(client, PROJECT_ID)
-
-    assert client.archived == []
-
 
 class TreeFakeClient(FakeClient):
     """FakeClient that also answers the sub-issue walk and unarchive mutation.
@@ -1158,11 +1050,11 @@ def test_compute_map_cascade_is_a_pure_function_over_facts():
     subtree-closure decision from in-memory facts."""
     facts_by_item_id = {
         "i_map": make_facts(
-            closed=False, open_blocker_count=0, has_open_non_draft_pr=False,
+            closed=False, open_blocker_count=0,
             assigned=False, is_map=True,
         ),
         "i_child": make_facts(
-            closed=True, open_blocker_count=0, has_open_non_draft_pr=False,
+            closed=True, open_blocker_count=0,
             assigned=False,
         ),
     }
@@ -1174,3 +1066,342 @@ def test_compute_map_cascade_is_a_pure_function_over_facts():
     )
 
     assert actions == [MapCascadeAction("i_map", "C_map", close=True)]
+
+
+# --- the PR-centric arms: typing+stamping, PR carding, the vanish, archives ----
+
+
+def _stamp_writes(client):
+    """The stamp mutations (Map/Spec field writes), as (itemId, fieldId) pairs."""
+
+    writes = client.status_writes + getattr(client, "mutations", [])
+    return [
+        (m["itemId"], m["fieldId"])
+        for m in writes
+        if m.get("fieldId") in ("PVTSSF_Map", "PVTSSF_Spec")
+    ]
+
+
+def _status_writes_only(client):
+    return [m for m in client.mutations if m.get("fieldId") == "PVTSSF_status"] + [
+        w for w in getattr(client, "status_writes", [])
+        if w.get("fieldId") == "PVTSSF_status"
+    ]
+
+
+def test_a_map_tree_grows_the_stamp_fields_and_stamps_every_card():
+    world = {
+        "C_map": {
+            "labels": ("wayfinder:map",),
+            "number": 1,
+            "title": "Map: the effort",
+            "child_content_ids": ("C_phase1", "C_spec"),
+        },
+        "C_phase1": {"labels": ("wayfinder:research",), "number": 2, "title": "Research"},
+        "C_spec": {
+            "labels": ("ready-for-agent",),
+            "number": 5,
+            "title": "Spec: the slice",
+            "child_content_ids": ("C_impl",),
+        },
+        "C_impl": {"labels": ("ready-for-agent",), "number": 7, "title": "Impl: the ticket"},
+    }
+    client = SeedingFakeClient(world=world, repo_open=[], on_board=list(world))
+
+    result = run_sync(client, PROJECT_ID, planning_repo=PLANNING_REPO)
+
+    # Both stamp fields are created by the sweep itself.
+    assert sorted(result.fields_created) == ["Map", "Spec"]
+    stamp_pairs = set(_stamp_writes(client))
+    # Map stamps: the map card, its phase-1 ticket, its spec.
+    assert ("PVTI_C_map", "PVTSSF_Map") in stamp_pairs
+    assert ("PVTI_C_phase1", "PVTSSF_Map") in stamp_pairs
+    assert ("PVTI_C_spec", "PVTSSF_Map") in stamp_pairs
+    # Spec stamps: the spec card and its implementation ticket.
+    assert ("PVTI_C_spec", "PVTSSF_Spec") in stamp_pairs
+    assert ("PVTI_C_impl", "PVTSSF_Spec") in stamp_pairs
+    # The map and its phase-1 ticket share one Map option; the spec and its
+    # ticket share one Spec option.
+    def option_for(item_id, field_id):
+        for m in client.status_writes:
+            if m["itemId"] == item_id and m["fieldId"] == field_id:
+                return m["optionId"]
+        raise AssertionError(f"no stamp write for {item_id}/{field_id}")
+
+    assert option_for("PVTI_C_map", "PVTSSF_Map") == option_for("PVTI_C_phase1", "PVTSSF_Map")
+    assert option_for("PVTI_C_spec", "PVTSSF_Spec") == option_for("PVTI_C_impl", "PVTSSF_Spec")
+    # The impl ticket carries NO Map stamp (it is a grandchild: *Parent issue*
+    # places it in the tree views).
+    assert ("PVTI_C_impl", "PVTSSF_Map") not in stamp_pairs
+    # Statuses still flow: the map is skipped, the rest are scored.
+    assert result.skipped_maps == ["PVTI_C_map"]
+    assert dict(result.status_written) == {
+        "PVTI_C_phase1": Status.READY,
+        "PVTI_C_spec": Status.READY,
+        "PVTI_C_impl": Status.READY,
+    }
+
+
+def test_a_settled_tree_re_stamps_nothing():
+    world = {
+        "C_map": {
+            "labels": ("wayfinder:map",),
+            "number": 1,
+            "title": "Map: the effort",
+            "child_content_ids": ("C_spec",),
+        },
+        "C_spec": {"labels": ("ready-for-agent",), "number": 5, "title": "Spec: the slice"},
+    }
+    client = SeedingFakeClient(world=world, repo_open=[], on_board=list(world))
+    run_sync(client, PROJECT_ID, planning_repo=PLANNING_REPO)
+    first_stamp_writes = _stamp_writes(client)
+
+    # Second run: everything already stamped -> the sweep writes nothing.
+    client_second = SeedingFakeClient(
+        world={
+            key: {**value, "map_option_id": "opt_new_1_0", "spec_option_id": "opt_new_2_0"}
+            for key, value in world.items()
+        },
+        repo_open=[],
+        on_board=list(world),
+    )
+    # Give the cards their settled Status too, so no status write fires either.
+    client_second.world["C_map"]["status_option_id"] = "opt_ready"
+    client_second.world["C_spec"]["status_option_id"] = "opt_ready"
+    run_sync(client_second, PROJECT_ID, planning_repo=PLANNING_REPO)
+
+    assert _stamp_writes(client_second) == []
+    assert client_second.status_writes == []
+    assert first_stamp_writes  # the first run did stamp (sanity)
+
+
+def test_spec_and_stack_prs_are_carded_and_stamped_the_vanish_clears_the_ticket():
+    owner, name = PLANNING_REPO.split("/", 1)
+    world = {
+        "C_map": {
+            "labels": ("wayfinder:map",),
+            "number": 1,
+            "title": "Map: the effort",
+            "child_content_ids": ("C_spec",),
+        },
+        "C_spec": {
+            "labels": ("ready-for-agent",),
+            "number": 5,
+            "title": "Spec: the slice",
+            "child_content_ids": ("C_impl",),
+        },
+        "C_impl": {
+            "labels": ("ready-for-agent",),
+            "number": 7,
+            "title": "Impl: the ticket",
+            # Its own stack PR is open against it (the closing link was
+            # authored by the link arm, so the issue-side connection sees it).
+            "prs": (linked_pr(state="OPEN", is_draft=True, pr_id="PR_14"),),
+            # The settled state before the PR opened: the ticket carried its
+            # spec's stamp, so the vanish has something to clear.
+            "spec_option_id": "opt_spec",
+        },
+        "PR_14": {
+            "is_pr": True,
+            "number": 14,
+            "title": "feat: the ticket",
+            "is_draft": True,
+            "base_ref": "the-slice/base",
+            "head_ref": "the-slice/7-ticket",
+        },
+    }
+    repo_prs = [
+        {
+            "id": "PR_14",
+            "number": 14,
+            "state": "OPEN",
+            "isDraft": True,
+            "baseRefName": "the-slice/base",
+            "headRefName": "the-slice/7-ticket",
+            "closingRefs": {
+                "nodes": [
+                    {
+                        "number": 7,
+                        "id": "C_impl",
+                        "repository": {"owner": {"login": owner}, "name": name},
+                    }
+                ]
+            },
+        }
+    ]
+    client = SeedingFakeClient(
+        world=world, repo_open=[], on_board=["C_map", "C_spec", "C_impl"]
+    )
+    # The Spec field already exists with the spec's option (the settled state
+    # before the PR opened), so the vanish has a real value to clear.
+    client.shape_fields["Spec"] = {
+        "id": "PVTSSF_Spec",
+        "options": [{"id": "opt_spec", "name": "Spec: the slice #5"}],
+    }
+    client.world["C_spec"]["spec_option_id"] = "opt_spec"
+
+    result = run_sync(
+        client, PROJECT_ID, planning_repo=PLANNING_REPO, repo_prs=repo_prs
+    )
+
+    # The stack PR became a card.
+    assert result.pr_cards_added == ["PR_14"]
+    stamp_pairs = set(_stamp_writes(client))
+    # The impl ticket's Spec stamp is CLEARED (the vanish): its PR card takes
+    # over the implementation surface.
+    assert ("PVTI_C_impl", "PVTSSF_Spec") in [tuple(c) for c in client.cleared]
+    # The PR card is stamped with its spec.
+    assert ("PVTI_PR_14", "PVTSSF_Spec") in stamp_pairs
+    # The spec itself is NOT vanished (its own spec PR is not open).
+    assert ("PVTI_C_spec", "PVTSSF_Spec") not in [tuple(c) for c in client.cleared]
+    # Statuses: the draft PR is In progress; so is the ticket it implements.
+    assert dict(result.status_written)["PVTI_PR_14"] == Status.IN_PROGRESS
+    assert dict(result.status_written)["PVTI_C_impl"] == Status.IN_PROGRESS
+
+
+def test_a_spec_pr_replaces_its_spec_in_the_maps_surface():
+    owner, name = PLANNING_REPO.split("/", 1)
+    world = {
+        "C_map": {
+            "labels": ("wayfinder:map",),
+            "number": 1,
+            "title": "Map: the effort",
+            "child_content_ids": ("C_spec",),
+        },
+        "C_spec": {
+            "labels": ("ready-for-agent",),
+            "number": 5,
+            "title": "Spec: the slice",
+            # Its own spec PR is open (a draft into main).
+            "prs": (linked_pr(state="OPEN", is_draft=True, pr_id="PR_11"),),
+        },
+        "PR_11": {
+            "is_pr": True,
+            "number": 11,
+            "title": "feat: the spec",
+            "is_draft": True,
+            "base_ref": "main",
+            "head_ref": "the-slice/base",
+        },
+    }
+    repo_prs = [
+        {
+            "id": "PR_11",
+            "number": 11,
+            "state": "OPEN",
+            "isDraft": True,
+            "baseRefName": "main",
+            "headRefName": "the-slice/base",
+            "closingRefs": {
+                "nodes": [
+                    {
+                        "number": 5,
+                        "id": "C_spec",
+                        "repository": {"owner": {"login": owner}, "name": name},
+                    }
+                ]
+            },
+        }
+    ]
+    client = SeedingFakeClient(world=world, repo_open=[], on_board=["C_map", "C_spec"])
+    # The settled pre-PR state: both stamp fields exist with their options and
+    # the spec card carries them, so the vanish has real values to clear.
+    client.shape_fields["Map"] = {
+        "id": "PVTSSF_Map",
+        "options": [{"id": "opt_map", "name": "Map: the effort #1"}],
+    }
+    client.shape_fields["Spec"] = {
+        "id": "PVTSSF_Spec",
+        "options": [{"id": "opt_spec", "name": "Spec: the slice #5"}],
+    }
+    client.world["C_map"]["map_option_id"] = "opt_map"
+    client.world["C_spec"]["map_option_id"] = "opt_map"
+    client.world["C_spec"]["spec_option_id"] = "opt_spec"
+
+    result = run_sync(
+        client, PROJECT_ID, planning_repo=PLANNING_REPO, repo_prs=repo_prs
+    )
+
+    assert result.pr_cards_added == ["PR_11"]
+    # The spec ticket vanishes from BOTH surfaces; the spec PR card replaces
+    # it in Maps (Map stamp) and carries Specs (Spec stamp).
+    cleared = [tuple(c) for c in client.cleared]
+    assert ("PVTI_C_spec", "PVTSSF_Map") in cleared
+    assert ("PVTI_C_spec", "PVTSSF_Spec") in cleared
+    stamp_pairs = set(_stamp_writes(client))
+    assert ("PVTI_PR_11", "PVTSSF_Map") in stamp_pairs
+    assert ("PVTI_PR_11", "PVTSSF_Spec") in stamp_pairs
+    # The draft spec PR reads In progress.
+    assert dict(result.status_written)["PVTI_PR_11"] == Status.IN_PROGRESS
+
+
+def test_a_standalone_pr_into_main_is_never_carded():
+    repo_prs = [
+        {
+            "id": "PR_solo",
+            "number": 20,
+            "state": "OPEN",
+            "isDraft": False,
+            "baseRefName": "main",
+            "headRefName": "quickfix",
+            "closingRefs": {"nodes": []},
+        }
+    ]
+    client = SeedingFakeClient(world={}, repo_open=[], on_board=[])
+
+    result = run_sync(
+        client, PROJECT_ID, planning_repo=PLANNING_REPO, repo_prs=repo_prs
+    )
+
+    assert result.pr_cards_added == []
+    assert "PR_solo" not in client.on_board
+
+
+def test_the_merged_family_archives_and_phase1_stays_visible():
+    map_item = _map("i_map", child_content_ids=("I_i_spec", "I_i_res"))
+    spec = _issue("i_spec", state="CLOSED", child_content_ids=("I_i_impl",))
+    impl = _issue(
+        "i_impl",
+        state="OPEN",
+        prs=[{"id": "PR_m", "state": "MERGED", "isDraft": False, "merged": True}],
+    )
+    research = _issue("i_res", state="CLOSED", labels=("wayfinder:research",))
+    client = FakeClient(
+        _single_page([map_item, spec, impl, research])
+    )
+
+    result = run_sync(client, PROJECT_ID)
+
+    # The closed spec, its closed ticket and the map itself archive; the
+    # closed phase-1 research ticket stays visible (Done).
+    assert set(client.archived) == {"i_spec", "i_impl", "i_map"}
+    assert "i_res" not in client.archived
+    assert result.archived == client.archived
+
+
+def test_a_reopened_spec_comes_back_from_the_archive():
+    map_item = _map("i_map", child_content_ids=("I_i_spec",))
+    spec = _issue("i_spec", state="OPEN")
+    spec["isArchived"] = True  # hidden by the earlier close; the work resumed
+    client = FakeClient(_single_page([map_item, spec]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.unarchived == ["i_spec"]
+    assert result.unarchived == ["i_spec"]
+
+
+def test_a_hand_archived_standalone_card_stays_hidden():
+    """The sweep respects the hand: a standalone issue archived manually is
+    never force-restored (and never auto-archived either)."""
+    standalone = _issue("i_solo", state="OPEN")
+    standalone["isArchived"] = True
+    client = FakeClient(_single_page([standalone]))
+
+    result = run_sync(client, PROJECT_ID)
+
+    assert client.archived == []
+    assert client.unarchived == []
+    assert result.archived == []
+    assert result.unarchived == []
+

@@ -23,7 +23,7 @@ def _pr(number, *, body, closing_refs=()):
         "number": number,
         "body": body,
         "baseRefName": "main",
-        "closingIssuesReferences": {
+        "authoredClosingRefs": {
             "nodes": [
                 {
                     "number": ref_number,

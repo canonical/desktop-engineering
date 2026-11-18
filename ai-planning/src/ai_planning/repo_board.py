@@ -107,10 +107,14 @@ def main() -> int:
     # Author this repo's missing ticket links first: GitHub ignores `Closes`
     # on any PR that does not target the default branch — every stack PR into
     # a spec branch — so the sweep would never see those PRs without this.
-    # A scan failure (a token too narrow to read PRs) must not kill the
-    # status sweep: log it and reconcile the board anyway.
+    # The same paged PR read rides back on the result and feeds the sweep's
+    # PR carding, so the repo's PRs are read exactly once per sweep. A scan
+    # failure (a token too narrow to read PRs) must not kill the status
+    # sweep: log it and reconcile the board anyway.
+    repo_prs: list[dict] = []
     try:
         link_result = author_missing_links(client, [repo])
+        repo_prs = link_result.prs
     except Exception as error:  # noqa: BLE001 - reported, then non-fatal
         print(f"error: link scan failed ({error}); sweeping anyway", file=sys.stderr)
     else:
@@ -142,14 +146,22 @@ def main() -> int:
         project_id,
         planning_repo=repo,
         seed_labels=seed_labels,
-        archived_label=None,  # no map archiving on a repo board: no marker
+        repo_prs=repo_prs,
     )
     print(
         f"[{repo}] project #{number}: seeded={len(result.seeded)} "
-        f"written={len(result.written)} unchanged={len(result.unchanged)} "
+        f"pr_cards_added={len(result.pr_cards_added)} "
+        f"status_written={len(result.status_written)} "
+        f"status_unchanged={len(result.status_unchanged)} "
+        f"stamps_set={len(result.stamps_set)} "
+        f"stamps_cleared={len(result.stamps_cleared)} "
+        f"fields_created={len(result.fields_created)} "
+        f"views_created={len(result.views_created)} "
+        f"views_updated={len(result.views_updated)} "
         f"skipped_maps={len(result.skipped_maps)} "
         f"closed_issues={len(result.closed_issues)} "
-        f"map_closed={len(result.map_closed)} map_reopened={len(result.map_reopened)}",
+        f"map_closed={len(result.map_closed)} map_reopened={len(result.map_reopened)} "
+        f"archived={len(result.archived)} unarchived={len(result.unarchived)}",
         file=sys.stderr,
     )
     return 0

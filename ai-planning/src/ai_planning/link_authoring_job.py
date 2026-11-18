@@ -48,12 +48,18 @@ MAP_SPEC_LABEL = "wayfinder:spec"
 
 @dataclass
 class LinkAuthoringResult:
-    """What one reconcile-arm pass did, for logging."""
+    """What one reconcile-arm pass did, for logging.
+
+    `prs` carries every PR node the scan fetched (per repo, in page order) so
+    the sweep that follows can reuse the one paged read for carding instead
+    of paging the repo's PRs a second time.
+    """
 
     authored: list[tuple[str, TicketRef]] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
     ambiguous: list[str] = field(default_factory=list)
     no_candidates: list[str] = field(default_factory=list)
+    prs: list[dict[str, Any]] = field(default_factory=list)
 
 
 def iter_repo_prs(
@@ -76,10 +82,15 @@ def iter_repo_prs(
 
 
 def _already_linked_refs(pr: dict[str, Any]) -> set[TicketRef]:
-    """Every ticket this PR already carries a deliberate link to."""
+    """Every ticket this PR already carries a deliberate link to.
+
+    Reads the `authoredClosingRefs` alias (`closingIssuesReferences(
+    userLinkedOnly: true)`) — the already-authored deliberate links, not the
+    effective closing set a keyword alone produces.
+    """
 
     refs: set[TicketRef] = set()
-    for node in (pr.get("closingIssuesReferences") or {}).get("nodes") or []:
+    for node in (pr.get("authoredClosingRefs") or {}).get("nodes") or []:
         repository = node.get("repository") or {}
         owner = (repository.get("owner") or {}).get("login")
         repo = repository.get("name")
@@ -156,13 +167,15 @@ def author_missing_links(
     client: SupportsExecute, destination_repos: list[str], *, page_size: int = 20
 ) -> LinkAuthoringResult:
     """Scan every destination repo's PRs and author whichever link each one
-    is missing (see module docstring for the scan and the shared rule).
+    is missing (see module docstring for the scan and the shared rule). The
+    fetched PR nodes ride back on `result.prs` for the carding sweep.
     """
 
     result = LinkAuthoringResult()
     for repo_full_name in destination_repos:
         owner, name = repo_full_name.split("/", 1)
         for pr in iter_repo_prs(client, owner, name, page_size=page_size):
+            result.prs.append(pr)
             _process_pr(client, result, pr, owner=owner, name=name)
     return result
 

@@ -32,12 +32,15 @@ LINKED_PR_PAGE_SIZE = 50
 
 # The linked-PR node selection, shared verbatim by the per-item embed (below)
 # and the stand-alone pager (`ISSUE_LINKED_PRS_QUERY`) so the two paths that feed
-# `has_merged_linked_pr` / `has_open_non_draft_pr` / `has_open_draft_pr` never
-# drift.
+# the PR facts (`has_merged_linked_pr`, the folded `pr_state`/`pr_ci_ok`/
+# `pr_approved`) never drift. The nodes are full PullRequest objects, so the
+# review decision and the check rollup ride the same connection.
 _LINKED_PR_FIELDS = """
   state
   isDraft
   merged
+  reviewDecision
+  statusCheckRollup { state }
 """
 
 # The per-item selection, shared by the paged board read and the single-item
@@ -62,7 +65,18 @@ _LINKED_PR_FIELDS = """
 # when an issue carries more linked PRs than one page.
 _ITEM_NODE_FIELDS = """
   id
+  isArchived
   status: fieldValueByName(name: "Status") {
+    ... on ProjectV2ItemFieldSingleSelectValue {
+      optionId
+    }
+  }
+  map: fieldValueByName(name: "Map") {
+    ... on ProjectV2ItemFieldSingleSelectValue {
+      optionId
+    }
+  }
+  spec: fieldValueByName(name: "Spec") {
     ... on ProjectV2ItemFieldSingleSelectValue {
       optionId
     }
@@ -71,6 +85,8 @@ _ITEM_NODE_FIELDS = """
     __typename
     ... on Issue {
       id
+      number
+      title
       state
       repository { nameWithOwner }
       parent {
@@ -98,7 +114,14 @@ _ITEM_NODE_FIELDS = """
     ... on PullRequest {
       id
       number
+      title
       state
+      isDraft
+      merged
+      baseRefName
+      headRefName
+      reviewDecision
+      statusCheckRollup { state }
       assignees { totalCount }
       labels(first: 50) { nodes { name } }
     }
@@ -107,12 +130,15 @@ _ITEM_NODE_FIELDS = """
 
 # Enumerate Project items one page at a time, reading each item's underlying
 # issue/PR facts cross-repo (see `_ITEM_NODE_FIELDS`). `$cursor` is null on the
-# first page.
+# first page. ARCHIVED items are read too (`archivedStates` defaults to
+# not-archived only): the sweep must see hidden cards to leave them hidden —
+# otherwise the seed re-cards a closed issue whose card is archived, the add
+# un-archives it, and the archive arm re-archives it, every run.
 PROJECT_ITEMS_QUERY = """
 query($projectId: ID!, $pageSize: Int!, $cursor: String) {
   node(id: $projectId) {
     ... on ProjectV2 {
-      items(first: $pageSize, after: $cursor) {
+      items(first: $pageSize, after: $cursor, archivedStates: [NOT_ARCHIVED, ARCHIVED]) {
         pageInfo { hasNextPage endCursor }
         nodes {
           %s
@@ -234,17 +260,27 @@ mutation($issueId: ID!) {
 }
 """
 
-# The link-authoring reconcile arm (ticket 33): page one destination repo's
-# PRs from the *PR side* — an unlinked cross-repo PR is invisible from the
-# issue side, so the scan has to start here. `states: [OPEN, MERGED]` covers
-# both a PR still awaiting review and one whose merge needs its link authored
-# after the fact (the straggler case, e.g. a spec-branch merge). `body` and
-# `baseRefName` feed `link_authoring.parse_candidate_refs`; the embedded
-# `closingIssuesReferences(userLinkedOnly: true)` is this PR's own already-
-# authored deliberate links (symmetric to the Issue-side
-# `closedByPullRequestsReferences` read), so the reconcile arm can skip a PR
-# that already carries its one correct link without a second round-trip.
+# The link-authoring reconcile arm (ticket 33), now also the carding sweep's
+# one PR read: page one destination repo's PRs from the *PR side* — an
+# unlinked cross-repo PR is invisible from the issue side, so the scan has to
+# start here. `states: [OPEN, MERGED]` covers both a PR still awaiting review
+# and one whose merge needs its link authored after the fact (the straggler
+# case, e.g. a spec-branch merge). `body` and `baseRefName` feed
+# `link_authoring.parse_candidate_refs`; the `authoredClosingRefs` embed is
+# this PR's own already-authored deliberate links (userLinkedOnly: true), so
+# the reconcile arm can skip a PR that already carries its one correct link
+# without a second round-trip. The `closingRefs` embed is the *effective*
+# closing-link set (userLinkedOnly: false — keyword or manual): what the
+# carding sweep maps a stack PR to its ticket, and a spec PR to its spec,
+# through. The rest of the fields (branch names, draft flag, review decision,
+# check rollup) are the PR-card facts `job` scores and classifies with.
 _LINK_AUTHORING_PAGE_SIZE = 20
+
+_CLOSING_REFS_FIELDS = """
+  number
+  id
+  repository { owner { login } name }
+"""
 
 REPO_PRS_QUERY = """
 query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
@@ -259,18 +295,28 @@ query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
         id
         number
         body
+        state
+        isDraft
         baseRefName
-        closingIssuesReferences(first: %d, userLinkedOnly: true) {
-          nodes {
-            number
-            repository { owner { login } name }
-          }
+        headRefName
+        reviewDecision
+        statusCheckRollup { state }
+        authoredClosingRefs: closingIssuesReferences(first: %d, userLinkedOnly: true) {
+          nodes { %s }
+        }
+        closingRefs: closingIssuesReferences(first: %d, userLinkedOnly: false) {
+          nodes { %s }
         }
       }
     }
   }
 }
-""" % _LINK_AUTHORING_PAGE_SIZE
+""" % (
+    _LINK_AUTHORING_PAGE_SIZE,
+    _CLOSING_REFS_FIELDS,
+    _LINK_AUTHORING_PAGE_SIZE,
+    _CLOSING_REFS_FIELDS,
+)
 
 # Resolve one candidate `TicketRef` (parsed from a PR body) to the fact
 # `link_authoring.pick_link_target`'s tie-break needs: the issue's own node
@@ -413,6 +459,161 @@ REMOVE_LABEL_MUTATION = """
 mutation($issueId: ID!, $labelId: ID!) {
   removeLabelsFromLabelable(input: { labelableId: $issueId, labelIds: [$labelId] }) {
     clientMutationId
+  }
+}
+"""
+
+# --- Board shape: the sweep ensures the board can carry the design. ---
+
+# Read one single-select field of the Project by name: its node id and every
+# option (id, name, color, description). Used for Status (the ladder's
+# columns), Map and Spec (the stamps). A missing field resolves to a null
+# `field`. Color and description are read because rewriting a field's options
+# requires BOTH non-null on every option — an option sent without them is
+# rejected — so the identity-preserving rewrite must carry what exists.
+FIELD_BY_NAME_QUERY = """
+query($projectId: ID!, $fieldName: String!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      field(name: $fieldName) {
+        ... on ProjectV2SingleSelectField {
+          id
+          options { id name color description }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Create a single-select field carrying its initial options. Used when the
+# board lacks the Map or Spec stamp field (the sweep creates them itself, so
+# a board predating this design converges on first run).
+CREATE_SINGLE_SELECT_FIELD_MUTATION = """
+mutation($projectId: ID!, $fieldName: String!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+  createProjectV2Field(
+    input: {
+      projectId: $projectId
+      name: $fieldName
+      dataType: SINGLE_SELECT
+      singleSelectOptions: $options
+    }
+  ) {
+    projectV2Field {
+      ... on ProjectV2SingleSelectField {
+        id
+        options { id name }
+      }
+    }
+  }
+}
+"""
+
+# Rewrite one single-select field's options. Every option that already exists
+# is passed WITH its id, which preserves the option's identity — and therefore
+# every item's set value ("preventing item field values from being cleared",
+# per the schema). Only genuinely new options are passed without an id, so
+# this is the one safe way to add a column or a stamp option to a live board:
+# never a wipe, never a re-stamp. The full ordered list is sent because the
+# API replaces the whole set — there is no append-only mutation.
+UPDATE_FIELD_OPTIONS_MUTATION = """
+mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+  updateProjectV2Field(
+    input: { fieldId: $fieldId, singleSelectOptions: $options }
+  ) {
+    projectV2Field {
+      ... on ProjectV2SingleSelectField {
+        id
+        options { id name }
+      }
+    }
+  }
+}
+"""
+
+# Clear one field's value on one card — the vanish. A ticket whose own PR is
+# open loses the stamps that would place it beside that PR; when the PR
+# closes without merging, the next sweep re-stamps and the card reappears.
+CLEAR_FIELD_VALUE_MUTATION = """
+mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+  clearProjectV2ItemFieldValue(input: {
+    projectId: $projectId
+    itemId: $itemId
+    fieldId: $fieldId
+  }) {
+    projectV2Item { id }
+  }
+}
+"""
+
+# The Project's fields (id + name each) — what composing a view's
+# visible-field id list needs.
+PROJECT_FIELDS_QUERY = """
+query($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      fields(first: 40) {
+        nodes {
+          ... on ProjectV2FieldCommon {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# The Project's views, for ensure-by-name: id, name, layout, filter and the
+# names of the fields the view currently shows (the drift check).
+PROJECT_VIEWS_QUERY = """
+query($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      views(first: 20) {
+        nodes {
+          id
+          name
+          layout
+          filter
+          fields(first: 20) {
+            nodes {
+              ... on ProjectV2FieldCommon {
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Create a view (name + layout only — the API sets no slice) and then give it
+# its filter and visible fields. The slice-by field stays a one-time hand
+# click (UI-only), which the setup output says so.
+CREATE_VIEW_MUTATION = """
+mutation($projectId: ID!, $name: String!, $layout: ProjectV2ViewLayout!) {
+  createProjectV2View(input: {
+    projectId: $projectId
+    name: $name
+    layout: $layout
+  }) {
+    projectV2View { id name layout }
+  }
+}
+"""
+
+UPDATE_VIEW_MUTATION = """
+mutation($viewId: ID!, $filter: String, $visibleFieldIds: [ID!]) {
+  updateProjectV2View(input: {
+    viewId: $viewId
+    filter: $filter
+    configuration: { visibleFieldIds: $visibleFieldIds }
+  }) {
+    projectV2View { id name filter }
   }
 }
 """

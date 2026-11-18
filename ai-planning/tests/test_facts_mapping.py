@@ -4,17 +4,26 @@ These assert the mapper reads native GitHub facts faithfully and holds no
 precedence logic of its own (that lives in `sync_status`). No network: every
 case is a hand-built payload shaped like the GraphQL response.
 
-Every PR-derived fact is sourced solely from `closedByPullRequestsReferences(
-userLinkedOnly: false)` — a closing link (keyword or manual). There is no bare-
-mention fallback and no repo allow-list: a mere mention scores nothing (only
-closing references appear in the connection), and a linked PR counts whether
-it's cross-repo or same-repo.
+Every PR-derived fact of an issue card is sourced solely from
+`closedByPullRequestsReferences(userLinkedOnly: false)` — a closing link
+(keyword or manual). There is no bare-mention fallback and no repo allow-list:
+a mere mention scores nothing (only closing references appear in the
+connection), and a linked PR counts whether it's cross-repo or same-repo. A PR
+card scores its own fields instead.
 """
 
 from ai_planning.sync_status import make_facts
-from ai_planning.facts_mapping import item_to_facts
+from ai_planning.facts_mapping import (
+    item_child_content_ids,
+    item_content_id,
+    item_current_stamp_option_ids,
+    item_current_status_option_id,
+    item_is_archived,
+    item_to_facts,
+    linked_prs_page_info,
+)
 
-from tests.fixtures import issue_item, linked_pr
+from tests.fixtures import issue_item, linked_pr, pr_item
 
 
 def _issue_item(
@@ -39,7 +48,6 @@ def test_open_unassigned_issue_maps_to_bare_facts():
     assert facts == make_facts(
         closed=False,
         open_blocker_count=0,
-        has_open_non_draft_pr=False,
         assigned=False,
     )
 
@@ -62,34 +70,123 @@ def test_map_label_sets_is_map():
     assert item_to_facts(_issue_item(labels=("wayfinder:task",))).is_map is False
 
 
-def test_open_non_draft_pr_is_review_signal():
-    prs = [linked_pr(state="OPEN", is_draft=False)]
-    assert item_to_facts(_issue_item(prs=prs)).has_open_non_draft_pr is True
+# --- the folded open-PR facts -------------------------------------------------
 
 
-def test_draft_pr_does_not_count_as_review():
-    prs = [linked_pr(state="OPEN", is_draft=True)]
+def test_open_ready_green_pr_folds_to_ready_and_green():
+    prs = [linked_pr(state="OPEN", is_draft=False, rollup_state="SUCCESS")]
     facts = item_to_facts(_issue_item(prs=prs))
-    assert facts.has_open_non_draft_pr is False
-    assert facts.has_open_draft_pr is True
+    assert facts.pr_state == "ready"
+    assert facts.pr_ci_ok is True
+    assert facts.pr_approved is False
 
 
-def test_open_draft_pr_is_false_when_no_pr_is_linked():
-    assert item_to_facts(_issue_item()).has_open_draft_pr is False
+def test_open_draft_pr_folds_to_draft():
+    facts = item_to_facts(_issue_item(prs=[linked_pr(state="OPEN", is_draft=True)]))
+    assert facts.pr_state == "draft"
+    assert facts.pr_ci_ok is None
+    assert facts.pr_approved is False
 
 
-def test_closed_pr_does_not_count_as_review():
-    prs = [linked_pr(state="CLOSED", is_draft=False)]
-    assert item_to_facts(_issue_item(prs=prs)).has_open_non_draft_pr is False
+def test_no_open_pr_folds_to_none():
+    facts = item_to_facts(_issue_item())
+    assert facts.pr_state is None
+    assert facts.pr_ci_ok is None
 
 
-def test_mixed_prs_one_open_non_draft_is_enough():
+def test_red_rollup_keeps_the_ready_pr_but_ci_not_ok():
+    prs = [linked_pr(state="OPEN", is_draft=False, rollup_state="FAILURE")]
+    facts = item_to_facts(_issue_item(prs=prs))
+    assert facts.pr_state == "ready"
+    assert facts.pr_ci_ok is False
+
+
+def test_pending_rollup_is_not_green():
+    prs = [linked_pr(state="OPEN", is_draft=False, rollup_state="PENDING")]
+    assert item_to_facts(_issue_item(prs=prs)).pr_ci_ok is False
+
+
+def test_no_checks_configured_reads_green():
+    prs = [linked_pr(state="OPEN", is_draft=False, rollup_state=None)]
+    assert item_to_facts(_issue_item(prs=prs)).pr_ci_ok is True
+
+
+def test_approval_comes_from_the_review_decision():
+    prs = [linked_pr(state="OPEN", is_draft=False, review_decision="APPROVED")]
+    facts = item_to_facts(_issue_item(prs=prs))
+    assert facts.pr_approved is True
+    assert facts.pr_state == "ready"
+
+
+def test_changes_requested_is_not_approved():
+    prs = [
+        linked_pr(state="OPEN", is_draft=False, review_decision="CHANGES_REQUESTED")
+    ]
+    assert item_to_facts(_issue_item(prs=prs)).pr_approved is False
+
+
+def test_mixed_prs_ready_beats_draft():
     prs = [
         linked_pr(state="CLOSED", is_draft=False),
         linked_pr(state="OPEN", is_draft=True),
-        linked_pr(state="OPEN", is_draft=False),
+        linked_pr(state="OPEN", is_draft=False, rollup_state="SUCCESS"),
     ]
-    assert item_to_facts(_issue_item(prs=prs)).has_open_non_draft_pr is True
+    facts = item_to_facts(_issue_item(prs=prs))
+    assert facts.pr_state == "ready"
+    assert facts.pr_ci_ok is True
+
+
+def test_closed_pr_does_not_fold():
+    prs = [linked_pr(state="CLOSED", is_draft=False)]
+    assert item_to_facts(_issue_item(prs=prs)).pr_state is None
+
+
+# --- PR cards score their own fields ------------------------------------------
+
+
+def test_pr_item_draft_maps_to_draft_state():
+    facts = item_to_facts(pr_item(is_draft=True))
+    assert facts.pr_state == "draft"
+    assert facts.closed is False
+
+
+def test_pr_item_ready_green_maps_to_ready_and_green():
+    facts = item_to_facts(pr_item(is_draft=False, rollup_state="SUCCESS"))
+    assert facts.pr_state == "ready"
+    assert facts.pr_ci_ok is True
+
+
+def test_pr_item_red_maps_to_ready_but_not_ok():
+    facts = item_to_facts(pr_item(is_draft=False, rollup_state="FAILURE"))
+    assert facts.pr_state == "ready"
+    assert facts.pr_ci_ok is False
+
+
+def test_pr_item_approved_maps_to_approved():
+    facts = item_to_facts(
+        pr_item(is_draft=False, rollup_state="SUCCESS", review_decision="APPROVED")
+    )
+    assert facts.pr_approved is True
+
+
+def test_pr_item_merged_maps_to_done():
+    facts = item_to_facts(pr_item(state="MERGED", merged=True))
+    assert facts.closed is True
+    assert facts.pr_state is None
+
+
+def test_pr_item_closed_unmerged_maps_to_done():
+    facts = item_to_facts(pr_item(state="CLOSED"))
+    assert facts.closed is True
+
+
+def test_pr_item_has_no_blockers_and_is_never_a_map():
+    facts = item_to_facts(pr_item())
+    assert facts.open_blocker_count == 0
+    assert facts.is_map is False
+
+
+# --- structural helpers --------------------------------------------------------
 
 
 def test_item_without_content_is_skipped():
@@ -98,16 +195,12 @@ def test_item_without_content_is_skipped():
 
 
 def test_item_content_id_reads_content_node_id():
-    from ai_planning.facts_mapping import item_content_id
-
     assert item_content_id(_issue_item()) == "I_PVTI_item"
     assert item_content_id({"id": "x", "content": None}) is None
     assert item_content_id({"id": "x"}) is None
 
 
 def test_item_child_content_ids_reads_sub_issue_children():
-    from ai_planning.facts_mapping import item_child_content_ids
-
     item = issue_item(child_content_ids=("I_child_1", "I_child_2"))
     assert item_child_content_ids(item) == ["I_child_1", "I_child_2"]
     assert item_child_content_ids(_issue_item()) == []
@@ -115,8 +208,6 @@ def test_item_child_content_ids_reads_sub_issue_children():
 
 
 def test_item_current_status_option_id_reads_set_value():
-    from ai_planning.facts_mapping import item_current_status_option_id
-
     item = issue_item(status_option_id="opt_in_progress")
     assert item_current_status_option_id(item) == "opt_in_progress"
     # No Status set yet, or the field absent entirely -> None.
@@ -125,13 +216,28 @@ def test_item_current_status_option_id_reads_set_value():
     assert item_current_status_option_id({"id": "x", "status": None}) is None
 
 
+def test_item_current_stamp_option_ids_read_map_and_spec():
+    item = issue_item(map_option_id="opt_map_1", spec_option_id="opt_spec_1")
+    assert item_current_stamp_option_ids(item) == {
+        "Map": "opt_map_1",
+        "Spec": "opt_spec_1",
+    }
+    assert item_current_stamp_option_ids(_issue_item()) == {"Map": None, "Spec": None}
+    assert item_current_stamp_option_ids({"id": "x"}) == {"Map": None, "Spec": None}
+
+
+def test_item_is_archived_reads_the_flag():
+    assert item_is_archived(issue_item(is_archived=True)) is True
+    assert item_is_archived(issue_item()) is False
+    assert item_is_archived({"id": "x"}) is False
+
+
 def test_partial_payload_never_raises():
     # A content node missing the optional connections still maps cleanly.
     facts = item_to_facts({"id": "x", "content": {"state": "OPEN"}})
     assert facts == make_facts(
         closed=False,
         open_blocker_count=0,
-        has_open_non_draft_pr=False,
         assigned=False,
     )
 
@@ -176,8 +282,6 @@ def test_one_qualifying_pr_among_several_is_enough():
 
 
 def test_linked_prs_page_info_reads_connection_page_info():
-    from ai_planning.facts_mapping import linked_prs_page_info
-
     item = issue_item(prs_has_next=True, prs_cursor="cur1")
     assert linked_prs_page_info(item) == (True, "cur1")
     assert linked_prs_page_info(_issue_item()) == (False, None)

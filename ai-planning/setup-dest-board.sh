@@ -10,13 +10,18 @@
 #   1. an org Project (v2) titled `AI planning`, **linked to the repo** (it
 #      shows in the repo's Projects tab — the API cannot create repo-owned
 #      projects, but `createProjectV2` takes a `repositoryId` that does the
-#      linking at creation time), with the five Status columns
-#      (Blocked · Ready · In progress · In review · Done), a Board view
-#      (grouped by Status) and an Efforts view (the maps);
+#      linking at creation time);
 #   2. `.github/workflows/board-sync.yml` on the repo's default branch — the
 #      event-driven sync caller. No schedule, no variables, no boards JSON:
 #      the action finds the board by its predictive title among the repo's
 #      linked projects.
+#
+# The board's SHAPE — the six Status columns (with descriptions), the Map and
+# Spec stamp fields, the Maps/Efforts/Specs views with their filters — is NOT
+# set here: the sweep itself ensures all of it on its first run (and keeps it
+# converged after), so this script stays project + workflow + secret only.
+# The only hand steps left anywhere: the three native project workflows
+# (UI-only) and the one-time slice-by click per view.
 #
 # One secret, set once on the repo: `AI_PLANNING_TOKEN` — a fine-grained PAT
 # scoped to that one repo (Issues: read and write; Pull requests: read — the
@@ -115,64 +120,16 @@ project_id="$(gh api graphql -f query='
   }}' -f owner="$OWNER" -f name="$NAME" -F number="$number" \
   --jq '.data.repository.projectV2.id')"
 echo "    Project #$number  id=$project_id"
+echo "    (the sweep shapes the board itself on its first run: columns, stamp"
+echo "     fields, views — nothing to set here)"
 
-# --- 2. Status columns (guarded: rewriting the options would wipe the column) --
-WANT_OPTIONS="Blocked·Ready·In progress·In review·Done"
-status_json="$(gh api graphql -f query='
-  query($id:ID!){node(id:$id){... on ProjectV2{field(name:"Status"){... on ProjectV2SingleSelectField{id options{name}}}}}}' \
-  -f id="$project_id" --jq '.data.node.field')"
-status_field="$(printf '%s' "$status_json" | jq -r '.id')"
-current="$(printf '%s' "$status_json" | jq -r '[.options[].name] | join("·")')"
-if [ "$current" = "$WANT_OPTIONS" ]; then
-  echo "    Status columns already set"
-else
-  echo "    setting Status columns (was: ${current:-<none>})"
-  gh api graphql -f query='
-    mutation($fid:ID!){updateProjectV2Field(input:{fieldId:$fid,singleSelectOptions:[
-      {name:"Blocked",     color:RED,    description:"At least one open blocker; dominates all but Done"},
-      {name:"Ready",       color:GRAY,   description:"Unblocked and unassigned — the takeable frontier"},
-      {name:"In progress", color:YELLOW, description:"Assigned (claimed); or a draft PR is open"},
-      {name:"In review",   color:BLUE,   description:"A non-draft PR is open and linked"},
-      {name:"Done",        color:GREEN,  description:"Issue closed"}
-    ]}){projectV2Field{... on ProjectV2SingleSelectField{options{name}}}}}' \
-    -f fid="$status_field" >/dev/null
-fi
-
-# --- 3. Board + Efforts views --------------------------------------------------
-existing_views="$(gh api graphql -f query='
-  query($id:ID!){node(id:$id){... on ProjectV2{views(first:50){nodes{name}}}}}' \
-  -f id="$project_id" --jq '[.data.node.views.nodes[].name]' 2>/dev/null || echo 'null')"
-views_note=""
-if [ "$existing_views" != "null" ]; then
-  fields="$(gh api "orgs/$OWNER/projectsV2/$number/fields" --paginate 2>/dev/null || true)"
-  status_rest_id="$(jq -rs '[.[][] | select(.name=="Status") | .id] | first // empty' <<<"$fields" 2>/dev/null || true)"
-  visible="$(jq -cs '[.[][] | select(.name | IN("Title","Labels","Assignees","Linked pull requests","Parent issue","Sub-issues progress")) | .id]' <<<"$fields" 2>/dev/null || echo '[]')"
-  if ! jq -e 'index("Board")' <<<"$existing_views" >/dev/null; then
-    jq -n --argjson status "$status_rest_id" --argjson vis "$visible" \
-      '{name:"Board",layout:"board",filter:"-label:wayfinder:map",vertical_group_by:[$status]}
-       + (if ($vis|length)>0 then {visible_fields:$vis} else {} end)' \
-      | gh api --method POST "orgs/$OWNER/projectsV2/$number/views" --input - >/dev/null 2>&1 \
-      || views_note="Board view creation failed"
-  fi
-  if ! jq -e 'index("Efforts")' <<<"$existing_views" >/dev/null; then
-    jq -n --argjson vis "$visible" \
-      '{name:"Efforts",layout:"table",filter:"label:wayfinder:map"}
-       + (if ($vis|length)>0 then {visible_fields:$vis} else {} end)' \
-      | gh api --method POST "orgs/$OWNER/projectsV2/$number/views" --input - >/dev/null 2>&1 \
-      || views_note="${views_note:+$views_note; }Efforts view creation failed"
-  fi
-else
-  views_note="could not read views"
-fi
-[ -z "$views_note" ] || echo "    views: $views_note — create them by hand (Board, grouped by Status; Efforts, filter label:wayfinder:map)" >&2
-
-# --- 4. the stamped workflow ----------------------------------------------------
+# --- 2. the stamped workflow ----------------------------------------------------
 stamped="$(mktemp)"
 sed "s|@ai_planning_repo_board|@$REF|g" "$TEMPLATE" > "$stamped"
 [ -n "$(gh api "repos/canonical/desktop-engineering/branches/$REF" --jq .name 2>/dev/null || true)" ] \
   || echo "    warning: canonical/desktop-engineering has no branch '$REF' yet — the caller pins it; push the tooling there before relying on the board" >&2
 
-# --- 5. the sweep's PAT ---------------------------------------------------------
+# --- 3. the sweep's PAT ---------------------------------------------------------
 # Fine-grained, scoped to THIS repo + the org's Projects permission (Projects
 # v2 is out of the GITHUB_TOKEN's reach). Already-stored secrets are not
 # readable back, so "set" means "don't ask again" — a refresh re-prompts only
@@ -203,7 +160,7 @@ else
   echo "    secret AI_PLANNING_TOKEN set"
 fi
 
-# --- 6. landing the workflow ---------------------------------------------------
+# --- 4. landing the workflow ---------------------------------------------------
 # A protected default branch refuses API-made commits outright (HTTP 409), and
 # a PR from them would fail the verified-signatures rule anyway: Contents-API
 # commits carry no signature. So on a protected branch the workflow lands as a
@@ -248,19 +205,33 @@ automation.
 
 **What the sweep does on each event**
 (`canonical/desktop-engineering/gh-actions/ai-planning/repo-board-sync`):
+- shapes the board itself (six Status columns with descriptions, the Map and
+  Spec stamp fields, the Maps/Efforts/Specs views) — idempotent and
+  identity-preserving, so a live board never wipes;
 - authors the missing `Closes #<ticket>` links — GitHub ignores `Closes` on
   any PR that does not target `main` (every stack PR into a spec branch);
 - seeds the board with open `ready-for-agent` / `ready-for-human` /
-  `wayfinder:*` issues and their sub-issue trees;
-- scores every card: claim or draft PR → In progress, PR ready for review or a
-  child in review → In review, merged linked PR → Done (+ self-close of the
-  ticket), open blocker with nothing running → Blocked, else Ready;
+  `wayfinder:*` issues and their sub-issue trees, and cards every open
+  spec-family PR (a spec PR into `main` from a `*/base` head, plus every PR
+  whose base chain bottoms out in a spec branch — ticket PRs and the fix PRs
+  stacked above them);
+- stamps each card's Map/Spec fields (the descent) and clears a ticket's
+  stamps while its own PR is open — the PR card replaces it (the vanish,
+  self-healing when a PR closes unmerged);
+- scores every card CI-aware: claim or draft PR → In progress, ready PR with
+  green checks → In review, approved PR → Approved, merged/closed → Done
+  (+ self-close of the ticket), open blocker with nothing running → Blocked,
+  else Ready;
+- archives every closed card of the spec family (and unarchives on reopen),
+  so a merged spec's whole family — and a settled map — leave the board;
 - cascades maps (auto-close/reopen with their sub-issue trees).
 
 **Hand adjustments after merging** (Projects v2 has no API for these): on the
 project → ⋯ → Workflows → turn on *Item added to project → Ready*, *Item
 closed → Done*, *Pull request merged → Done*. `Auto-add sub-issues to
-project` is already on.
+project` is already on. Then set each view's slice-by once (Maps → Map,
+Efforts → Parent issue, Specs → Spec) — the API creates the views but cannot
+set their slice.
 BODY
       gh pr create --repo "$DEST_REPO" --head "$PR_BRANCH" --base "$DEFAULT_BRANCH" \
         --title "ci: sync the AI planning board on issue and PR events" \
@@ -339,8 +310,10 @@ echo "   repo-linked board) — a token carrying the org's Projects permission i
 echo "   the price of any Projects v2 automation."
 echo
 echo "2. THE WORKFLOW — already installed above as .github/workflows/board-sync.yml"
-echo "   on $DEFAULT_BRANCH (event-driven: issues + pull_request + Run workflow;"
-echo "   no schedule). First run: Actions -> 'AI planning board sync' -> Run workflow."
+echo "   on $DEFAULT_BRANCH (event-driven: issues, pull_request, pull_request_review,"
+echo "   check_suite + Run workflow; no schedule). First run: Actions ->"
+echo "   'AI planning board sync' -> Run workflow — it shapes the whole board"
+echo "   (columns, stamp fields, views) on that first run."
 echo
 echo "3. THE THREE NATIVE PROJECT WORKFLOWS (Projects v2 has no API for these —"
 echo "   click-only). Open the project -> top-right '..' -> Workflows, then for"
@@ -354,7 +327,12 @@ echo "         settle instantly; it does not close the issue — the sweep's"
 echo "         self-close does that on its next pass)"
 echo "   'Auto-add sub-issues to project' is already enabled by default."
 echo
-echo "4. AGENTS: every stack PR body says 'Closes #<ticket>' (.kb/git-workflow.md) —"
-echo "   GitHub never creates that link outside main, the sweep authors it and"
-echo "   scores the PR: draft -> In progress, ready for review -> In review,"
-echo "   merged -> Done + ticket closed."
+echo "4. THE THREE VIEWS' SLICE-BY (the API creates the views but cannot set their"
+echo "   slice — one click each): Maps -> Map, Efforts -> Parent issue, Specs -> Spec."
+echo
+echo "5. AGENTS: the only board-related duty anywhere is one line — every stack PR"
+echo "   body says 'Closes #<ticket>' (and the spec PR 'Closes #<spec>'). GitHub"
+echo "   never creates that link outside main; the sweep authors it, cards the PR,"
+echo "   stamps the fields, scores the ladder (draft -> In progress, ready+green"
+echo "   -> In review, approved -> Approved, merged -> Done + ticket closed) and"
+echo "   archives the family when the spec lands."
