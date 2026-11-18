@@ -16,7 +16,12 @@ name: AI planning board sync
 
 concurrency:
   group: ai-planning-board-sync
-  cancel-in-progress: true
+  # Serialized, NOT cancel-in-progress: two events landing in the same second
+  # raced each other's cancellation and killed BOTH runs, leaving no sweep
+  # alive. A settled sweep is a fast no-op, so queued bursts drain cheaply;
+  # the sweep's own self-closes queue exactly one follow-up run, which finds
+  # nothing to do and stops the chain.
+  cancel-in-progress: false
 
 on:
   issues:

@@ -147,14 +147,19 @@ def is_spec_pr(head_ref: str | None) -> bool:
 def stack_family_pr_numbers(
     prs: list[dict[str, Any]],
 ) -> set[int]:
-    """The numbers of the open PRs belonging to spec-branch stacks.
+    """The numbers of the PRs belonging to spec-branch stacks.
 
-    `prs` are the repo's open PRs, each with `number`, `baseRefName` and
-    `headRefName`. A PR is in the family when its base chain bottoms out in a
-    spec branch: the bottom stack PR targets `<spec-slug>/base` directly, and
-    every PR above it (including review-fix PRs, which carry no ticket link)
-    targets the branch below it. The walk is a fixed-point closure so any
-    chain depth works.
+    `prs` are the repo's PRs — **open and merged alike**: the ancestry that
+    bootstraps a chain runs through MERGED PRs too (the bottom tickets of a
+    stack land first; the PRs above them chain onto the merged heads, and
+    only a walk that sees those merged heads can reach the spec branch —
+    an open-only walk loses the whole remaining stack the moment its first
+    ticket merges). A PR is in the family when its base chain bottoms out
+    in a spec branch (`<spec-slug>/base`): the bottom stack PR targets it
+    directly, and every PR above it (including review-fix PRs, which carry
+    no ticket link) targets the branch below it. The walk is a fixed-point
+    closure so any chain depth works. The caller filters the family to the
+    OPEN members for carding.
     """
 
     heads_by_number = {

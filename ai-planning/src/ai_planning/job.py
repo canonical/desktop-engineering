@@ -602,21 +602,22 @@ def card_spec_family_prs(
     project_id: str,
     repo_full_name: str,
     repo_prs: Sequence[dict[str, Any]],
+    family_numbers: set[int],
     on_board: set[str],
 ) -> list[str]:
-    """Card every open spec-family PR not yet carded; return the added ids.
+    """Card every OPEN spec-family PR not yet carded; return the added ids.
 
-    A spec PR is one whose head branch is `<spec-slug>/base`; a stack PR is
-    one whose base chain bottoms out in a spec branch (ticket PRs and the fix
-    PRs stacked above them). Both become cards; a standalone PR into `main`
-    does not.
+    `family_numbers` is the stack-family closure computed over ALL the repo's
+    PRs (open and merged — see `stack_family_pr_numbers`); `repo_prs` here are
+    the OPEN PRs only. A spec PR is one whose head branch is
+    `<spec-slug>/base`; a stack PR is one whose base chain bottoms out in a
+    spec branch (ticket PRs and the fix PRs stacked above them). Both become
+    cards; a standalone PR into `main` does not.
     """
 
-    open_prs = [pr for pr in repo_prs if pr.get("state") == "OPEN"]
-    family = stack_family_pr_numbers(open_prs)
     added: list[str] = []
-    for pr in open_prs:
-        if pr["number"] not in family:
+    for pr in repo_prs:
+        if pr.get("number") not in family_numbers:
             continue
         content_id = pr["id"]
         if content_id in on_board:
@@ -955,7 +956,7 @@ def resolve_pr_specs(
     family_numbers: set[int],
     typed: dict[str, CardType],
 ) -> dict[str, dict[str, str | None]]:
-    """Map each family PR card's content id to the spec it implements.
+    """Map each OPEN family PR card's content id to the spec it implements.
 
     The mapping rides the PR's effective closing links (`Closes #<n>`, authored
     by the link arm for non-default targets): a spec PR closes its spec; a
@@ -1049,9 +1050,17 @@ def run_sync(
     result = SyncResult(seeded=list(seeded_items))
 
     if repo_prs is not None and planning_repo:
+        # The family closure walks ALL PRs (open and merged): a stack whose
+        # bottom tickets have already merged bootstraps through the merged
+        # heads — an open-only walk loses the whole remaining stack the
+        # moment its first PR lands. Only OPEN family members are carded.
         on_board = _board_content_ids(client, project_id, page_size)
+        family_numbers = stack_family_pr_numbers(repo_prs)
+        open_family_prs = [
+            pr for pr in repo_prs if pr.get("state") == "OPEN"
+        ]
         result.pr_cards_added = card_spec_family_prs(
-            client, project_id, planning_repo, repo_prs, on_board
+            client, project_id, planning_repo, open_family_prs, family_numbers, on_board
         )
 
     status_field = StatusField(shape.status_field_id, shape.status_option_ids)
@@ -1115,11 +1124,10 @@ def run_sync(
         items_by_id, item_id_by_content_id, child_content_ids_by_item_id
     )
     pr_meta_by_content_id: dict[str, dict[str, str | None]] = {}
-    if repo_prs is not None:
-        open_prs = [pr for pr in repo_prs if pr.get("state") == "OPEN"]
-        family_numbers = stack_family_pr_numbers(open_prs)
+    if repo_prs is not None and planning_repo:
+        family_numbers = stack_family_pr_numbers(repo_prs)
         pr_meta_by_content_id = resolve_pr_specs(
-            planning_repo or "", repo_prs, family_numbers, typed
+            planning_repo, repo_prs, family_numbers, typed
         )
 
     # Stamps: grow the options, then write only the drift (the vanish is a

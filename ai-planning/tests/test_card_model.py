@@ -205,3 +205,17 @@ def test_no_option_names_yet_means_no_stamp_writes():
         option_name_by_content_id={},
     )
     assert plans == []
+
+
+def test_a_stack_whose_bottom_merged_still_bootstraps():
+    """The ancestry that bootstraps a chain runs through MERGED PRs: the
+    bottom tickets of a stack land first, and an open-only walk would lose
+    the whole remaining stack the moment the first PR lands."""
+    prs = [
+        {"number": 20, "state": "OPEN", "baseRefName": "spec/3-keep", "headRefName": "spec/4-last"},
+        {"number": 19, "state": "MERGED", "baseRefName": "spec/base", "headRefName": "spec/3-keep"},
+    ]
+    assert stack_family_pr_numbers(prs) == {19, 20}
+    # The caller cards only the OPEN member.
+    open_members = [pr for pr in prs if pr["state"] == "OPEN"]
+    assert [pr["number"] for pr in open_members] == [20]
