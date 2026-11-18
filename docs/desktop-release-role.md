@@ -80,7 +80,7 @@ No automated test covers edge snaps. This manual test is the only check before t
 - **Who:** usually the same person who tested on edge. Anyone with Snap Store rights can do it.
 - **Automated or manual:** manual, in the Snap Store web dashboard. The dashboard is preferred because it's less error-prone than the CLI.
 - **Trigger:** the edge test passes, and all of amd64, arm64 and riscv64 have built. All architectures are promoted together, and riscv64 is usually the slowest.
-- **Sign-off:** none outside freezes. The promoter's own edge test is the gate, sometimes with a heads-up in team chat. After Final Freeze, the release team must agree first (see [Milestones and releases](#milestones-and-releases)).
+- **Sign-off:** none outside freezes. The promoter's own edge test is the gate, sometimes with a heads-up in team chat. After Beta Freeze, the release team must agree first (see [Milestones and releases](#milestones-and-releases)).
 - **Channel:** only `<series>/stable`. Nothing is promoted to `latest/stable`.
 
 ### 6. Daily ISOs pick up the snap
