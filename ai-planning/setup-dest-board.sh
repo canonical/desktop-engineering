@@ -256,15 +256,32 @@ BODY
     echo
     echo "Done. Board: org Project #$number '$BOARD_TITLE' ($project_id), linked to $DEST_REPO."
     echo
-    echo "Remaining hand steps:"
-    echo "  1. Merge the PR above — the workflow lands on $DEFAULT_BRANCH."
-    echo "  2. The THREE native project workflows (open the project -> '..' ->"
-    echo "     Workflows -> Edit -> 'Save and turn on'):"
-    echo "       'Item added to project' -> Set Status: Ready"
-    echo "       'Item closed'           -> Set Status: Done"
-    echo "       'Pull request merged'   -> Set Status: Done"
+    echo "Hand steps from here (the only ones left):"
+    echo
+    echo "  1. MERGE THE PR above — the workflow lands on $DEFAULT_BRANCH."
+    echo
+    echo "  2. THE THREE NATIVE PROJECT WORKFLOWS (UI-only, ~1 min). Open the"
+    echo "     project -> top-right '..' -> Workflows -> for each: click -> Edit ->"
+    echo "     configure -> 'Save and turn on':"
+    echo "       a. 'Item added to project' -> Set Status: Ready"
+    echo "       b. 'Item closed'           -> Set Status: Done"
+    echo "       c. 'Pull request merged'   -> Set Status: Done"
     echo "     ('Auto-add sub-issues to project' is already on.)"
-    echo "  3. First sweep: Actions -> 'AI planning board sync' -> Run workflow."
+    echo
+    echo "  3. THE FIRST SWEEP — it shapes the whole board (the six Status columns"
+    echo "     with descriptions, the Map and Spec stamp fields, the Maps/Efforts/"
+    echo "     Specs views) and scores every card:"
+    echo "       Actions -> 'AI planning board sync' -> Run workflow."
+    echo
+    echo "  4. THE THREE VIEWS' SLICE-BY (MANUAL — the API creates the views but"
+    echo "     cannot set their slice; one click each):"
+    echo "       Maps   -> Slice by: Map"
+    echo "       Efforts -> Slice by: Parent issue"
+    echo "       Specs  -> Slice by: Spec"
+    echo
+    echo "  5. AGENTS: the only board duty anywhere is one line — every stack PR"
+    echo "     body says 'Closes #<ticket>' (the spec PR: 'Closes #<spec>')."
+    echo "     Everything else on the board is automation."
     exit 0
   fi
 fi
@@ -323,11 +340,13 @@ echo "   and cannot resolve a ProjectV2 at all (verified live, even for a"
 echo "   repo-linked board) — a token carrying the org's Projects permission is"
 echo "   the price of any Projects v2 automation."
 echo
-echo "2. THE WORKFLOW — already installed above as .github/workflows/board-sync.yml"
-echo "   on $DEFAULT_BRANCH (event-driven: issues, pull_request, pull_request_review,"
-echo "   check_suite + Run workflow; no schedule). First run: Actions ->"
-echo "   'AI planning board sync' -> Run workflow — it shapes the whole board"
-echo "   (columns, stamp fields, views) on that first run."
+echo "2. THE FIRST SWEEP — it shapes the whole board (the six Status columns"
+echo "   with descriptions, the Map and Spec stamp fields, the Maps/Efforts/"
+echo "   Specs views) and scores every card:"
+echo "     Actions -> 'AI planning board sync' -> Run workflow."
+echo "   (The workflow is already installed above as .github/workflows/board-sync.yml"
+echo "   on $DEFAULT_BRANCH: event-driven — issues, pull_request,"
+echo "   pull_request_review, workflow_run + Run workflow; no schedule.)"
 echo
 echo "3. THE THREE NATIVE PROJECT WORKFLOWS (Projects v2 has no API for these —"
 echo "   click-only). Open the project -> top-right '..' -> Workflows, then for"
@@ -341,8 +360,11 @@ echo "         settle instantly; it does not close the issue — the sweep's"
 echo "         self-close does that on its next pass)"
 echo "   'Auto-add sub-issues to project' is already enabled by default."
 echo
-echo "4. THE THREE VIEWS' SLICE-BY (the API creates the views but cannot set their"
-echo "   slice — one click each): Maps -> Map, Efforts -> Parent issue, Specs -> Spec."
+echo "4. THE THREE VIEWS' SLICE-BY (MANUAL — the API creates the views but cannot"
+echo "   set their slice; one click each):"
+echo "     Maps    -> Slice by: Map"
+echo "     Efforts -> Slice by: Parent issue"
+echo "     Specs   -> Slice by: Spec"
 echo
 echo "5. AGENTS: the only board-related duty anywhere is one line — every stack PR"
 echo "   body says 'Closes #<ticket>' (and the spec PR 'Closes #<spec>'). GitHub"

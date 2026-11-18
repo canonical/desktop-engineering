@@ -3,9 +3,10 @@ name: AI planning board sync
 
 # Event-driven only — every trigger is a fact the sweep can reconcile, and
 # there is no timer: issue lifecycle events, PR events (open, push, draft
-# flips, close), review submissions and completed check suites in THIS repo
-# settle the board within about a minute. Run it by hand (Actions → Run
-# workflow) after a change that raises no event, such as editing a view.
+# flips, close), review submissions, and completed workflow runs in THIS repo
+# (the repo's CI going green — see the workflow_run note below) settle the
+# board within about a minute. Run it by hand (Actions → Run workflow) after
+# a change that raises no event, such as editing a view.
 #
 # The board is the org Project titled `AI planning` linked to this repo, found
 # by the action itself — no variables, no boards JSON. The one secret is the
