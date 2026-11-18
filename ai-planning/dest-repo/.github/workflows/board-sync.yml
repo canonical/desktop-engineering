@@ -29,11 +29,14 @@ on:
   # check_suite does NOT fire for suites GitHub Actions itself created (GitHub
   # suppresses it to prevent recursion), so a repo whose CI runs on Actions
   # would never sweep on a red→green flip through it. workflow_run fires for
-  # any completed workflow run on the default branch — the repo's CI included —
-  # and the job's guard below excludes this workflow's own runs so the sync
-  # never triggers itself.
+  # the workflows named below — the setup stamps THIS repo's other workflows
+  # at install time (GitHub rejects a workflow_run without `workflows:`), and
+  # the job's guard excludes this workflow's own runs so the sync never
+  # triggers itself. A workflow added later is stamped in by re-running the
+  # setup; until then the other events still reconcile the board.
   workflow_run:
     types: [completed]
+    workflows: [@board_sync_ci_workflows@]
   workflow_dispatch: {}
 
 # The job itself needs no token at all — the action carries its own PAT input.
