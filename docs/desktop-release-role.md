@@ -13,7 +13,7 @@ Repositories involved:
 
 ## Overview
 
-Orange steps are manual and blue steps are automated. The second line of each node names the owner. The flowchart shows only the main path. Failures and rollback are covered in [When things go wrong](#when-things-go-wrong). A promotion during a milestone freeze also reaches the daily ISOs and the Jenkins tests, like any other promotion.
+Orange steps are manual and blue steps are automated. The second line of each node names the owner. The flowchart shows only the main path. Failures and rollback are covered in [When things go wrong](#when-things-go-wrong). A promotion during a milestone freeze also reaches the [daily ISOs](https://cdimage.ubuntu.com/ubuntu/daily-live/) and the Jenkins tests, like any other promotion.
 
 ```mermaid
 flowchart TD
@@ -88,24 +88,24 @@ No automated test covers edge snaps. This manual test is the only check before t
 - **Who:** the release team's image-build infrastructure.
 - **Automated or manual:** automated.
 - **Trigger:** each scheduled image build.
-- **Tool:** the Ubuntu Desktop `live` seed lists the installer snap from `<series>/stable/ubuntu-<series>`, the **release branch**. Germinate and livecd-rootfs read the seed and install the newest revision on that channel into the live filesystem. The release branch is kept closed, so it falls back to `<series>/stable`, and each daily ISO includes whatever was last promoted.
+- **Tool:** the Ubuntu Desktop `live` [seed](https://git.launchpad.net/~ubuntu-core-dev/ubuntu-seeds/+git/ubuntu) lists the installer snap from `<series>/stable/ubuntu-<series>`, the **release branch**. Germinate and livecd-rootfs read the seed and install the newest revision on that channel into the live filesystem. The release branch is kept closed, so it falls back to `<series>/stable`, and each daily ISO includes whatever was last promoted.
 - **On failure:** if the release branch doesn't exist, the build fails. See [Per-release Store branches](#per-release-store-branches).
 
 ### 7. Automated GUI tests
 
-- **Who:** the release team maintains the Jenkins instance and jobs. The IS team provides the infrastructure, and the desktop team owns the tests in ubuntu-gui-testing.
+- **Who:** the release team maintains the [Jenkins instance](https://platform-qa-jenkins.ps5.ubuntu.com/view/rf-iso-testing/) (VPN only) and jobs. The IS team provides the infrastructure, and the desktop team owns the tests in ubuntu-gui-testing.
 - **Automated or manual:** automated.
 - **Trigger:** Jenkins checks for newly published daily desktop ISOs every hour. Jobs exist for the latest LTS, `resolute`, on `amd64` and `amd64v3`. A snap channel update doesn't trigger tests, so tests only ever see the stable snap on an ISO.
-- **Tool:** the job downloads the ISO, verifies it, and runs the Robot Framework suite in QEMU, using YARF and the old runner script from [hardware-installer-testing](https://github.com/canonical/hardware-installer-testing/). Coverage includes whole-disk install, LVM and ZFS encryption, TPM-backed full-disk encryption, and Secure Boot. Results go to Test Observer.
+- **Tool:** the job downloads the ISO, verifies it, and runs the Robot Framework suite in QEMU, using YARF and the old runner script from [hardware-installer-testing](https://github.com/canonical/hardware-installer-testing/). Coverage includes whole-disk install, LVM and ZFS encryption, TPM-backed full-disk encryption, and Secure Boot. Results go to [Test Observer](https://tests.ubuntu.com).
 - **On failure:** see [Test failures](#test-failures). A failed run never blocks a promotion or a milestone image.
 
 ## Milestones and releases
 
 - **Beta, RC and Final:** nothing is pinned. The desktop team stops promoting to `<series>/stable` during the milestone window. Because the release branch falls back to stable, the revision the ISO picks up stays the same.
-- **Fixes during a milestone:** the desktop team asks the release team on Mattermost. Once they agree, the desktop team promotes by hand and the release team respins the ISO by hand. Respins are never automatic.
+- **Fixes during a milestone:** the desktop team asks the release team on [Mattermost](https://chat.canonical.com/canonical/channels/release-engineering). Once they agree, the desktop team promotes by hand and the release team respins the ISO by hand. Respins are never automatic.
 - **After Beta Freeze:** every promotion to stable needs the release team's agreement first. Other freezes are respected by planning, but the Snap Store doesn't enforce them.
 - **Image builds:** the release team stops and restarts the image-build cron jobs around milestones and controls publication through the ISO tracker.
-- **Manual testing:** the desktop team and community volunteers run the [ubuntu-manual-tests](https://github.com/ubuntu/ubuntu-manual-tests) on milestone ISOs. Whoever is available picks up installer test cases. If the release team sees no coverage in Test Observer, they ping the desktop team.
+- **Manual testing:** the desktop team and community volunteers run the [ubuntu-manual-tests](https://github.com/ubuntu/ubuntu-manual-tests) on milestone ISOs. Whoever is available picks up installer test cases. If the release team sees no coverage in [Test Observer](https://tests.ubuntu.com), they ping the desktop team.
 - **Image approval:** a desktop team member approves the image in Test Observer, usually after checking with their manager or the team's director. The release team waits for that approval. It's a separate step from the test results.
 
 ### Other release-team touchpoints
@@ -114,7 +114,7 @@ All of these are manual and informal:
 
 - **Freeze exceptions:** requested on Mattermost. No FFe or UIFe bugs are filed for the installer snap.
 - **Release-critical bugs:** the release team pings the desktop team on Mattermost. Whoever is around picks them up, and real blockers go through the milestone respin flow.
-- **Seed changes:** rare. The desktop team proposes them, and the release team or an archive admin reviews them.
+- **Seed changes:** rare. Seeds live in [ubuntu-seeds](https://git.launchpad.net/~ubuntu-core-dev/ubuntu-seeds/+git/ubuntu). The desktop team proposes them, and the release team or an archive admin reviews them.
 - **Release notes:** close to release (before Final, and before Beta if there's something worth noting), managers open PRs against [ubuntu/ubuntu-release-notes](https://github.com/ubuntu/ubuntu-release-notes/). The release team reviews and merges them.
 
 ### Point releases and SRUs
@@ -132,7 +132,7 @@ Every snap seeded on the ISO needs these each cycle. That covers the Apps subtea
 1. **Track (in advance):** request a new `<series>` track on the Snap Store forum, for example [27.04 track for ubuntu-desktop-bootstrap](https://forum.snapcraft.io/t/27-04-track-for-ubuntu-desktop-bootstrap/53409).
 2. **Release branch (start of cycle):** run `snapcraft release` to put a revision on `<series>/stable/ubuntu-<series>`, then `snapcraft close` on it straight away. The dashboard can't create branches. A closed branch falls back to `<series>/stable`, so the 30-day branch expiry doesn't matter.
 
-Nobody is assigned and there's no checklist. If a branch is forgotten, the first ISO builds of the cycle fail and the release team reports it on Mattermost. Builds stop at the first missing branch, so it can take several rebuilds to find every missing one.
+Nobody is assigned and there's no checklist. If a branch is forgotten, the first ISO builds of the cycle fail and the release team reports it on [Mattermost](https://chat.canonical.com/canonical/channels/release-engineering). Builds stop at the first missing branch, so it can take several rebuilds to find every missing one.
 
 ### Subiquity branching at the end of the cycle
 
