@@ -1002,17 +1002,52 @@ def resolve_pr_specs(
                     f" body so each PR closes one ticket",
                     file=sys.stderr,
                 )
-        else:
-            print(
-                f"warning: PR #{pr.get('number')} resolves to no spec — its"
-                f" body needs a `Closes #<ticket>` line (the spec PR:"
-                f" `Closes #<spec>`); the card stays unstampeded until then",
-                file=sys.stderr,
-            )
         meta[pr["id"]] = {
             "kind": kind,
             "spec_content_id": spec_content_id,
         }
+
+    # Chain propagation: a fix PR stacks on top of a ticket PR and carries no
+    # `Closes #<ticket>` of its own (its body says `Follow-up to #<pr>`). It
+    # inherits the spec of the PR below it in the stack: walk the base chains
+    # (base ref → the PR whose head is that ref) until every family PR is
+    # resolved or provably unreachable from a resolved one.
+    head_ref_to_pr_id = {
+        pr.get("headRefName"): pr["id"]
+        for pr in repo_prs
+        if pr.get("state") == "OPEN"
+        and pr.get("number") in family_numbers
+        and pr.get("headRefName")
+    }
+    changed = True
+    while changed:
+        changed = False
+        for pr in repo_prs:
+            if pr.get("state") != "OPEN" or pr.get("number") not in family_numbers:
+                continue
+            pr_id = pr["id"]
+            if meta.get(pr_id, {}).get("spec_content_id"):
+                continue  # already resolved
+            base_ref = pr.get("baseRefName")
+            below_id = head_ref_to_pr_id.get(base_ref) if base_ref else None
+            if below_id is None:
+                continue
+            below_spec = meta.get(below_id, {}).get("spec_content_id")
+            if below_spec:
+                meta[pr_id]["spec_content_id"] = below_spec
+                changed = True
+
+    for pr_id, m in meta.items():
+        if not m.get("spec_content_id"):
+            number = next(
+                (p.get("number") for p in repo_prs if p.get("id") == pr_id), "?"
+            )
+            print(
+                f"warning: PR #{number} resolves to no spec — its body needs a"
+                f" `Closes #<ticket>` line (the spec PR: `Closes #<spec>`);"
+                f" the card stays unstampeded until then",
+                file=sys.stderr,
+            )
     return meta
 
 
