@@ -286,9 +286,10 @@ mutation($issueId: ID!) {
 # The link-authoring reconcile arm (ticket 33), now also the carding sweep's
 # one PR read: page one destination repo's PRs from the *PR side* — an
 # unlinked cross-repo PR is invisible from the issue side, so the scan has to
-# start here. `states: [OPEN, MERGED]` covers both a PR still awaiting review
-# and one whose merge needs its link authored after the fact (the straggler
-# case, e.g. a spec-branch merge). `body` and `baseRefName` feed
+# start here. `states: [OPEN, MERGED, CLOSED]` — CLOSED PRs are included
+# because their head branches still anchor the stacks above them (a stack
+# whose bottom PR was closed, not merged, would lose its entire remaining
+# chain without them). `body` and `baseRefName` feed
 # `link_authoring.parse_candidate_refs`; the `authoredClosingRefs` embed is
 # this PR's own already-authored deliberate links (userLinkedOnly: true), so
 # the reconcile arm can skip a PR that already carries its one correct link
@@ -311,7 +312,7 @@ query($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
     pullRequests(
       first: $pageSize
       after: $cursor
-      states: [OPEN, MERGED]
+      states: [OPEN, MERGED, CLOSED]
     ) {
       pageInfo { hasNextPage endCursor }
       nodes {
