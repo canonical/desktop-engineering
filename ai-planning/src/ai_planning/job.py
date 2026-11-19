@@ -52,7 +52,7 @@ from ai_planning.card_model import (
     is_map_content,
     is_phase1_content,
     is_spec_pr,
-    stack_family_pr_numbers,
+    stack_family_pr_bases,
     type_issue_card,
 )
 from ai_planning.client import SupportsExecute
@@ -602,13 +602,13 @@ def card_spec_family_prs(
     project_id: str,
     repo_full_name: str,
     repo_prs: Sequence[dict[str, Any]],
-    family_numbers: set[int],
+    family_bases: dict[int, str],
     on_board: set[str],
 ) -> list[str]:
     """Card every OPEN spec-family PR not yet carded; return the added ids.
 
     `family_numbers` is the stack-family closure computed over ALL the repo's
-    PRs (open and merged — see `stack_family_pr_numbers`); `repo_prs` here are
+    PRs (open and merged — see `stack_family_pr_bases`); `repo_prs` here are
     the OPEN PRs only. A spec PR is one whose head branch is
     `<spec-slug>/base`; a stack PR is one whose base chain bottoms out in a
     spec branch (ticket PRs and the fix PRs stacked above them). Both become
@@ -617,7 +617,7 @@ def card_spec_family_prs(
 
     added: list[str] = []
     for pr in repo_prs:
-        if pr.get("number") not in family_numbers:
+        if pr.get("number") not in family_bases:
             continue
         content_id = pr["id"]
         if content_id in on_board:
@@ -953,32 +953,30 @@ def _open_pr_content_ids(items_by_id: dict[str, dict[str, Any]]) -> set[str]:
 def resolve_pr_specs(
     repo_full_name: str,
     repo_prs: Sequence[dict[str, Any]],
-    family_numbers: set[int],
+    family_bases: dict[int, str],
     typed: dict[str, CardType],
 ) -> dict[str, dict[str, str | None]]:
     """Map each OPEN family PR card's content id to the spec it implements.
 
-    The mapping rides the PR's effective closing links (`Closes #<n>`, authored
-    by the link arm for non-default targets): a spec PR closes its spec; a
-    stack PR closes its implementation ticket, whose typed card names the
-    spec. A PR whose links don't resolve (an ambiguous body, a standalone
-    issue, a body missing the line entirely) maps to no spec: the card stays
-    unstamped — invisible on every view — and the sweep says so on stderr so
-    the missing `Closes #<n>` line is loud, not silent. When a body closes
-    tickets of several specs, the first connection match wins and the
-    ambiguity is logged; fixing the body heals it on the next sweep.
+    The stack structure IS the resolution: every PR in a family chains to
+    the same `*/base` branch, and the spec PR (head = that branch, base =
+    `main`) maps the branch to the spec issue via its `Closes #<spec>` line.
+    No per-PR closing links are needed for stack PRs — only the spec PR
+    carries one. A family whose spec PR is missing or unresolvable gets no
+    spec (the card stays unstampeded, with a loud stderr warning).
     """
 
     if "/" not in repo_full_name:
         return {}
     owner, name = repo_full_name.split("/", 1)
-    meta: dict[str, dict[str, str | None]] = {}
+
+    # The spec PRs are the anchors: head = `*/base`, base = `main`, body
+    # says `Closes #<spec>`. Each maps its base branch to a spec issue.
+    base_branch_to_spec: dict[str, str] = {}
     for pr in repo_prs:
-        if pr.get("state") != "OPEN" or pr.get("number") not in family_numbers:
+        if not is_spec_pr(pr.get("headRefName")):
             continue
-        kind = "spec" if is_spec_pr(pr.get("headRefName")) else "stack"
-        spec_content_id: str | None = None
-        matched: list[str] = []
+        base_branch = pr["headRefName"]
         for node in (pr.get("closingRefs") or {}).get("nodes") or []:
             repository = node.get("repository") or {}
             if (repository.get("owner") or {}).get("login") != owner:
@@ -987,67 +985,29 @@ def resolve_pr_specs(
                 continue
             issue_content_id = node.get("id")
             card_type = typed.get(issue_content_id)
-            if card_type is None:
+            if card_type is None or card_type.kind != "spec":
                 continue
-            if kind == "spec" and card_type.kind == "spec":
-                matched.append(issue_content_id)
-            elif kind == "stack" and card_type.kind in ("impl", "spec"):
-                matched.append(card_type.spec_id or issue_content_id)
-        if matched:
-            spec_content_id = matched[0]
-            if len(matched) > 1:
-                print(
-                    f"warning: PR #{pr.get('number')} closes tickets of"
-                    f" {len(matched)} specs — stamping with the first; fix the"
-                    f" body so each PR closes one ticket",
-                    file=sys.stderr,
-                )
+            base_branch_to_spec[base_branch] = issue_content_id
+            break
+
+    meta: dict[str, dict[str, str | None]] = {}
+    for pr in repo_prs:
+        if pr.get("state") != "OPEN" or pr.get("number") not in family_bases:
+            continue
+        base_branch = family_bases[pr["number"]]
+        kind = "spec" if is_spec_pr(pr.get("headRefName")) else "stack"
+        spec_content_id = base_branch_to_spec.get(base_branch)
+        if not spec_content_id:
+            print(
+                f"warning: PR #{pr.get('number')} chains to {base_branch}"
+                f" but no spec PR resolves it to a spec issue — the spec PR's"
+                f" body needs `Closes #<spec>`",
+                file=sys.stderr,
+            )
         meta[pr["id"]] = {
             "kind": kind,
             "spec_content_id": spec_content_id,
         }
-
-    # Chain propagation: a fix PR stacks on top of a ticket PR and carries no
-    # `Closes #<ticket>` of its own (its body says `Follow-up to #<pr>`). It
-    # inherits the spec of the PR below it in the stack: walk the base chains
-    # (base ref → the PR whose head is that ref) until every family PR is
-    # resolved or provably unreachable from a resolved one.
-    head_ref_to_pr_id = {
-        pr.get("headRefName"): pr["id"]
-        for pr in repo_prs
-        if pr.get("state") == "OPEN"
-        and pr.get("number") in family_numbers
-        and pr.get("headRefName")
-    }
-    changed = True
-    while changed:
-        changed = False
-        for pr in repo_prs:
-            if pr.get("state") != "OPEN" or pr.get("number") not in family_numbers:
-                continue
-            pr_id = pr["id"]
-            if meta.get(pr_id, {}).get("spec_content_id"):
-                continue  # already resolved
-            base_ref = pr.get("baseRefName")
-            below_id = head_ref_to_pr_id.get(base_ref) if base_ref else None
-            if below_id is None:
-                continue
-            below_spec = meta.get(below_id, {}).get("spec_content_id")
-            if below_spec:
-                meta[pr_id]["spec_content_id"] = below_spec
-                changed = True
-
-    for pr_id, m in meta.items():
-        if not m.get("spec_content_id"):
-            number = next(
-                (p.get("number") for p in repo_prs if p.get("id") == pr_id), "?"
-            )
-            print(
-                f"warning: PR #{number} resolves to no spec — its body needs a"
-                f" `Closes #<ticket>` line (the spec PR: `Closes #<spec>`);"
-                f" the card stays unstampeded until then",
-                file=sys.stderr,
-            )
     return meta
 
 
@@ -1090,7 +1050,7 @@ def run_sync(
         # heads — an open-only walk loses the whole remaining stack the
         # moment its first PR lands. Only OPEN family members are carded.
         on_board = _board_content_ids(client, project_id, page_size)
-        family_numbers = stack_family_pr_numbers(repo_prs)
+        family_numbers = stack_family_pr_bases(repo_prs)
         open_family_prs = [
             pr for pr in repo_prs if pr.get("state") == "OPEN"
         ]
@@ -1160,7 +1120,7 @@ def run_sync(
     )
     pr_meta_by_content_id: dict[str, dict[str, str | None]] = {}
     if repo_prs is not None and planning_repo:
-        family_numbers = stack_family_pr_numbers(repo_prs)
+        family_numbers = stack_family_pr_bases(repo_prs)
         pr_meta_by_content_id = resolve_pr_specs(
             planning_repo, repo_prs, family_numbers, typed
         )

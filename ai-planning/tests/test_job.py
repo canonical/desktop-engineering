@@ -1223,8 +1223,33 @@ def test_spec_and_stack_prs_are_carded_and_stamped_the_vanish_clears_the_ticket(
             "base_ref": "the-slice/base",
             "head_ref": "the-slice/7-ticket",
         },
+        "PR_spec": {
+            "is_pr": True,
+            "number": 10,
+            "title": "feat: the spec",
+            "is_draft": True,
+            "base_ref": "main",
+            "head_ref": "the-slice/base",
+        },
     }
     repo_prs = [
+        {
+            "id": "PR_spec",
+            "number": 10,
+            "state": "OPEN",
+            "isDraft": True,
+            "baseRefName": "main",
+            "headRefName": "the-slice/base",
+            "closingRefs": {
+                "nodes": [
+                    {
+                        "number": 5,
+                        "id": "C_spec",
+                        "repository": {"owner": {"login": owner}, "name": name},
+                    }
+                ]
+            },
+        },
         {
             "id": "PR_14",
             "number": 14,
@@ -1241,7 +1266,7 @@ def test_spec_and_stack_prs_are_carded_and_stamped_the_vanish_clears_the_ticket(
                     }
                 ]
             },
-        }
+        },
     ]
     client = SeedingFakeClient(
         world=world, repo_open=[], on_board=["C_map", "C_spec", "C_impl"]
@@ -1258,8 +1283,8 @@ def test_spec_and_stack_prs_are_carded_and_stamped_the_vanish_clears_the_ticket(
         client, PROJECT_ID, planning_repo=PLANNING_REPO, repo_prs=repo_prs
     )
 
-    # The stack PR became a card.
-    assert result.pr_cards_added == ["PR_14"]
+    # The spec PR and the stack PR became cards.
+    assert sorted(result.pr_cards_added) == ["PR_14", "PR_spec"]
     stamp_pairs = set(_stamp_writes(client))
     # The impl ticket's Spec stamp is CLEARED (the vanish): its PR card takes
     # over the implementation surface.

@@ -144,22 +144,25 @@ def is_spec_pr(head_ref: str | None) -> bool:
     return bool(head_ref) and bool(_SPEC_BASE_RE.match(head_ref))
 
 
-def stack_family_pr_numbers(
+def stack_family_pr_bases(
     prs: list[dict[str, Any]],
-) -> set[int]:
-    """The numbers of the PRs belonging to spec-branch stacks.
+) -> dict[int, str]:
+    """Map each stack-family PR number to the `*/base` branch it chains to.
 
     `prs` are the repo's PRs — **open and merged alike**: the ancestry that
     bootstraps a chain runs through MERGED PRs too (the bottom tickets of a
     stack land first; the PRs above them chain onto the merged heads, and
     only a walk that sees those merged heads can reach the spec branch —
     an open-only walk loses the whole remaining stack the moment its first
-    ticket merges). A PR is in the family when its base chain bottoms out
-    in a spec branch (`<spec-slug>/base`): the bottom stack PR targets it
-    directly, and every PR above it (including review-fix PRs, which carry
-    no ticket link) targets the branch below it. The walk is a fixed-point
-    closure so any chain depth works. The caller filters the family to the
-    OPEN members for carding.
+    ticket merges).
+
+    A PR is in the family when its base chain bottoms out in a spec branch
+    (`<spec-slug>/base`): the bottom stack PR targets it directly, and every
+    PR above it (including review-fix PRs, which carry no ticket link)
+    targets the branch below it. The returned value for each member is the
+    `*/base` branch name its chain bottoms out in — the anchor that maps
+    the whole family to one spec. The caller filters to the OPEN members
+    for carding.
     """
 
     heads_by_number = {
@@ -167,8 +170,11 @@ def stack_family_pr_numbers(
         for pr in prs
         if pr.get("number") is not None
     }
-    family: set[int] = {
-        pr["number"] for pr in prs if is_spec_pr(pr.get("headRefName"))
+    # Seed: spec PRs (head = `*/base`) map to themselves.
+    family: dict[int, str] = {
+        pr["number"]: pr["headRefName"]
+        for pr in prs
+        if is_spec_pr(pr.get("headRefName")) and pr.get("number") is not None
     }
     changed = True
     while changed:
@@ -178,20 +184,20 @@ def stack_family_pr_numbers(
             if number in family:
                 continue
             base = pr.get("baseRefName")
-            if base is not None and (
-                _SPEC_BASE_RE.match(base) or _head_of_family(base, heads_by_number, family)
-            ):
-                family.add(number)
+            if base is None:
+                continue
+            if _SPEC_BASE_RE.match(base):
+                family[number] = base
                 changed = True
+            elif base in heads_by_number.values():
+                # The base is some family member's head: inherit its base.
+                for other_number, other_base in family.items():
+                    if heads_by_number.get(other_number) == base:
+                        family[number] = other_base
+                        changed = True
+                        break
     return family
 
-
-def _head_of_family(
-    base: str, heads_by_number: dict[int, str | None], family: set[int]
-) -> bool:
-    """True when `base` is the head branch of a PR already in the family."""
-
-    return any(head == base for number, head in heads_by_number.items() if number in family)
 
 
 @dataclass(frozen=True)

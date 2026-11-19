@@ -10,7 +10,7 @@ from ai_planning.card_model import (
     is_map_content,
     is_phase1_content,
     is_spec_pr,
-    stack_family_pr_numbers,
+    stack_family_pr_bases,
     type_issue_card,
 )
 
@@ -77,7 +77,7 @@ def test_the_bottom_stack_pr_and_its_fixes_are_one_family():
         {"number": 13, "baseRefName": "settings-stack/7-a", "headRefName": "settings-stack/fix"},
         {"number": 14, "baseRefName": "main", "headRefName": "standalone"},
     ]
-    assert stack_family_pr_numbers(prs) == {12, 13}
+    assert set(stack_family_pr_bases(prs)) == {12, 13}
 
 
 def test_a_deeper_stack_chain_is_still_one_family():
@@ -86,7 +86,7 @@ def test_a_deeper_stack_chain_is_still_one_family():
         {"number": 2, "baseRefName": "spec/1", "headRefName": "spec/2"},
         {"number": 3, "baseRefName": "spec/2", "headRefName": "spec/3"},
     ]
-    assert stack_family_pr_numbers(prs) == {1, 2, 3}
+    assert set(stack_family_pr_bases(prs)) == {1, 2, 3}
 
 
 def test_a_chain_not_rooted_in_a_spec_branch_is_not_carded():
@@ -94,7 +94,7 @@ def test_a_chain_not_rooted_in_a_spec_branch_is_not_carded():
         {"number": 1, "baseRefName": "main", "headRefName": "feature"},
         {"number": 2, "baseRefName": "feature", "headRefName": "feature-2"},
     ]
-    assert stack_family_pr_numbers(prs) == set()
+    assert stack_family_pr_bases(prs) == {}
 
 
 # --- stamps ---------------------------------------------------------------------
@@ -215,7 +215,7 @@ def test_a_stack_whose_bottom_merged_still_bootstraps():
         {"number": 20, "state": "OPEN", "baseRefName": "spec/3-keep", "headRefName": "spec/4-last"},
         {"number": 19, "state": "MERGED", "baseRefName": "spec/base", "headRefName": "spec/3-keep"},
     ]
-    assert stack_family_pr_numbers(prs) == {19, 20}
+    assert set(stack_family_pr_bases(prs)) == {19, 20}
     # The caller cards only the OPEN member.
     open_members = [pr for pr in prs if pr["state"] == "OPEN"]
     assert [pr["number"] for pr in open_members] == [20]
