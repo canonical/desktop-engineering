@@ -108,8 +108,9 @@ child-in-review roll-up rung is retired — PR cards carry the review lifecycle 
 ## Events
 
 `.github/workflows/board-sync.yml` is event-driven only: `issues`, `pull_request`
-(incl. `synchronize`) and `pull_request_review` (submitted/dismissed), plus a
-manual `workflow_dispatch` (Actions → "AI planning board
+(incl. `synchronize`), `pull_request_review` (submitted/dismissed),
+`issue_comment` (created — the reliable trigger for stacked-PR reviews, whose
+merge ref may not carry the workflow file), plus a manual `workflow_dispatch` (Actions → "AI planning board
 sync" → Run workflow) which reconciles everything — that is the "manual sync".
 No schedule. The three native project workflows are UI-only, printed by the
 setup: Item added → Ready, Item closed → Done, Pull request merged → Done.

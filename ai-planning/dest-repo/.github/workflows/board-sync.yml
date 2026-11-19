@@ -32,6 +32,13 @@ on:
       [opened, edited, reopened, synchronize, converted_to_draft, ready_for_review, closed]
   pull_request_review:
     types: [submitted, dismissed]
+  # pull_request_review reads the workflow file from the PR's MERGE ref —
+  # which for stacked PRs (targeting a spec branch) may not carry this file.
+  # issue_comment reads it from the DEFAULT branch and fires for comments on
+  # PRs with any base: a review comment, a "LGTM", a /approved — any comment
+  # on any PR catches the board up after a review round.
+  issue_comment:
+    types: [created]
   workflow_dispatch: {}
 
 # The job itself needs no token at all — the action carries its own PAT input.
