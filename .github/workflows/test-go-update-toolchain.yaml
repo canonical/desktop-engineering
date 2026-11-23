@@ -1,0 +1,156 @@
+name: Test Go toolchain update action
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - gh-actions/go/update-toolchain/**
+      - .github/workflows/test-go-update-toolchain.yaml
+  pull_request:
+    paths:
+      - gh-actions/go/update-toolchain/**
+      - .github/workflows/test-go-update-toolchain.yaml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  test:
+    name: Update toolchain (${{ matrix.scenario }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - scenario: defaults
+          - scenario: custom
+            ignore: |
+              ./go.work
+              */tools/*
+              ./testdata
+          - scenario: empty-ignore
+            ignore: ""
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Generate isolated test files and command stubs
+        id: fixture
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          root="$(mktemp -d "${RUNNER_TEMP}/go-toolchain-tests-XXXXXXXX")"
+          echo "root=${root}" >> "${GITHUB_OUTPUT}"
+          mkdir -p "${root}/data" "${root}/bin"
+          cd "${root}/data"
+          for directory in . tools vendor/dep testdata/fixture no-toolchain rc newer "with spaces"; do
+            mkdir -p "${directory}"
+            printf 'module example.com/test\n\ngo 1.22.0\n' > "${directory}/go.mod"
+          done
+          for directory in . tools vendor/dep testdata/fixture "with spaces"; do
+            printf '\ntoolchain go1.22.0 // keep comment\n' >> "${directory}/go.mod"
+          done
+          printf '\ntoolchain go1.22rc1\n' >> rc/go.mod
+          printf '\ntoolchain go1.22.99\n' >> newer/go.mod
+          printf 'go 1.23.0\n\ntoolchain go1.23.1\n\nuse .\n' > go.work
+
+          cp -r "${root}/data" "${root}/expected"
+          targets=(go.mod "with spaces/go.mod")
+          if [ "${SCENARIO}" != custom ]; then
+            targets+=(tools/go.mod go.work)
+          fi
+          if [ "${SCENARIO}" != defaults ]; then
+            targets+=(vendor/dep/go.mod)
+          fi
+          if [ "${SCENARIO}" = empty-ignore ]; then
+            targets+=(testdata/fixture/go.mod)
+          fi
+          for file in "${targets[@]}"; do
+            sed -i -e 's/toolchain go1.22.0 /toolchain go1.22.12 /' \
+              -e 's/toolchain go1.23.1$/toolchain go1.23.12/' "${root}/expected/${file}"
+          done
+
+          cat > "${root}/bin/curl" <<'EOF'
+          #!/bin/bash
+          cat <<'JSON'
+          [
+            {"version":"go1.22.9","stable":true},
+            {"version":"go1.23.12","stable":true},
+            {"version":"go1.22.12","stable":true},
+            {"version":"go1.22.13rc1","stable":false},
+            {"version":"go1.24.0","stable":true}
+          ]
+          JSON
+          EOF
+          for command in gh git; do
+            cat > "${root}/bin/${command}" <<'EOF'
+          #!/bin/bash
+          touch "$(dirname "$0")/../publish-attempted"
+          echo "::error::Publishing commands must not run in dry-run tests." >&2
+          exit 1
+          EOF
+          done
+          chmod +x "${root}/bin/"*
+          echo "${root}/bin" >> "${GITHUB_PATH}"
+
+      - name: Run with default ignore patterns
+        id: defaults
+        if: matrix.scenario == 'defaults'
+        uses: ./gh-actions/go/update-toolchain
+        with:
+          working-directory: ${{ steps.fixture.outputs.root }}/data
+          github-token: ""
+          dry-run: "true"
+
+      - name: Run with overridden ignore patterns
+        id: custom
+        if: matrix.scenario != 'defaults'
+        uses: ./gh-actions/go/update-toolchain
+        with:
+          working-directory: ${{ steps.fixture.outputs.root }}/data
+          github-token: ""
+          dry-run: "true"
+          ignore: ${{ matrix.ignore }}
+
+      - name: Check files and outputs
+        env:
+          ROOT: ${{ steps.fixture.outputs.root }}
+          SCENARIO: ${{ matrix.scenario }}
+          VERSIONS: ${{ steps.defaults.outputs.versions || steps.custom.outputs.versions }}
+          PR_URL: ${{ steps.defaults.outputs.pull-request-url || steps.custom.outputs.pull-request-url }}
+        run: |
+          diff -ru "${ROOT}/expected" "${ROOT}/data"
+          expected_versions="go1.22.12 go1.23.12"
+          if [ "${SCENARIO}" = custom ]; then expected_versions="go1.22.12"; fi
+          [ "${VERSIONS}" = "${expected_versions}" ]
+          [ -z "${PR_URL}" ]
+          [ ! -e "${ROOT}/publish-attempted" ]
+
+      - name: Run again on up to date files
+        id: up-to-date
+        if: matrix.scenario == 'defaults'
+        uses: ./gh-actions/go/update-toolchain
+        with:
+          working-directory: ${{ steps.fixture.outputs.root }}/data
+          github-token: ""
+          dry-run: "true"
+
+      - name: Check up to date files
+        if: matrix.scenario == 'defaults'
+        env:
+          ROOT: ${{ steps.fixture.outputs.root }}
+          VERSIONS: ${{ steps.up-to-date.outputs.versions }}
+        run: |
+          [ -z "${VERSIONS}" ]
+          diff -ru "${ROOT}/expected" "${ROOT}/data"
+          [ ! -e "${ROOT}/publish-attempted" ]
+
+      - name: Clean up test files
+        if: always() && steps.fixture.outputs.root != ''
+        env:
+          ROOT: ${{ steps.fixture.outputs.root }}
+        run: rm -rf -- "${ROOT}"
