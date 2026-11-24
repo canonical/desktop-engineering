@@ -1,0 +1,254 @@
+name: Update Go toolchain patch version
+description: Bumps the patch version of toolchain directives in go.mod and go.work files and opens a pull request with the changes.
+
+inputs:
+  working-directory:
+    description: Directory in which to recursively look for go.mod and go.work files.
+    default: "."
+  ignore:
+    description: >-
+      Newline-separated list of globs of paths to ignore, matched with `find -path` semantics against
+      paths relative to working-directory and prefixed with "./" (e.g. "./tools/go.mod"). Note that "*"
+      also matches "/". Matching directories are not descended into. Setting this replaces the defaults.
+    default: |
+      */vendor/*
+      */testdata/*
+      */.git/*
+  github-token:
+    description: Token used to push the branch and open the pull request. Requires contents and pull-requests write permissions.
+    default: ${{ github.token }}
+  base-branch:
+    description: Branch the pull request targets. The checked out commit must be the tip of this branch. Defaults to the repository default branch.
+    default: ""
+  head-branch:
+    description: Branch to push the changes to and open the pull request from. It is force-pushed on each run.
+    default: deps/auto-go-toolchain
+  dry-run:
+    description: If set to true, only update the files and set the outputs, without committing, pushing or opening a pull request.
+    default: "false"
+
+outputs:
+  versions:
+    description: Space-separated list of toolchain versions the files were updated to. Empty if nothing was updated.
+    value: ${{ steps.update.outputs.versions }}
+  pull-request-url:
+    description: URL of the created or updated pull request.
+    value: ${{ steps.pull-request.outputs.pull-request-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate checkout
+      id: checkout
+      if: inputs.dry-run != 'true'
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        # File filters passed to the PR action are relative to the workspace repository.
+        repository_root="$(git rev-parse --show-toplevel)"
+        workspace_root="$(git -C "${GITHUB_WORKSPACE}" rev-parse --show-toplevel)"
+        if [ "${repository_root}" != "${workspace_root}" ]; then
+          echo "::error::working-directory must be within the repository checked out at GITHUB_WORKSPACE."
+          exit 1
+        fi
+        # add-paths limits new staging but does not exclude files already in the index.
+        if ! git diff --cached --quiet; then
+          echo "::error::Unstage existing changes before updating toolchains to avoid including unrelated files."
+          exit 1
+        fi
+        echo "prefix=$(git rev-parse --show-prefix)" >> "${GITHUB_OUTPUT}"
+
+    - name: Find module and workspace files
+      id: files
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      env:
+        IGNORE: ${{ inputs.ignore }}
+      run: |
+        trim() {
+          local s="$1"
+          s="${s#"${s%%[![:space:]]*}"}"
+          printf '%s' "${s%"${s##*[![:space:]]}"}"
+        }
+
+        # Build find predicates without letting the shell expand the ignore globs.
+        find_args=()
+        while IFS= read -r pattern; do
+          pattern="$(trim "${pattern}")"
+          [ -n "${pattern}" ] || continue
+          [ "${#find_args[@]}" -eq 0 ] || find_args+=(-o)
+          find_args+=(-path "${pattern}")
+        done <<< "${IGNORE}"
+        if [ "${#find_args[@]}" -gt 0 ]; then
+          find_args=(\( "${find_args[@]}" \) -prune -o)
+        fi
+
+        files="$(find . "${find_args[@]}" -type f \( -name go.mod -o -name go.work \) -print | sort)"
+        # Use a unique delimiter to pass multiline values between steps.
+        delimiter="EOF_$(openssl rand -hex 16)"
+        {
+          echo "paths<<${delimiter}"
+          printf '%s\n' "${files}"
+          echo "${delimiter}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Determine latest stable patch versions
+      id: releases
+      if: steps.files.outputs.paths != ''
+      shell: bash --noprofile --norc -euo pipefail {0}
+      run: |
+        stable_versions="$(
+          curl -fsSL --retry 3 'https://go.dev/dl/?mode=json&include=all' \
+            | jq -r '.[] | select(.stable) | .version'
+        )"
+        # Keep only the newest stable patch for each major/minor pair.
+        latest_versions="$(printf '%s\n' "${stable_versions}" | sort -Vr | awk -F. '!seen[$1 "." $2]++')"
+        delimiter="EOF_$(openssl rand -hex 16)"
+        {
+          echo "versions<<${delimiter}"
+          printf '%s\n' "${latest_versions}"
+          echo "${delimiter}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Update toolchain directives
+      id: update
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      env:
+        FILES: ${{ steps.files.outputs.paths }}
+        LATEST_VERSIONS: ${{ steps.releases.outputs.versions }}
+        REPOSITORY_PREFIX: ${{ steps.checkout.outputs.prefix }}
+      run: |
+        changes=()
+        changed_paths=()
+        new_versions=()
+        while IFS= read -r file; do
+          [ -n "${file}" ] || continue
+          # Match stable toolchain directives, leaving absent and prerelease directives alone.
+          current="$(sed -nE 's/^[[:blank:]]*toolchain[[:space:]]+(go[0-9]+\.[0-9]+\.[0-9]+)([[:space:]].*)?$/\1/p' "${file}" | head -n1)"
+          if [ -z "${current}" ]; then
+            echo "${file}: no toolchain directive with a goX.Y.Z version, skipping"
+            continue
+          fi
+
+          minor="${current%.*}"
+          latest="$(awk -v minor="${minor}" 'index($0, minor ".") == 1 {print}' <<< "${LATEST_VERSIONS}")"
+          # Stay on the same release line and never downgrade a newer toolchain.
+          if [ -z "${latest}" ] || [ "$(printf '%s\n%s\n' "${current}" "${latest}" | sort -V | tail -n1)" = "${current}" ]; then
+            echo "${file}: ${current} is up to date"
+            continue
+          fi
+
+          # The upstream add-paths parser treats commas as separators, even in literal pathspecs.
+          if [[ "${REPOSITORY_PREFIX}${file}" == *,* ]]; then
+            echo "::error::Toolchain file paths containing commas are not supported: ${REPOSITORY_PREFIX}${file#./}"
+            exit 1
+          fi
+
+          # Replace only the version, preserving indentation, whitespace, comments, and the go directive.
+          sed -i -E "s/^([[:blank:]]*toolchain[[:space:]]+)${current//./\\.}([[:space:]]|$)/\1${latest}\2/" "${file}"
+          echo "${file}: ${current} -> ${latest}"
+          changes+=("- \`${file#./}\`: ${current} → ${latest}")
+          # Use repository-relative literal pathspecs, even for nested working directories.
+          changed_paths+=(":(literal)${REPOSITORY_PREFIX}${file#./}")
+          new_versions+=("${latest}")
+        done <<< "${FILES}"
+
+        if [ "${#changes[@]}" -eq 0 ]; then
+          echo "updated=false" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        versions="$(printf '%s\n' "${new_versions[@]}" | sort -uV | paste -sd ' ')"
+        delimiter="EOF_$(openssl rand -hex 16)"
+        {
+          echo "updated=true"
+          echo "versions=${versions}"
+          echo "changes<<${delimiter}"
+          printf '%s\n' "${changes[@]}"
+          echo "${delimiter}"
+          echo "paths<<${delimiter}"
+          printf '%s\n' "${changed_paths[@]}"
+          echo "${delimiter}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Prepare commit message
+      id: message
+      if: steps.update.outputs.updated == 'true'
+      shell: bash --noprofile --norc -euo pipefail {0}
+      env:
+        VERSIONS: ${{ steps.update.outputs.versions }}
+      run: |
+        if [[ "${VERSIONS}" != *" "* ]]; then
+          title="deps(go): bump toolchain to ${VERSIONS}"
+        else
+          title="deps(go): bump toolchains to ${VERSIONS// /, }"
+        fi
+        echo "title=${title}" >> "${GITHUB_OUTPUT}"
+
+    - name: Validate base branch
+      id: base
+      if: steps.update.outputs.updated == 'true' && inputs.dry-run != 'true'
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash --noprofile --norc -euo pipefail {0}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
+        HEAD_BRANCH: ${{ inputs.head-branch }}
+      run: |
+        base="${BASE_BRANCH:-$(gh api "repos/${GH_REPO}" --jq .default_branch)}"
+        if [ "${base}" = "${HEAD_BRANCH}" ]; then
+          echo "::error::head-branch must be different from base-branch."
+          exit 1
+        fi
+        base_sha="$(gh api "repos/${GH_REPO}/branches/${base}" --jq .commit.sha)"
+        # Refuse to publish unrelated commits from a stale or different checkout.
+        if [ "$(git rev-parse HEAD)" != "${base_sha}" ]; then
+          echo "::error::The checked out commit is not the tip of ${base} (${base_sha}). Check out ${base} before running this action."
+          exit 1
+        fi
+        echo "branch=${base}" >> "${GITHUB_OUTPUT}"
+
+    - name: Create or update pull request
+      id: pull-request
+      if: steps.update.outputs.updated == 'true' && inputs.dry-run != 'true'
+      uses: peter-evans/create-pull-request@v8
+      with:
+        token: ${{ inputs.github-token }}
+        base: ${{ steps.base.outputs.branch }}
+        branch: ${{ inputs.head-branch }}
+        add-paths: ${{ steps.update.outputs.paths }}
+        sign-commits: "true"
+        commit-message: ${{ steps.message.outputs.title }}
+        title: ${{ steps.message.outputs.title }}
+        body: |
+          Bumps the Go toolchain directives to their latest patch release.
+
+          ${{ steps.update.outputs.changes }}
+
+          Created by [workflow run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}).
+
+    - name: Write job summary
+      shell: bash --noprofile --norc -euo pipefail {0}
+      env:
+        UPDATED: ${{ steps.update.outputs.updated }}
+        CHANGES: ${{ steps.update.outputs.changes }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        PR_URL: ${{ steps.pull-request.outputs.pull-request-url }}
+      run: |
+        {
+          echo "### Go toolchain updates"
+          echo
+          if [ "${UPDATED}" = true ]; then
+            printf '%s\n' "${CHANGES}"
+            echo
+            if [ "${DRY_RUN}" = true ]; then
+              echo "Dry run: files updated locally; no commit, push, or pull request."
+            else
+              printf 'Pull request: %s\n' "${PR_URL}"
+            fi
+          else
+            echo "No toolchain updates needed; no commit, push, or pull request."
+          fi
+        } >> "${GITHUB_STEP_SUMMARY}"
